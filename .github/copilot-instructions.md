@@ -39,6 +39,8 @@ This is both a **working infrastructure codebase** AND a **Cookiecutter template
 
 **ALWAYS use these exact command sequences. They have been validated to work.**
 
+**CLI Entrypoint Reminder**: All repository automation flows run through the `api-forge-cli` Typer app. Always invoke it with `uv run api-forge-cli …` (the name stays the same even inside template-generated projects).
+
 ### Environment Setup (First Time)
 ```bash
 # 1. Copy environment file
@@ -48,11 +50,11 @@ cp .env.example .env
 uv sync --dev
 
 # 3. Start Docker development environment
-uv run cli dev start-env
+uv run api-forge-cli dev start-env
 # Wait 30-60 seconds for services to initialize
 
 # 4. Verify services are healthy
-uv run cli dev status
+uv run api-forge-cli dev status
 
 # 5. Initialize database
 uv run init-db
@@ -61,7 +63,7 @@ uv run init-db
 ### Development Server
 ```bash
 # Method 1: Using CLI (recommended, includes hot reload)
-uv run cli dev start-server
+uv run api-forge-cli dev start-server
 
 # Method 2: Direct uvicorn (infrastructure testing)
 PYTHONPATH=src uv run uvicorn src.app.api.http.app:app --reload
@@ -105,19 +107,19 @@ uv run mypy src/
 ### Docker Operations
 ```bash
 # Start dev environment
-uv run cli dev start-env
+uv run api-forge-cli dev start-env
 
 # Check service status
-uv run cli dev status
+uv run api-forge-cli dev status
 
 # View logs for specific service
-uv run cli dev logs postgres
-uv run cli dev logs keycloak
-uv run cli dev logs redis
-uv run cli dev logs temporal
+uv run api-forge-cli dev logs postgres
+uv run api-forge-cli dev logs keycloak
+uv run api-forge-cli dev logs redis
+uv run api-forge-cli dev logs temporal
 
 # Stop environment (preserves data)
-uv run cli dev stop-env
+uv run api-forge-cli dev stop-env
 
 # Complete cleanup (destroys volumes/data)
 docker-compose -f docker-compose.dev.yml down -v
@@ -137,7 +139,7 @@ docker exec -it api-forge-postgres-dev psql -U postgres -d appdb
 ## Known Issues & Workarounds
 
 ### 1. CLI Status Command Container Names (FIXED)
-**Issue**: `uv run cli dev status` showed services as "Not running" when they were actually running  
+**Issue**: `uv run api-forge-cli dev status` showed services as "Not running" when they were actually running  
 **Root Cause**: Container name mismatch - code was checking for `app_dev_*` names but actual containers use `api-forge-*-dev` naming convention  
 **Fix Applied**: Updated `src/dev/cli/dev_commands.py` to use correct container names:
 - `api-forge-keycloak-dev`
@@ -164,7 +166,15 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA temporal_visibility TO temporaluser
 
 ### 4. Test Failures in Integration Tests
 **Expected Behavior**: Some integration tests fail without Docker environment running  
-**Action**: ALWAYS run `uv run cli dev start-env` before integration tests
+**Action**: ALWAYS run `uv run api-forge-cli dev start-env` before integration tests
+
+### 7. PostgreSQL TLS Certificate Verification (NEW)
+**Context**: The `postgres-verifier` Kubernetes job now mounts the `postgres-tls` secret and enforces certificate permissions before finishing.  
+**Requirements**:
+- Secret must contain `server.crt` (<= 0644) and `server.key` (<= 0600) files
+- `k8s/base/jobs/postgres-verifier.yaml` mounts each file individually via `subPath` with the correct modes (644/400 out of the box)
+- Run `uv run api-forge-cli deploy up k8s` (or rerun the job) after updating TLS assets so the verifier can re-check them
+**Troubleshooting**: If the job reports `Cert files not mounted` or permission errors, ensure the secret was created with `kubectl create secret tls postgres-tls ...`, then delete/recreate the `postgres-verifier` job so it picks up the new secret.
 
 ### 5. Port Conflicts
 **Ports Used**: 
@@ -191,7 +201,7 @@ sudo netstat -tlnp | grep -E ':8080|:5432|:6379|:7233'
 ## Development Environment Test Users
 
 ### Keycloak Preloaded Test Users
-The development Keycloak service (`api-forge-keycloak-dev`) is automatically configured with test users when you run `uv run cli dev start-env`. These users are created by the `src/dev/setup_keycloak.py` script.
+The development Keycloak service (`api-forge-keycloak-dev`) is automatically configured with test users when you run `uv run api-forge-cli dev start-env`. These users are created by the `src/dev/setup_keycloak.py` script.
 
 **Test Users Available:**
 - **Username**: `testuser1`
@@ -366,9 +376,9 @@ uv run mypy src/
 uv run pytest tests/ -v
 
 # 4. Verify Docker environment works
-uv run cli dev start-env
-uv run cli dev status
-uv run cli dev stop-env
+uv run api-forge-cli dev start-env
+uv run api-forge-cli dev status
+uv run api-forge-cli dev stop-env
 ```
 
 ---
@@ -397,12 +407,12 @@ uv run cli dev stop-env
 git checkout -b feature/my-feature
 
 # 2. Generate entity scaffolding (if needed)
-uv run cli entity add MyEntity
+uv run api-forge-cli entity add MyEntity
 # Follow prompts for fields
 
 # 3. Start dev environment
-uv run cli dev start-env
-uv run cli dev start-server
+uv run api-forge-cli dev start-env
+uv run api-forge-cli dev start-server
 
 # 4. Make changes, add tests
 # Edit src/app/entities/my_entity/...
@@ -423,7 +433,7 @@ git push origin feature/my-feature
 ### Debugging Tips
 ```bash
 # View real-time logs
-uv run cli dev logs [service_name]
+uv run api-forge-cli dev logs [service_name]
 
 # Access PostgreSQL
 docker exec -it api-forge-postgres-dev psql -U postgres
@@ -440,11 +450,52 @@ open http://localhost:8082
 
 ---
 
+## Near-Term Roadmap
+
+This template evolves quickly. Here are the highest-priority improvements we plan to deliver next so you can align any workstreams accordingly.
+
+1. **Kubernetes deployment hardening (in progress)**  
+  - Auto-trigger `postgres-verifier` after every `uv run api-forge-cli deploy up k8s`
+  - Add secret rotation helpers and smoke tests that validate TLS assets before rollout  
+  - Finish wiring status reporting back into the CLI so deploys surface verifier output inline
+
+2. **Observability & alerting pack (ETA: next sprint)**  
+  - Ship default OpenTelemetry instrumentation + Tempo/Grafana wiring in `docker-compose.dev.yml` and k8s overlays  
+  - Provide structured log shipping examples (Grafana Loki) and alert policies for auth/db regressions
+
+3. **Template scaffolding upgrades (planning)**  
+  - Extend `api-forge-cli entity add` to generate Temporal workflows + worker stubs  
+  - Add optional Frontend/BFF stub with OAuth-ready routes and typed client generation
+
+4. **Developer experience polish (backlog)**  
+  - New `api-forge-cli doctor` command that checks `.env`, Docker health, and TLS prerequisites  
+  - Automated Docker cleanup + artifact pruning hooks to keep local environments slim  
+  - Pre-commit config bundling (ruff, mypy, pytest smoke) to standardize contributor workflow
+
+5. **Services security review & hardening (research)**  
+  - Inventory all running services to ensure TLS is enforced end-to-end (ingress, PostgreSQL, Redis, Temporal, internal APIs)  
+  - Extend `secrets/generate_secrets.sh` (and related docs) to mint cert/key pairs when missing  
+  - Document verification steps so contributors can confirm certificate wiring locally before deploying
+
+6. **Database migrations with Alembic (design)**  
+  - Introduce Alembic to manage schema drift for both the infrastructure app and generated templates  
+  - Wire migration commands into `api-forge-cli` (`upgrade`, `downgrade`, `stamp`) with SQLite + Postgres compatibility  
+  - Add CI guardrails that fail when migrations are missing or out-of-date
+
+7. **Additional deployment options (exploration)**  
+  - Produce Fly.io deployment guide + automation scripts mirroring the existing Kubernetes workflow  
+  - Provide reference manifests/Helm chart tweaks for standard Kubernetes clusters outside our k8s overlays  
+  - Ensure secrets, TLS assets, and init jobs (postgres-verifier, TLS bootstrap) adapt cleanly across these targets
+
+Contributions toward any of these items are welcome; just open an issue referencing the roadmap bullet so we can coordinate.
+
+---
+
 ## Trust These Instructions
 
 **When working in this repository:**
 1. **ALWAYS use `uv run` prefix** for Python commands (uv handles virtualenv automatically)
-2. **ALWAYS start dev environment** before integration tests: `uv run cli dev start-env`
+2. **ALWAYS start dev environment** before integration tests: `uv run api-forge-cli dev start-env`
 3. **NEVER run `pip install` directly** - use `uv sync` or `uv add`
 4. **Check `.env` file exists** - copy from `.env.example` if missing
 5. **Wait 30-60 seconds** after `start-env` for services to be healthy
