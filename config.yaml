@@ -111,6 +111,10 @@ config:
     global_redirect_uri: "${OIDC_REDIRECT_URI:-http://localhost:8000/auth/callback}"
     allowed_redirect_hosts: []
     allowed_audiences: []
+    refresh_tokens:
+      enabled: false
+      persist_in_session_store: false
+      max_session_lifetime_seconds: 86400
   jwt:
     # JWT Validation Settings
     allowed_algorithms: 
@@ -142,6 +146,8 @@ config:
       scope: "${JWT_CLAIM_SCOPE:-scope}"          # OAuth scopes
       name: "${JWT_CLAIM_NAME:-name}"             # User's full name
       preferred_username: "${JWT_CLAIM_USERNAME:-preferred_username}"
+    jwks_cache_ttl_seconds: 3600
+    jwks_cache_max_entries: 16
   logging:
     level: "${LOG_LEVEL:-DEBUG}"
     format: "${LOG_FORMAT:-json}" # Options: "json", "plain"

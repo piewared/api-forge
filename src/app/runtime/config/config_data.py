@@ -248,6 +248,23 @@ class OIDCProviderConfig(BaseModel):
     )
 
 
+class OIDCRefreshTokenPolicy(BaseModel):
+    """Controls whether refresh tokens are issued and stored."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Allow the BFF to accept and use refresh tokens from providers",
+    )
+    persist_in_session_store: bool = Field(
+        default=False,
+        description="If enabled, persist refresh tokens in the user session for reuse",
+    )
+    max_session_lifetime_seconds: int = Field(
+        default=86400,
+        description="Maximum lifetime of a session that can request refresh (prevents indefinite refresh)",
+    )
+
+
 class OIDCConfig(BaseModel):
     """OIDC configuration model."""
 
@@ -268,6 +285,10 @@ class OIDCConfig(BaseModel):
     allowed_audiences: list[str] = Field(
         default_factory=list,
         description="Allowed audiences for validating incoming ID tokens (empty = skip audience check)",
+    )
+    refresh_tokens: OIDCRefreshTokenPolicy = Field(
+        default_factory=OIDCRefreshTokenPolicy,
+        description="Refresh token policy and storage controls",
     )
 
 
@@ -312,6 +333,14 @@ class JWTConfig(BaseModel):
     require_iat: bool = Field(default=True, description="Require issued-at claim")
     claims: JWTClaimsConfig = Field(
         default_factory=JWTClaimsConfig, description="JWT claims mapping configuration"
+    )
+    jwks_cache_ttl_seconds: int = Field(
+        default=3600,
+        description="Time-to-live for cached JWKS responses",
+    )
+    jwks_cache_max_entries: int = Field(
+        default=16,
+        description="Maximum number of provider JWKS responses to cache",
     )
 
 

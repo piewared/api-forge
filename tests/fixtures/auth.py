@@ -204,6 +204,9 @@ def auth_test_config(secret_for_jwt_generation, base_oidc_provider: OIDCProvider
     config.jwt.audiences = [audience]
     config.jwt.claims.user_id = "app_uid"
     config.app.session_signing_secret = secret_for_jwt_generation
+    config.oidc.refresh_tokens.enabled = True
+    config.oidc.refresh_tokens.persist_in_session_store = True
+    config.oidc.refresh_tokens.max_session_lifetime_seconds = 86400
     return config
 
 

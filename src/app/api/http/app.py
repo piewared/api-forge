@@ -276,6 +276,8 @@ async def startup() -> None:
     # Initialize application-wide dependencies here
     # e.g. database connections, caches, etc.
 
+    config = get_config()
+
     logger.info("Initializing database schema")
     try:
         from src.app.runtime.init_db import init_db
@@ -287,7 +289,10 @@ async def startup() -> None:
 
     logger.info("Starting application dependencies initialization")
     try:
-        jwks_cache = JWKSCacheInMemory()
+        jwks_cache = JWKSCacheInMemory(
+            max_entries=config.jwt.jwks_cache_max_entries,
+            ttl_seconds=config.jwt.jwks_cache_ttl_seconds,
+        )
         jwks_service = JwksService(jwks_cache)
         jwt_verify_service = JwtVerificationService(jwks_service)
         jwt_generation_service = JwtGeneratorService()
@@ -334,7 +339,6 @@ async def startup() -> None:
     app.state.app_dependencies = deps
 
     logger.info("Getting configuration for startup")
-    config = get_config()
     logger.info("Starting up application in {} environment", config.app.environment)
     # Validate configuration so we fail fast on misconfiguration
 

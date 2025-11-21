@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from src.app.api.http.deps import (
     enforce_origin,
     get_auth_session_service,
-    get_jwt_verify_service,
     get_oidc_client_service,
     get_optional_session_user,
     get_user_management_service,
@@ -28,7 +27,6 @@ from src.app.core.security import (
 )
 from src.app.core.services import (
     AuthSessionService,
-    JwtVerificationService,
     OidcClientService,
     UserManagementService,
     UserSessionService,
@@ -156,7 +154,6 @@ async def handle_callback(
     error: str | None = None,
     auth_session_service: AuthSessionService = Depends(get_auth_session_service),
     user_session_service: UserSessionService = Depends(get_user_session_service),
-    jwt_verify_service: JwtVerificationService = Depends(get_jwt_verify_service),
     oidc_client_service: OidcClientService = Depends(get_oidc_client_service),
     user_service: UserManagementService = Depends(get_user_management_service),
 ) -> RedirectResponse:
@@ -165,6 +162,7 @@ async def handle_callback(
     Performs comprehensive validation including state, fingerprint,
     ID token (incl. nonce) verification, and secure session creation.
     """
+    config = get_config()
     session_id = request.cookies.get("auth_session_id")
     # Avoid logging state/code/session ids to prevent leakage
     logger.debug("Callback received for provider login")
@@ -224,23 +222,17 @@ async def handle_callback(
         # Verify signature, issuer, audience, and nonce. Depending on your jwt_service,
         # you may pass expected_issuer / expected_audience here from provider config.
 
-        provider_cfg = get_config().oidc.providers[auth_session.provider]
-
-        # NOTE: Adjust verify_jwt signature if your implementation supports these.
-        # At a minimum we enforce nonce here.
-        await jwt_verify_service.verify_jwt(
-            token=tokens.id_token,
-            expected_nonce=auth_session.nonce,
-            # Optional but recommended if supported by your verifier:
-            expected_issuer=getattr(provider_cfg, "issuer", None),
-            expected_audience=provider_cfg.client_id,
-        )
+        provider_cfg = config.oidc.providers[auth_session.provider]
+        refresh_policy = config.oidc.refresh_tokens
 
         # Only after verification do we parse/assemble claims.
         user_claims = await oidc_client_service.get_user_claims(
             access_token=tokens.access_token,
             id_token=tokens.id_token,
             provider=auth_session.provider,
+            expected_nonce=auth_session.nonce,
+            expected_audience=provider_cfg.client_id,
+            expected_issuer=getattr(provider_cfg, "issuer", None),
         )
 
         # JIT provision or update user
@@ -251,7 +243,14 @@ async def handle_callback(
             user_id=user.id,
             provider=auth_session.provider,
             client_fingerprint=client_fingerprint,
-            refresh_token=tokens.refresh_token,
+            refresh_token=
+                tokens.refresh_token
+                if (
+                    tokens.refresh_token
+                    and refresh_policy.enabled
+                    and refresh_policy.persist_in_session_store
+                )
+                else None,
             access_token=tokens.access_token,
             access_token_expires_at=tokens.expires_at,
         )
@@ -271,7 +270,7 @@ async def handle_callback(
         response.set_cookie(
             key="user_session_id",
             value=user_session_id,
-            max_age=get_config().app.session_max_age,
+            max_age=config.app.session_max_age,
             **cookie_settings,
         )
 
@@ -379,6 +378,11 @@ async def refresh_session(
     Requires X-CSRF-Token header; validates client fingerprint; rotates session ID and CSRF token.
     """
 
+    config = get_config()
+    refresh_policy = config.oidc.refresh_tokens
+    if not (refresh_policy.enabled and refresh_policy.persist_in_session_store):
+        raise HTTPException(status_code=404, detail="Refresh tokens are disabled")
+
     session_id = request.cookies.get("user_session_id")
     if not session_id:
         raise HTTPException(status_code=401, detail="No session found")
@@ -407,7 +411,7 @@ async def refresh_session(
         response.set_cookie(
             key="user_session_id",
             value=new_session_id,
-            max_age=get_config().app.session_max_age,
+            max_age=config.app.session_max_age,
             **cookie_settings,
         )
 

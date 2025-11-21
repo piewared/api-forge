@@ -44,9 +44,13 @@ def jwks_service(jwks_cache: JWKSCache):
 @pytest.fixture
 def jwks_service_fake(jwks_data) -> JwksService:
     """Get a fake JWKS service instance for testing."""
+
     class MockJwksService(JwksService):
-        async def fetch_jwks(self, issuer: OIDCProviderConfig):
+        async def fetch_jwks(
+            self, issuer: OIDCProviderConfig, *, force_refresh: bool = False
+        ):
             return jwks_data
+
     return MockJwksService(cache=JWKSCacheInMemory())
 
 

@@ -95,14 +95,26 @@ class JwtVerificationService:
                 else jwks
             )
             if pv.kid and not jwk_set.get("keys"):
-                raise HTTPException(status_code=401, detail=f"No JWK matches kid={pv.kid}")
+                jwks = await self._jwks_service.fetch_jwks(
+                    provider_cfg, force_refresh=True
+                )
+                jwk_set = {
+                    "keys": [k for k in jwks.get("keys", []) if k.get("kid") == pv.kid]
+                }
+                if not jwk_set.get("keys"):
+                    raise HTTPException(
+                        status_code=401, detail=f"No JWK matches kid={pv.kid}"
+                    )
             verification_key = JsonWebKey.import_key_set(jwk_set)
 
         # verify signature + registered claims
         try:
             if claims_options:
+                issuer_values = claims_options["iss"].get("values", [])
                 logger.debug(
-                    f"Verifying JWT from issuer {claims_options['iss']['values']} with expected audience {claims_options['aud']['values']}"
+                    "Verifying JWT from issuer=%s with %d expected audiences",
+                    issuer_values[0] if issuer_values else "unknown",
+                    len(claims_options["aud"].get("values", [])),
                 )
             else:
                 logger.debug("Verifying internal JWT without issuer/audience checks")
@@ -133,9 +145,12 @@ class JwtVerificationService:
                 if not tok_nonce or tok_nonce != expected_nonce:
                     raise HTTPException(status_code=401, detail="Invalid/missing nonce")
             aud_list = _as_list(claims.get("aud"))
-            logger.debug(f"Token audience: {aud_list}")
-            logger.debug(f"azp: {claims.get('azp')}")
-            logger.debug(f"expected_audience: {expected_audience}")
+            logger.debug(
+                "Token audience count=%d, azp_present=%s, expected_audience_count=%d",
+                len(aud_list),
+                bool(claims.get("azp")),
+                len(_as_list(expected_audience)) if expected_audience else 0,
+            )
 
             azp = claims.get("azp")
             # If azp is present and aud claim is a single entry string, azp must match client_id. If azp is present and aud is a list, azp must match one of the audiences in the list.
