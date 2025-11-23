@@ -75,7 +75,7 @@ check_secrets() {
     
     if [ ${#missing_secrets[@]} -gt 0 ]; then
         log_error "Missing required secrets: ${missing_secrets[*]}"
-        log_error "Please run: ./create-secrets.sh ${NAMESPACE}"
+        log_error "Please run: ./apply-secrets.sh ${NAMESPACE}"
         exit 1
     fi
     

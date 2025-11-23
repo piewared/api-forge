@@ -32,7 +32,7 @@ k8s/
 │   │   └── temporal-namespace-init.yaml
 │   └── kustomization.yaml         # Kustomize configuration
 └── scripts/                       # Helper scripts
-    └── create-secrets.sh          # Secret creation script
+  └── apply-secrets.sh           # Secret application script
 ```
 
 ## 🚀 Quick Start
@@ -74,16 +74,18 @@ Sync your `.env` and `config.yaml` to the k8s deployment:
 # - All postgres and temporal scripts
 ```
 
-### Step 3: Create Kubernetes Secrets
+### Step 3: Apply Kubernetes Secrets
 
-Run the secret creation script to create all Kubernetes secrets:
+Run `./infra/secrets/generate_secrets.sh` first (either interactively or with
+`--user-secrets-file/--oidc-*-secret` CLI flags) so the deterministic OIDC secrets are written to
+`infra/secrets/keys/oidc_*_client_secret.txt`. Then push every secret into Kubernetes:
 
 ```bash
-# Create secrets in default namespace (api-forge-prod)
-./k8s/scripts/create-secrets.sh
+# Apply secrets in default namespace (api-forge-prod)
+./k8s/scripts/apply-secrets.sh
 
 # Or specify a custom namespace
-./k8s/scripts/create-secrets.sh my-namespace
+./k8s/scripts/apply-secrets.sh my-namespace
 ```
 
 This script creates:
@@ -91,7 +93,7 @@ This script creates:
 - `postgres-tls`: PostgreSQL TLS certificates
 - `postgres-ca`: CA certificate bundle
 - `redis-secrets`: Redis password
-- `app-secrets`: Session and CSRF signing secrets
+- `app-secrets`: Session/CSRF signing secrets + OIDC client secret files from `infra/secrets/keys/`
 
 ### Step 4: Build and Push Docker Images
 
@@ -368,7 +370,7 @@ kubectl logs -n api-forge-prod deployment/app
 kubectl get secrets -n api-forge-prod
 
 # Re-create secrets
-./k8s/scripts/create-secrets.sh api-forge-prod
+./k8s/scripts/apply-secrets.sh api-forge-prod
 ```
 
 #### 4. Jobs Failing

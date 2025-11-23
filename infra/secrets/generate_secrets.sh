@@ -18,6 +18,14 @@ KEYS_DIR="$SCRIPT_DIR/keys"
 mkdir -p "$KEYS_DIR"
 CERTS_DIR="$SCRIPT_DIR/certs"
 mkdir -p "$CERTS_DIR"
+USER_SECRETS_FILE_DEFAULT="$SCRIPT_DIR/user-provided.env"
+USER_SECRETS_FILE="$USER_SECRETS_FILE_DEFAULT"
+NON_INTERACTIVE=false
+USER_SECRETS_LOADED=false
+OIDC_GOOGLE_SECRET_CLI=""
+OIDC_MICROSOFT_SECRET_CLI=""
+OIDC_KEYCLOAK_SECRET_CLI=""
+OVERWRITE_SECRETS=false
 
 # Function to print colored output
 print_info() {
@@ -53,6 +61,55 @@ check_dependencies() {
         print_info "Please install missing dependencies and try again"
         exit 1
     fi
+}
+
+load_user_supplied_secrets() {
+    if [ "$USER_SECRETS_LOADED" = true ]; then
+        return
+    fi
+
+    if [ -f "$USER_SECRETS_FILE" ]; then
+        print_info "Loading deterministic secrets from $USER_SECRETS_FILE"
+        # shellcheck disable=SC1090
+        set -o allexport
+        source "$USER_SECRETS_FILE"
+        set +o allexport
+        USER_SECRETS_LOADED=true
+    else
+        print_warning "User-provided secrets file not found at $USER_SECRETS_FILE."
+        print_info "You can specify one with --user-secrets-file or provide values via prompts/CLI."
+    fi
+}
+
+prompt_for_secret() {
+    local prompt_message="$1"
+    local secret_value=""
+    while [ -z "$secret_value" ]; do
+        read -r -s -p "$prompt_message: " secret_value
+        echo ""
+    done
+    echo "$secret_value"
+}
+
+obtain_deterministic_secret() {
+    local secret_label="$1"
+    local cli_value="$2"
+    local env_var_name="$3"
+    local prompt_message="$4"
+    local value=""
+
+    if [ -n "$cli_value" ]; then
+        value="$cli_value"
+    elif [ -n "${!env_var_name:-}" ]; then
+        value="${!env_var_name}"
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        value="$(prompt_for_secret "$prompt_message")"
+    else
+        print_error "$secret_label not provided. Use CLI options or --user-secrets-file in non-interactive mode."
+        exit 1
+    fi
+
+    echo "$value"
 }
 
 # Function to generate a secure random string
@@ -115,13 +172,6 @@ generate_session_secret() {
 generate_backup_password() {
     # Generate 32-character strong password for backup encryption
     LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()_+-=[]{}' < /dev/urandom | head -c 32
-}
-
-# Function to generate OIDC client secret
-generate_oidc_secret() {
-    # Generate 48-character secret for OIDC providers
-    # Use base64url encoding (URL-safe) by replacing + with - and / with _
-    openssl rand -base64 48 | tr -d '\n' | tr '+/' '-_' | tr -d '='
 }
 
 # ============================================================================
@@ -351,6 +401,11 @@ write_secret() {
     local filename="$1"
     local secret="$2"
     local filepath="$SCRIPT_DIR/$filename"
+
+    if [ -f "$filepath" ] && [ "$OVERWRITE_SECRETS" != true ]; then
+        print_info "Keeping existing $filename (use --force to rotate)"
+        return 0
+    fi
     
     # Create file with restrictive permissions
     touch "$filepath"
@@ -366,6 +421,36 @@ write_secret() {
         print_error "Failed to write $filename"
         return 1
     fi
+}
+
+generate_deterministic_secrets() {
+    print_info "Handling deterministic secrets (OIDC client secrets, etc.)"
+
+    load_user_supplied_secrets
+
+    local google_secret microsoft_secret keycloak_secret
+
+    google_secret=$(obtain_deterministic_secret \
+        "Google OIDC client secret" \
+        "$OIDC_GOOGLE_SECRET_CLI" \
+        "OIDC_GOOGLE_CLIENT_SECRET" \
+        "Enter Google OIDC client secret")
+
+    microsoft_secret=$(obtain_deterministic_secret \
+        "Microsoft OIDC client secret" \
+        "$OIDC_MICROSOFT_SECRET_CLI" \
+        "OIDC_MICROSOFT_CLIENT_SECRET" \
+        "Enter Microsoft OIDC client secret")
+
+    keycloak_secret=$(obtain_deterministic_secret \
+        "Keycloak OIDC client secret" \
+        "$OIDC_KEYCLOAK_SECRET_CLI" \
+        "OIDC_KEYCLOAK_CLIENT_SECRET" \
+        "Enter Keycloak OIDC client secret")
+
+    write_secret "keys/oidc_google_client_secret.txt" "$google_secret"
+    write_secret "keys/oidc_microsoft_client_secret.txt" "$microsoft_secret"
+    write_secret "keys/oidc_keycloak_client_secret.txt" "$keycloak_secret"
 }
 
 # Function to backup existing secrets
@@ -430,12 +515,17 @@ show_usage() {
     echo ""
     echo "Options:"
     echo "  -h, --help           Show this help message"
-    echo "  -f, --force          Overwrite existing secrets without backup"
+    echo "  -f, --force          Overwrite existing secrets (also skips backup prompts)"
     echo "  -b, --backup-only    Only backup existing secrets, don't generate new ones"
     echo "  -v, --verify         Verify existing secrets meet security requirements"
     echo "  -l, --list           List all secret files and their sizes"
     echo "  -p, --generate-pki   Generate PKI certificates (root CA, intermediate CA, service certs)"
     echo "  --force-ca           Force regeneration of CA certificates (use with caution)"
+    echo "  --user-secrets-file  Path to user-provided.env containing deterministic secrets"
+    echo "  --non-interactive    Disable prompts; require secrets via CLI or file"
+    echo "  --oidc-google-secret VALUE     Supply Google OIDC client secret"
+    echo "  --oidc-microsoft-secret VALUE  Supply Microsoft OIDC client secret"
+    echo "  --oidc-keycloak-secret VALUE   Supply Keycloak OIDC client secret"
     echo ""
     echo "Secret files generated:"
     echo "  keys/postgres_password.txt           - PostgreSQL superuser password (if enabled)"
@@ -698,6 +788,10 @@ list_secrets() {
 generate_all_secrets() {
     print_info "Generating cryptographically secure secrets..."
     echo ""
+
+    if [ "$OVERWRITE_SECRETS" != true ]; then
+        print_info "Existing secret files will be reused. Pass --force to regenerate."
+    fi
     
     # Generate all secret files
     write_secret "keys/postgres_password.txt" "$(generate_db_password)"
@@ -708,9 +802,8 @@ generate_all_secrets() {
     write_secret "keys/redis_password.txt" "$(generate_db_password)"
     write_secret "keys/session_signing_secret.txt" "$(generate_session_secret)"
     write_secret "keys/csrf_signing_secret.txt" "$(generate_csrf_secret)"
-    write_secret "keys/oidc_google_client_secret.txt" "$(generate_oidc_secret)"
-    write_secret "keys/oidc_microsoft_client_secret.txt" "$(generate_oidc_secret)"
-    write_secret "keys/oidc_keycloak_client_secret.txt" "$(generate_oidc_secret)"
+
+    generate_deterministic_secrets
 
     echo ""
     print_success "All secrets generated successfully!"
@@ -758,6 +851,42 @@ main() {
                 force_ca=true
                 shift
                 ;;
+            --user-secrets-file)
+                if [ -z "${2:-}" ]; then
+                    print_error "--user-secrets-file requires a path argument"
+                    exit 1
+                fi
+                USER_SECRETS_FILE="$2"
+                shift 2
+                ;;
+            --non-interactive)
+                NON_INTERACTIVE=true
+                shift
+                ;;
+            --oidc-google-secret)
+                if [ -z "${2:-}" ]; then
+                    print_error "--oidc-google-secret requires a value"
+                    exit 1
+                fi
+                OIDC_GOOGLE_SECRET_CLI="$2"
+                shift 2
+                ;;
+            --oidc-microsoft-secret)
+                if [ -z "${2:-}" ]; then
+                    print_error "--oidc-microsoft-secret requires a value"
+                    exit 1
+                fi
+                OIDC_MICROSOFT_SECRET_CLI="$2"
+                shift 2
+                ;;
+            --oidc-keycloak-secret)
+                if [ -z "${2:-}" ]; then
+                    print_error "--oidc-keycloak-secret requires a value"
+                    exit 1
+                fi
+                OIDC_KEYCLOAK_SECRET_CLI="$2"
+                shift 2
+                ;;
             *)
                 print_error "Unknown option: $1"
                 show_usage
@@ -801,8 +930,10 @@ main() {
         exit 0
     fi
     
-    # Backup existing secrets unless force is specified
-    if [ "$force" = false ]; then
+    if [ "$force" = true ]; then
+        OVERWRITE_SECRETS=true
+    else
+        OVERWRITE_SECRETS=false
         backup_existing_secrets
     fi
     

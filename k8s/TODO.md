@@ -13,7 +13,7 @@ _Date: 2025-11-20_
 
 ### Secrets & Configuration
 - `.env` is converted into the `app-env` **ConfigMap**, so secrets (OIDC client secrets, API keys, session keys) end up in plain text and are injected into every workload despite existing `app-secrets` resources.
-- `create-secrets.sh` deletes all secrets before recreating them; a mid-run failure wipes credentials and crashes dependent pods.
+- `apply-secrets.sh` deletes all secrets before recreating them; a mid-run failure wipes credentials and crashes dependent pods.
 - No rotation guidance—especially for TLS—nor automation to re-run `postgres-verifier` or other jobs after key changes.
 
 ### Workload Security
@@ -44,7 +44,7 @@ _Date: 2025-11-20_
 2. **Enable default deny + egress control**: turn on the commented default-deny ingress policy, add egress restrictions, and tighten `from: []` rules to actual ingress controller namespaces/IPs.
 3. **Harden pods**: enforce `runAsUser`, `runAsGroup`, `runAsNonRoot`, drop unnecessary capabilities, and use read-only root filesystems with explicit writable `emptyDir`s.
 4. **Convert data services to StatefulSets** and add PodDisruptionBudgets; document/automate backups via CronJobs.
-5. **Make automation idempotent and safer**: have `create-secrets.sh` apply without deleting first, add diff/approval to `deploy-config.sh`, parameterize namespaces, and improve `deploy-resources.sh` handling of immutable fields.
+5. **Make automation idempotent and safer**: have `apply-secrets.sh` apply without deleting first, add diff/approval to `deploy-config.sh`, parameterize namespaces, and improve `deploy-resources.sh` handling of immutable fields.
 6. **Pin images** to immutable tags/digests and prefer `imagePullPolicy: Always` (or digests) in production.
 7. **Instrument observability**: add log/metric exporters and CronJobs to rerun `postgres-verifier` after TLS changes with alerts on failure.
 

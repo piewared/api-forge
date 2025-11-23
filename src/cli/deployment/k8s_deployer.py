@@ -135,15 +135,15 @@ class K8sDeployer(BaseDeployer):
         # Generate secrets if needed
         self._generate_secrets_if_needed()
 
-        self.console.print("[bold cyan]🔐 Creating Kubernetes secrets...[/bold cyan]")
+        self.console.print("[bold cyan]🔐 Applying Kubernetes secrets...[/bold cyan]")
 
-        script_path = self.k8s_scripts / "create-secrets.sh"
+        script_path = self.k8s_scripts / "apply-secrets.sh"
         with self.create_progress() as progress:
-            task = progress.add_task("Creating secrets...", total=1)
+            task = progress.add_task("Applying secrets...", total=1)
             self.run_command(["bash", str(script_path), namespace])
             progress.update(task, completed=1)
 
-        self.success(f"Secrets created in namespace {namespace}")
+        self.success(f"Secrets applied in namespace {namespace}")
 
     def _deploy_resources(self, namespace: str) -> None:
         """Deploy Kubernetes resources.

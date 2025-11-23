@@ -11,8 +11,9 @@ For a completely automated deployment, run these four scripts in order:
 # 2. Generate secrets (TLS certs, passwords, etc.)
 cd infra/secrets && ./generate_secrets.sh && cd ../..
 
-# 3. Create Kubernetes secrets from generated files
-./k8s/scripts/create-secrets.sh
+# 3. Apply Kubernetes secrets (uses infra/secrets/keys/*)
+# Deterministic secrets (OIDC, etc.) are captured during generate_secrets.sh
+./k8s/scripts/apply-secrets.sh
 
 # 4. Deploy all resources in correct order
 ./k8s/scripts/deploy-resources.sh
@@ -44,24 +45,37 @@ cd infra/secrets
 # Secrets will be created in infra/secrets/ directory
 ```
 
-### 3. Create Kubernetes Secrets
+### 3. Apply Kubernetes Secrets
 
-Use the automated script:
+1. Ensure deterministic secrets exist as files under `infra/secrets/keys/`:
 
-```bash
-# Create all Kubernetes secrets from generated files
-./k8s/scripts/create-secrets.sh
-```
+  - When you ran `infra/secrets/generate_secrets.sh`, the script either prompted you for OIDC client secrets or loaded them from a `.env` style file passed via `--user-secrets-file`.
+  - For unattended environments, provide the secrets non-interactively with `--non-interactive` plus either `--oidc-*-secret` flags or a dedicated file:
+
+    ```bash
+    ./infra/secrets/generate_secrets.sh --non-interactive \
+      --user-secrets-file ./infra/secrets/my-prod-secrets.env
+    ```
+
+  - After this step you should have files like `infra/secrets/keys/oidc_google_client_secret.txt` (along with the other generated keys and certs).
+
+2. Run the automated script:
+
+  ```bash
+  # Apply all Kubernetes secrets (reads from infra/secrets/keys/* and certs/*)
+  ./k8s/scripts/apply-secrets.sh
+  ```
 
 The script will:
 - Create the namespace if it doesn't exist
 - Delete existing secrets (if any)
-- Create all required secrets from `infra/secrets/` directory
+- Read deterministic secrets directly from `infra/secrets/keys/*.txt`
+- Create all required Kubernetes secrets from `infra/secrets/keys/` and `infra/secrets/certs/`
 - Verify all secrets were created successfully
 
 **Optional**: Specify a different namespace:
 ```bash
-./k8s/scripts/create-secrets.sh my-namespace
+./k8s/scripts/apply-secrets.sh my-namespace
 ```
 
 ### 4. Deploy Resources
@@ -212,22 +226,26 @@ Builds all Docker images with correct build contexts and loads them into your lo
 - Validates all images were built successfully
 - Loads images into the cluster automatically
 
-### `create-secrets.sh`
-Creates all Kubernetes secrets from the `infra/secrets/` directory.
+### `apply-secrets.sh`
+Applies Kubernetes secrets by pushing the generated files under `infra/secrets/keys/` and `infra/secrets/certs/` (including deterministic OIDC secrets captured via `generate_secrets.sh`).
 
 **Usage**:
 ```bash
-./k8s/scripts/create-secrets.sh [namespace]
+./k8s/scripts/apply-secrets.sh [namespace]
 ```
 
 **Features**:
 - Creates namespace if it doesn't exist
+- Verifies all required key/cert files are present before applying
 - Deletes existing secrets to avoid conflicts
 - Creates all required secrets:
   - PostgreSQL passwords and TLS certificates
   - Redis password
   - Application session/CSRF secrets
+  - OIDC client secrets sourced from `infra/secrets/keys/oidc_*`
 - Verifies all secrets were created successfully
+
+If you prefer to keep deterministic secrets in a `.env`-style file for automation, pass it to `infra/secrets/generate_secrets.sh` via `--user-secrets-file` (plus `--non-interactive`/`--oidc-*-secret` flags as needed) *before* running this script. `apply-secrets.sh` only reads the generated key/cert files.
 
 ### `deploy-resources.sh`
 Deploys all Kubernetes resources in the correct order with automatic health checks.

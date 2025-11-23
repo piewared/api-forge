@@ -73,6 +73,8 @@ The application uses a centralized secrets management system based on file-based
 
 ```
 infra/secrets/
+├── user-provided.env.example      # Template for deterministic secrets (not committed)
+├── user-provided.env              # Your filled-in deterministic secrets (gitignored)
 ├── keys/                           # Application passwords and secrets
 │   ├── postgres_password.txt
 │   ├── postgres_app_user_pw.txt
@@ -82,9 +84,6 @@ infra/secrets/
 │   ├── redis_password.txt
 │   ├── session_signing_secret.txt
 │   ├── csrf_signing_secret.txt
-│   ├── oidc_google_client_secret.txt
-│   ├── oidc_microsoft_client_secret.txt
-│   └── oidc_keycloak_client_secret.txt
 ├── certs/                          # PKI certificates and keys
 │   ├── root-ca.crt                # Root Certificate Authority (public)
 │   ├── root-ca.key                # Root CA private key (sensitive)
@@ -113,9 +112,14 @@ All secrets are stored with 600 permissions (owner read/write only).
 | `redis_password.txt` | Redis authentication password | 24 chars | **High** |
 | `session_signing_secret.txt` | JWT session signing key | 32 bytes base64 | **Critical** |
 | `csrf_signing_secret.txt` | CSRF protection secret | 32 bytes base64 | **High** |
-| `oidc_google_client_secret.txt` | Google OAuth client secret | 48 bytes base64 | **Medium** |
-| `oidc_microsoft_client_secret.txt` | Microsoft OAuth client secret | 48 bytes base64 | **Medium** |
-| `oidc_keycloak_client_secret.txt` | Keycloak client secret | 48 bytes base64 | **Medium** |
+
+**Deterministic OIDC Secrets**: When you run `./infra/secrets/generate_secrets.sh`, the script now
+prompts for (or reads via `--user-secrets-file`/CLI flags) the `OIDC_GOOGLE_CLIENT_SECRET`,
+`OIDC_MICROSOFT_CLIENT_SECRET`, and `OIDC_KEYCLOAK_CLIENT_SECRET`. The provided values are written to
+`infra/secrets/keys/oidc_*_client_secret.txt`, so Kubernetes and Docker deployments consume them just
+like every other secret. `infra/secrets/user-provided.env` remains as an optional input source for
+non-interactive workflows—populate it from the `.example` template if you’d rather not type secrets
+manually, but the runtime never reads that file directly anymore.
 
 **Password Format**: 24-character string with uppercase, lowercase, numbers, and safe special characters (`!@#$%^&*()_+-=`)
 

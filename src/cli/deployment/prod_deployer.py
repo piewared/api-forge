@@ -16,6 +16,15 @@ class ProdDeployer(BaseDeployer):
     """Deployer for production environment using Docker Compose."""
 
     COMPOSE_FILE = "docker-compose.prod.yml"
+    DATA_SUBDIRS = [
+        Path("postgres"),
+        Path("postgres-backups"),
+        Path("postgres-ssl"),
+        Path("redis"),
+        Path("redis-backups"),
+        Path("app-logs"),
+        Path("temporal-certs"),
+    ]
 
     # Service monitoring configuration
     SERVICES = [
@@ -48,11 +57,16 @@ class ProdDeployer(BaseDeployer):
         if not self.check_env_file():
             raise typer.Exit(1)
 
+        self._ensure_required_directories()
+
         skip_build = kwargs.get("skip_build", False)
         no_wait = kwargs.get("no_wait", False)
         # Build app image if needed
         if not skip_build:
             self._build_app_image()
+
+        # Ensure Postgres role passwords match the current secrets before starting services
+        self._sync_postgres_passwords()
 
         # Start services
         self._start_services()
@@ -64,6 +78,86 @@ class ProdDeployer(BaseDeployer):
         # Display final status
         self.console.print("\n[bold green]🎉 Production deployment complete![/bold green]")
         self.status_display.show_prod_status()
+
+    def _ensure_required_directories(self) -> None:
+        data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
+        self.info(f"Ensured data directories exist under {data_root}")
+
+    def _sync_postgres_passwords(self) -> None:
+        """Ensure Postgres role passwords align with the latest secrets."""
+        self.info("Ensuring PostgreSQL is running for password synchronization...")
+
+        # Start (or ensure) the postgres service so we can run the sync script
+        self.run_command([
+            "docker",
+            "compose",
+            "-f",
+            self.COMPOSE_FILE,
+            "up",
+            "-d",
+            "postgres",
+        ])
+
+        # Wait for postgres to be healthy before attempting to sync passwords
+        postgres_ready = self.health_checker.wait_for_condition(
+            lambda: self.health_checker.check_container_health("api-forge-postgres")[0],
+            timeout=120,
+            interval=3,
+            service_name="PostgreSQL",
+        )
+
+        if not postgres_ready:
+            self.warning(
+                "PostgreSQL did not report healthy status within timeout; skipping password sync"
+            )
+            return
+
+        self.info("Synchronizing Postgres role passwords with secrets...")
+        secret_env = self._load_postgres_secret_env()
+        exec_env_args = ["--env", "PREFER_SECRET_FILES=false"]
+        for env_name, value in secret_env.items():
+            exec_env_args.extend(["--env", f"{env_name}={value}"])
+
+        sync_result = self.run_command(
+            [
+                "docker",
+                "compose",
+                "-f",
+                self.COMPOSE_FILE,
+                "exec",
+                "--user",
+                "postgres",
+                "-T",
+                *exec_env_args,
+                "postgres",
+                "/opt/entry/admin-scripts/sync-passwords.sh",
+            ],
+            check=True,
+        )
+
+        if sync_result.returncode == 0:
+            self.success("Postgres passwords are in sync with secrets")
+
+    def _load_postgres_secret_env(self) -> dict[str, str]:
+        """Load the current Postgres-related secrets from host files."""
+
+        secrets_dir = self.project_root / "infra" / "secrets" / "keys"
+        mapping = {
+            "POSTGRES_APP_USER_PW": "postgres_app_user_pw.txt",
+            "POSTGRES_APP_RO_PW": "postgres_app_ro_pw.txt",
+            "POSTGRES_TEMPORAL_PW": "postgres_temporal_pw.txt",
+            "POSTGRES_PASSWORD": "postgres_password.txt",
+        }
+
+        secret_env: dict[str, str] = {}
+        for env_name, filename in mapping.items():
+            file_path = secrets_dir / filename
+            if not file_path.exists():
+                self.error(f"Missing secret file: {file_path}")
+                raise typer.Exit(1)
+            secret_env[env_name] = file_path.read_text().strip()
+
+        return secret_env
 
     def teardown(self, **kwargs) -> None:
         """Stop the production environment.

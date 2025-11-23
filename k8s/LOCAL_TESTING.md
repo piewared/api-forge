@@ -73,7 +73,7 @@ minikube image ls | grep -E "app_data|temporal|api-forge"
 
 # 2. Generate and create secrets
 cd infra/secrets && ./generate_secrets.sh && cd ../..
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 
 # 3. Deploy your configs
 kubectl apply -k k8s/base/
@@ -196,7 +196,7 @@ kubectl cluster-info --context kind-api-forge
 
 ```bash
 # Create secrets
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 
 # Deploy
 kubectl apply -k k8s/base/
@@ -254,7 +254,7 @@ k3d cluster create api-forge \
 ### Deploy and Test
 
 ```bash
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 kubectl apply -k k8s/base/
 kubectl get all -n api-forge-prod
 ```
@@ -292,7 +292,7 @@ k3d cluster delete api-forge
 ./k8s/scripts/build-images.sh
 
 # Deploy
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 kubectl apply -k k8s/base/
 kubectl get all -n api-forge-prod
 
@@ -512,7 +512,7 @@ kubectl port-forward -n api-forge-prod svc/app 8000:8000
 kubectl get secrets -n api-forge-prod
 
 # Recreate if needed
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 
 # Check secret keys
 kubectl describe secret postgres-secrets -n api-forge-prod
@@ -537,7 +537,7 @@ minikube start --cpus=4 --memory=8192 --disk-size=50g
 # Build images (automated script handles correct contexts)
 ./k8s/scripts/build-images.sh
 
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 kubectl apply -k k8s/base/
 kubectl get pods -n api-forge-prod -w
 ```
@@ -564,7 +564,7 @@ kubectl apply -k k8s/base/
 2. **Install and start the cluster**
 3. **Build your Docker images** within the cluster context
 4. **Generate secrets** using `infra/secrets/generate_secrets.sh`
-5. **Create K8s secrets** using `./k8s/scripts/create-secrets.sh`
+5. **Create K8s secrets** using `./k8s/scripts/apply-secrets.sh`
 6. **Deploy configs** with `kubectl apply -k k8s/base/`
 7. **Test thoroughly** using the testing workflow above
 8. **Iterate** - make changes, redeploy, test again

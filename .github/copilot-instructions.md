@@ -498,6 +498,10 @@ This template evolves quickly. Here are the highest-priority improvements we pla
   - Provide reference manifests/Helm chart tweaks for standard Kubernetes clusters outside our k8s overlays  
   - Ensure secrets, TLS assets, and init jobs (postgres-verifier, TLS bootstrap) adapt cleanly across these targets
 
+7. **Add secret rotation CLI commands (TBD)**  
+  - New `api-forge-cli secrets rotate` command to regenerate signing secrets, TLS certs, and database passwords  
+  - Update deployment docs to include rotation steps and post-rotation verification checks
+
 Contributions toward any of these items are welcome; just open an issue referencing the roadmap bullet so we can coordinate.
 
 ---

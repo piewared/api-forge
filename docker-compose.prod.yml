@@ -65,6 +65,7 @@ services:
     networks: [backend]
 
   postgres-verifier:
+    container_name: api-forge-postgres-verifier
     image: postgres:15
     depends_on:
       postgres:
@@ -323,6 +324,9 @@ services:
       - redis_password
       - session_signing_secret
       - csrf_signing_secret
+      - oidc_google_client_secret
+      - oidc_microsoft_client_secret
+      - oidc_keycloak_client_secret
     
     volumes:
       - ./config.yaml:/app/config.yaml:ro
@@ -404,6 +408,9 @@ services:
       - redis_password
       - session_signing_secret
       - csrf_signing_secret
+      - oidc_google_client_secret
+      - oidc_microsoft_client_secret
+      - oidc_keycloak_client_secret
     
     volumes:
       - ./config.yaml:/app/config.yaml:ro
@@ -523,6 +530,12 @@ secrets:
     file: ./infra/secrets/keys/session_signing_secret.txt
   csrf_signing_secret:
     file: ./infra/secrets/keys/csrf_signing_secret.txt
+  oidc_google_client_secret:
+    file: ./infra/secrets/keys/oidc_google_client_secret.txt
+  oidc_microsoft_client_secret:
+    file: ./infra/secrets/keys/oidc_microsoft_client_secret.txt
+  oidc_keycloak_client_secret:
+    file: ./infra/secrets/keys/oidc_keycloak_client_secret.txt
 
 networks:
   backend:

@@ -24,6 +24,15 @@ class DevDeployer(BaseDeployer):
     """Deployer for development environment using Docker Compose."""
 
     COMPOSE_FILE = "docker-compose.dev.yml"
+    DATA_SUBDIRS = [
+        Path("postgres"),
+        Path("postgres-backups"),
+        Path("postgres-ssl"),
+        Path("redis"),
+        Path("redis-backups"),
+        Path("app-logs"),
+        Path("temporal-certs"),
+    ]
 
     def __init__(self, console: Console, project_root: Path):
         """Initialize the development deployer.
@@ -45,6 +54,8 @@ class DevDeployer(BaseDeployer):
         # Check for .env file first
         if not self.check_env_file():
             raise typer.Exit(1)
+
+        self._ensure_required_directories()
 
         force = kwargs.get("force", False)
         no_wait = kwargs.get("no_wait", False)
@@ -77,6 +88,10 @@ class DevDeployer(BaseDeployer):
 
         # Start the development server
         self._start_dev_server()
+
+    def _ensure_required_directories(self) -> None:
+        data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
+        self.info(f"Ensured data directories exist under {data_root}")
 
     def teardown(self, **kwargs) -> None:
         """Stop the development environment.
@@ -210,7 +225,7 @@ class DevDeployer(BaseDeployer):
             # Dynamically detect package name
             package_name = get_package_module_path()
             package_root = get_package_root()
-            
+
             self.run_command(
                 [
                     "uv",
