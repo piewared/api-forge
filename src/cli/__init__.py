@@ -4,6 +4,7 @@ import typer
 
 from .deploy_commands import deploy_app
 from .entity_commands import entity_app
+from .secrets_commands import secrets_app
 
 # Create the main CLI application
 app = typer.Typer(
@@ -15,6 +16,7 @@ app = typer.Typer(
 # Register command groups
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(entity_app, name="entity")
+app.add_typer(secrets_app, name="secrets")
 
 
 def main() -> None:

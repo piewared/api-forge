@@ -383,10 +383,12 @@ def main():
         print(f"   1. cd {project_dir}")
         print("   2. cp .env.example .env and configure your environment")
         print("   3. Install dependencies: uv sync")
-        print("   4. Deploy:")
-        print("      • docker compose (Development): uv run api-forge-cli deploy up dev")
-        print("      • docker compose (Production):  uv run api-forge-cli deploy up prod")
-        print("      • Kubernetes (Production):  uv run api-forge-cli deploy up k8s")
+        print("   4. Generate secrets (required for production/k8s deployments):")
+        print("      uv run api-forge-cli secrets generate")
+        print("   5. Deploy:")
+        print("      • Development (Docker Compose):   uv run api-forge-cli deploy up dev")
+        print("      • Production (Docker Compose):    uv run api-forge-cli deploy up prod")
+        print("      • Production (Kubernetes):        uv run api-forge-cli deploy up k8s")
         print("\n💡 View all CLI commands: uv run api-forge-cli --help")
 
     except Exception as e:
