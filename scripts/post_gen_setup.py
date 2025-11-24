@@ -209,6 +209,37 @@ def fix_worker_deployment(project_dir: Path, package_name: str):
         print(f"⚠️  Error processing worker deployment: {e}")
 
 
+def fix_docker_compose_worker(project_dir: Path, package_name: str):
+    """Fix docker-compose.prod.yml worker command to use actual package name."""
+    try:
+        compose_file = project_dir / "docker-compose.prod.yml"
+        if not compose_file.exists():
+            return
+        
+        content = compose_file.read_text()
+        original_content = content
+        
+        # Replace 'src.worker.main' with '{package_name}.worker.main' in command
+        content = re.sub(
+            r'"src\.worker\.main"',
+            rf'"{package_name}.worker.main"',
+            content
+        )
+        
+        # Replace '/app/src/worker/health_check.py' with '/app/{package_name}/worker/health_check.py'
+        content = re.sub(
+            r'/app/src/worker/health_check\.py',
+            rf'/app/{package_name}/worker/health_check.py',
+            content
+        )
+        
+        if content != original_content:
+            compose_file.write_text(content)
+            print(f"✅ Fixed docker-compose.prod.yml worker to use {package_name}.worker paths")
+    except Exception as e:
+        print(f"⚠️  Error processing docker-compose.prod.yml: {e}")
+
+
 def fix_worker_registry(project_dir: Path, package_name: str):
     """Fix worker registry.py to use the actual package name instead of 'src'."""
     try:
@@ -368,24 +399,29 @@ def main():
         # 5. Fix Dockerfile to use package name
         fix_dockerfile(project_dir, package_name)
 
-        # 6. Fix worker deployment to use package name
+        # 6. Fix worker deployment (K8s) to use package name
         fix_worker_deployment(project_dir, package_name)
 
-        # 7. Fix worker registry autodiscovery paths
+        # 7. Fix docker-compose worker to use package name
+        fix_docker_compose_worker(project_dir, package_name)
+
+        # 8. Fix worker registry autodiscovery paths
         fix_worker_registry(project_dir, package_name)
 
-        # 8. Update pyproject.toml
+        # 9. Update pyproject.toml
         update_pyproject_toml(project_dir, answers)
 
         print("\n✅ Post-generation setup complete!")
         print(f"\n📁 Your project is ready at: {project_dir}")
         print("\n🚀 Next steps:")
         print(f"   1. cd {project_dir}")
-        print("   2. cp .env.example .env and configure your environment")
-        print("   3. Install dependencies: uv sync")
-        print("   4. Generate secrets (required for production/k8s deployments):")
-        print("      uv run api-forge-cli secrets generate")
-        print("   5. Deploy:")
+        print("   2. Deactivate any active virtual environment: deactivate (if needed)")
+        print("   3. cp .env.example .env and configure your environment")
+        print("   4. Install dependencies: uv sync")
+        print("   5. Generate secrets (required for production/k8s deployments):")
+        print("      uv run api-forge-cli secrets generate --pki")
+        print("      (Use --pki to include TLS certificates for PostgreSQL, Redis, Temporal)")
+        print("   6. Deploy:")
         print("      • Development (Docker Compose):   uv run api-forge-cli deploy up dev")
         print("      • Production (Docker Compose):    uv run api-forge-cli deploy up prod")
         print("      • Production (Kubernetes):        uv run api-forge-cli deploy up k8s")

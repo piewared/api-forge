@@ -1,7 +1,6 @@
 """Secrets management CLI commands."""
 
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -20,12 +19,12 @@ def generate(
         False,
         "--force",
         "-f",
-        help="Overwrite existing secrets without prompting",
+        help="Regenerate ALL secrets without prompting (overwrites existing values)",
     ),
-    backup: bool = typer.Option(
-        True,
-        "--backup/--no-backup",
-        help="Create backup of existing secrets before generating new ones",
+    pki: bool = typer.Option(
+        False,
+        "--pki",
+        help="Also generate PKI certificates (root CA, intermediate CA, service certs for PostgreSQL, Redis, Temporal)",
     ),
 ) -> None:
     """
@@ -36,19 +35,23 @@ def generate(
     - Redis password
     - Session signing secret
     - CSRF signing secret
-    - TLS certificates for PostgreSQL and Redis
+    - OIDC client secrets (prompted interactively)
+    - Optionally: TLS certificates for PostgreSQL, Redis, and Temporal (with --pki flag)
 
-    The secrets are stored in infra/secrets/keys/ and infra/secrets/certs/.
+    The secrets are stored in infra/secrets/keys/.
+    Certificates are stored in infra/secrets/certs/ (only with --pki flag).
+
+    The script automatically backs up existing secrets before regenerating.
 
     Examples:
-        # Generate secrets (prompts before overwriting)
+        # Generate secrets only (prompts for OIDC values)
         uv run api-forge-cli secrets generate
 
-        # Force overwrite without prompting
-        uv run api-forge-cli secrets generate --force
+        # Generate secrets AND TLS certificates
+        uv run api-forge-cli secrets generate --pki
 
-        # Generate without backing up existing secrets
-        uv run api-forge-cli secrets generate --no-backup
+        # Force regenerate ALL secrets (for rotation)
+        uv run api-forge-cli secrets generate --force
     """
     project_root = Path(get_project_root())
     secrets_dir = project_root / "infra" / "secrets"
@@ -64,85 +67,37 @@ def generate(
         )
         raise typer.Exit(1)
 
-    # Check if secrets already exist
-    existing_secrets = False
-    if keys_dir.exists() and any(keys_dir.iterdir()):
-        existing_secrets = True
-
-    if existing_secrets and not force:
-        console.print(
-            Panel(
-                "⚠️  [yellow]Existing secrets detected![/yellow]\n\n"
-                "Regenerating secrets will:\n"
-                "• Create new passwords and signing keys\n"
-                "• Require redeployment of all services\n"
-                "• Break existing sessions and database connections\n\n"
-                "A backup will be created automatically (unless --no-backup is used).",
-                title="Warning",
-                border_style="yellow",
-            )
-        )
-
-        confirm = typer.confirm("Do you want to continue?")
-        if not confirm:
-            console.print("[yellow]Operation cancelled.[/yellow]")
-            raise typer.Exit(0)
-
-    # Backup existing secrets if requested
-    if backup and existing_secrets:
-        console.print("\n[cyan]📦 Creating backup of existing secrets...[/cyan]")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = secrets_dir / f"backup_{timestamp}"
-
-        try:
-            backup_dir.mkdir(parents=True, exist_ok=True)
-
-            # Backup keys
-            if keys_dir.exists():
-                subprocess.run(
-                    ["cp", "-r", str(keys_dir), str(backup_dir / "keys")],
-                    check=True,
-                    capture_output=True,
-                )
-
-            # Backup certs
-            if certs_dir.exists():
-                subprocess.run(
-                    ["cp", "-r", str(certs_dir), str(backup_dir / "certs")],
-                    check=True,
-                    capture_output=True,
-                )
-
-            console.print(f"[green]✅ Backup created at:[/green] {backup_dir}")
-
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]❌ Backup failed: {e.stderr.decode()}[/red]")
-            raise typer.Exit(1) from e
-
     # Run generate_secrets.sh
-    console.print("\n[cyan]🔐 Generating secrets...[/cyan]")
+    if pki:
+        console.print("\n[cyan]🔐 Generating secrets and PKI certificates...[/cyan]\n")
+    else:
+        console.print("\n[cyan]🔐 Generating secrets...[/cyan]\n")
 
     try:
         # Make script executable
         subprocess.run(["chmod", "+x", str(generate_script)], check=True)
 
-        # Run the script
+        # Build command arguments
+        cmd = [str(generate_script)]
+        if pki:
+            cmd.append("--generate-pki")
+        if force:
+            # Pass --force to the script to regenerate all secrets
+            cmd.append("--force")
+
+        # Run the script interactively (no capture_output so user can see prompts)
         result = subprocess.run(
-            [str(generate_script)],
+            cmd,
             cwd=project_root,
-            capture_output=True,
             text=True,
         )
 
-        # Show output
-        if result.stdout:
-            console.print(result.stdout)
-
         if result.returncode != 0:
-            console.print(f"[red]❌ Secret generation failed:[/red]\n{result.stderr}")
+            console.print(f"\n[red]❌ Secret generation failed with exit code {result.returncode}[/red]")
             raise typer.Exit(1)
 
         # Display success message
+        console.print()
         console.print(
             Panel(
                 "[green]✅ Secrets generated successfully![/green]\n\n"
@@ -200,15 +155,19 @@ def list(
     if show_values:
         table.add_column("Value", style="yellow")
 
-    # Check keys
+    # Check keys (matching what generate_secrets.sh actually creates)
     key_files = [
         ("Database", "postgres_password.txt"),
-        ("Database", "appuser_password.txt"),
-        ("Database", "backupuser_password.txt"),
-        ("Database", "temporaluser_password.txt"),
+        ("Database", "postgres_app_user_pw.txt"),
+        ("Database", "postgres_app_ro_pw.txt"),
+        ("Database", "postgres_app_owner_pw.txt"),
+        ("Database", "postgres_temporal_pw.txt"),
         ("Redis", "redis_password.txt"),
         ("Session", "session_signing_secret.txt"),
         ("CSRF", "csrf_signing_secret.txt"),
+        ("OIDC", "oidc_google_client_secret.txt"),
+        ("OIDC", "oidc_microsoft_client_secret.txt"),
+        ("OIDC", "oidc_keycloak_client_secret.txt"),
     ]
 
     for key_type, filename in key_files:
@@ -233,14 +192,17 @@ def list(
         else:
             table.add_row(key_type, filename, status)
 
-    # Check certificates
+    # Check certificates (PKI structure with subdirectories)
     cert_files = [
-        ("PostgreSQL CA", "postgres-ca.crt"),
-        ("PostgreSQL Server", "postgres-server.crt"),
-        ("PostgreSQL Client", "postgres-client.crt"),
-        ("Redis CA", "redis-ca.crt"),
-        ("Redis Server", "redis-server.crt"),
-        ("Redis Client", "redis-client.crt"),
+        ("Root CA", "root-ca.crt"),
+        ("Intermediate CA", "intermediate-ca.crt"),
+        ("CA Bundle", "ca-bundle.crt"),
+        ("PostgreSQL Server", "postgres/server.crt"),
+        ("PostgreSQL Key", "postgres/server.key"),
+        ("Redis Server", "redis/server.crt"),
+        ("Redis Key", "redis/server.key"),
+        ("Temporal Server", "temporal/server.crt"),
+        ("Temporal Key", "temporal/server.key"),
     ]
 
     for cert_type, filename in cert_files:
@@ -295,25 +257,28 @@ def verify(
 
     required_keys = [
         "postgres_password.txt",
-        "appuser_password.txt",
-        "backupuser_password.txt",
-        "temporaluser_password.txt",
+        "postgres_app_user_pw.txt",
+        "postgres_app_ro_pw.txt",
+        "postgres_app_owner_pw.txt",
+        "postgres_temporal_pw.txt",
         "redis_password.txt",
         "session_signing_secret.txt",
         "csrf_signing_secret.txt",
+        "oidc_google_client_secret.txt",
+        "oidc_microsoft_client_secret.txt",
+        "oidc_keycloak_client_secret.txt",
     ]
 
     required_certs = [
-        "postgres-ca.crt",
-        "postgres-server.crt",
-        "postgres-server.key",
-        "postgres-client.crt",
-        "postgres-client.key",
-        "redis-ca.crt",
-        "redis-server.crt",
-        "redis-server.key",
-        "redis-client.crt",
-        "redis-client.key",
+        "root-ca.crt",
+        "intermediate-ca.crt",
+        "ca-bundle.crt",
+        "postgres/server.crt",
+        "postgres/server.key",
+        "redis/server.crt",
+        "redis/server.key",
+        "temporal/server.crt",
+        "temporal/server.key",
     ]
 
     missing_keys = []

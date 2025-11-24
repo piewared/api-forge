@@ -917,19 +917,7 @@ main() {
         exit 0
     fi
     
-    # Handle PKI-only generation
-    if [ "$generate_pki" = true ] && [ "$force" = false ]; then
-        # Only generate PKI certificates
-        if [ "$force_ca" = false ]; then
-            backup_existing_secrets
-        fi
-        generate_pki_certificates "$force_ca"
-        echo ""
-        print_info "PKI generation complete!"
-        print_info "Run '$0 --list' to see all generated files"
-        exit 0
-    fi
-    
+    # Determine if we should overwrite existing secrets
     if [ "$force" = true ]; then
         OVERWRITE_SECRETS=true
     else
