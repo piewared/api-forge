@@ -56,7 +56,17 @@ create_namespace() {
     if kubectl get namespace "${NAMESPACE}" &> /dev/null; then
         log_warn "Namespace ${NAMESPACE} already exists"
     else
-        kubectl create namespace "${NAMESPACE}"
+        # Use kubectl apply instead of create to be consistent with declarative approach
+        # This ensures the namespace has the proper annotations for later kubectl apply operations
+        kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: api-forge
+    app.kubernetes.io/instance: production
+EOF
         log_info "Namespace ${NAMESPACE} created"
     fi
 }
