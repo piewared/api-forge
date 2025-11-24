@@ -78,7 +78,7 @@ def down(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
     volumes: bool = typer.Option(
-        False, "--volumes", "-v", help="Remove volumes (Docker Compose only)"
+        False, "--volumes", "-v", help="Remove volumes/PVCs along with deployment"
     ),
 ) -> None:
     """
@@ -86,8 +86,8 @@ def down(
 
     Environments:
     - dev: Stop development Docker Compose services
-    - prod: Stop production Docker Compose services
-    - k8s: Delete Kubernetes deployment
+    - prod: Stop production Docker Compose services and optionally volumes
+    - k8s: Delete Kubernetes deployment and optionally PVCs
     """
     project_root = Path(get_project_root())
 
@@ -111,7 +111,7 @@ def down(
 
     elif env == Environment.K8S:
         deployer = K8sDeployer(console, project_root)
-        deployer.teardown(namespace=namespace)
+        deployer.teardown(namespace=namespace, volumes=volumes)
 
 
 @deploy_app.command()

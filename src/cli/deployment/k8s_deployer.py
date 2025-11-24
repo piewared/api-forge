@@ -46,6 +46,7 @@ class K8sDeployer(BaseDeployer):
         self._create_secrets(namespace)
 
         # For secret rotation, restart postgres deployment to pick up new secrets
+        # Note: Password sync happens automatically via pg-password-sync-wrapper.sh on container startup
         if force_recreate:
             self.info("Force recreate enabled - restarting postgres deployment for secret rotation...")
             self.run_command([
@@ -72,14 +73,46 @@ class K8sDeployer(BaseDeployer):
         """Remove Kubernetes deployment.
 
         Args:
-            **kwargs: Additional teardown options
+            **kwargs: Additional teardown options (volumes, namespace)
         """
         namespace = kwargs.get("namespace", self.DEFAULT_NAMESPACE)
+        volumes = kwargs.get("volumes", False)
+
+        if volumes:
+            # First delete deployments/statefulsets to release PVC locks
+            self.info("Scaling down deployments to release volume locks...")
+            self.run_command(
+                ["kubectl", "delete", "deployments,statefulsets", "--all", "-n", namespace, "--wait=true", "--timeout=60s"],
+                check=False
+            )
+
+            # Now delete PVCs
+            self.info("Deleting PersistentVolumeClaims...")
+            result = self.run_command(
+                ["kubectl", "get", "pvc", "-n", namespace, "-o", "name"],
+                capture_output=True,
+                check=False
+            )
+            if result and result.returncode == 0 and result.stdout:
+                pvc_names = [name.strip() for name in result.stdout.strip().split('\n') if name.strip()]
+                if pvc_names:
+                    self.console.print(f"[yellow]Found {len(pvc_names)} PVC(s) to delete[/yellow]")
+                    # Delete all PVCs at once without waiting per-PVC
+                    self.run_command(
+                        ["kubectl", "delete"] + pvc_names + ["-n", namespace, "--wait=false"],
+                        check=False
+                    )
+                    self.success("PersistentVolumeClaim deletion initiated")
+                else:
+                    self.console.print("[dim]No PVCs found in namespace[/dim]")
 
         with self.console.status(f"[bold red]Deleting namespace {namespace}..."):
-            self.run_command(["kubectl", "delete", "namespace", namespace, "--wait=true"])
+            self.run_command(["kubectl", "delete", "namespace", namespace, "--wait=true", "--timeout=120s"])
 
-        self.success(f"Namespace {namespace} deleted")
+        if volumes:
+            self.success(f"Namespace {namespace} and volumes deleted")
+        else:
+            self.success(f"Namespace {namespace} deleted (volumes may be retained by storage class policy)")
 
     def show_status(self, namespace: str | None = None) -> None:
         """Display the current status of the Kubernetes deployment.
@@ -173,26 +206,6 @@ class K8sDeployer(BaseDeployer):
             progress.update(task, completed=1)
 
         self.success(f"Secrets applied in namespace {namespace}")
-
-    def _sync_postgres_passwords(self, namespace: str) -> None:
-        """Ensure Postgres role passwords align with current secrets.
-
-        Args:
-            namespace: Target namespace
-        """
-        script_path = self.k8s_scripts / "sync-postgres-passwords.sh"
-        if not script_path.exists():
-            self.warning("Postgres password sync script not found; skipping")
-            return
-
-        self.console.print("[bold cyan]🔁 Syncing Postgres passwords...[/bold cyan]")
-
-        with self.create_progress() as progress:
-            task = progress.add_task("Syncing Postgres passwords...", total=1)
-            self.run_command(["bash", str(script_path), namespace])
-            progress.update(task, completed=1)
-
-        self.success("Postgres passwords synchronized")
 
     def _deploy_resources(self, namespace: str) -> None:
         """Deploy Kubernetes resources.

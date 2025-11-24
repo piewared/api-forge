@@ -230,22 +230,38 @@ wait_for_databases() {
     log_step "6/10 - Waiting for databases and caches..."
     
     log_info "Waiting for PostgreSQL to be ready..."
-    if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "${NAMESPACE}" --timeout=120s; then
-        log_info "✓ PostgreSQL is ready"
+    # Wait for rollout to ensure we're checking the new pod, not a terminating one
+    if kubectl rollout status deployment/postgres -n "${NAMESPACE}" --timeout=180s >/dev/null 2>&1; then
+        # Now wait for the actual pod to be ready
+        if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "${NAMESPACE}" --timeout=30s; then
+            log_info "✓ PostgreSQL is ready"
+        else
+            log_error "PostgreSQL pod failed readiness check"
+            log_info "Checking PostgreSQL logs..."
+            kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=postgres --tail=50 || true
+            exit 1
+        fi
     else
-        log_error "PostgreSQL failed to become ready"
-        log_info "Checking PostgreSQL logs..."
-        kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=postgres --tail=50 || true
+        log_error "PostgreSQL deployment rollout failed"
+        kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=postgres || true
         exit 1
     fi
     
     log_info "Waiting for Redis to be ready..."
-    if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n "${NAMESPACE}" --timeout=120s; then
-        log_info "✓ Redis is ready"
+    # Wait for rollout to ensure we're checking the new pod, not a terminating one
+    if kubectl rollout status deployment/redis -n "${NAMESPACE}" --timeout=120s >/dev/null 2>&1; then
+        # Now wait for the actual pod to be ready
+        if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n "${NAMESPACE}" --timeout=30s; then
+            log_info "✓ Redis is ready"
+        else
+            log_error "Redis pod failed readiness check"
+            log_info "Checking Redis logs..."
+            kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=redis --tail=50 || true
+            exit 1
+        fi
     else
-        log_error "Redis failed to become ready"
-        log_info "Checking Redis logs..."
-        kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=redis --tail=50 || true
+        log_error "Redis deployment rollout failed"
+        kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=redis || true
         exit 1
     fi
     echo ""
