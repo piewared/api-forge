@@ -117,7 +117,7 @@ create_postgres_tls_secrets() {
     fi
     
     kubectl create secret generic postgres-tls \
-        --from-file=server.crt="${certs_dir}/server.crt" \
+        --from-file=server.crt="${certs_dir}/server-chain.crt" \
         --from-file=server.key="${certs_dir}/server.key" \
         --namespace="${NAMESPACE}"
     
@@ -133,9 +133,21 @@ create_postgres_ca_secret() {
         log_error "CA bundle not found: ${certs_dir}/ca-bundle.crt"
         exit 1
     fi
+
+    if [ ! -f "${certs_dir}/root-ca.crt" ]; then
+        log_error "Root CA not found: ${certs_dir}/root-ca.crt"
+        exit 1
+    fi
+
+    if [ ! -f "${certs_dir}/intermediate-ca.crt" ]; then
+        log_error "Intermediate CA not found: ${certs_dir}/intermediate-ca.crt"
+        exit 1
+    fi
     
     kubectl create secret generic postgres-ca \
         --from-file=ca-bundle.crt="${certs_dir}/ca-bundle.crt" \
+        --from-file=root-ca.crt="${certs_dir}/root-ca.crt" \
+        --from-file=intermediate-ca.crt="${certs_dir}/intermediate-ca.crt" \
         --namespace="${NAMESPACE}"
     
     log_info "PostgreSQL CA secret created successfully"

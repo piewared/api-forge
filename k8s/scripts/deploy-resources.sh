@@ -129,6 +129,19 @@ deploy_with_kustomize() {
     log_step "5/10 - Deploying all resources with Kustomize..."
     
     log_info "Building and applying Kustomize resources..."
+
+    # Remove completed jobs so each deploy reruns init tasks and avoids immutable template errors
+    local jobs_to_reset=(
+        "postgres-verifier"
+        "temporal-schema-setup"
+        "temporal-namespace-init"
+    )
+    log_info "Deleting previous job runs (if any) before applying manifests..."
+    for job in "${jobs_to_reset[@]}"; do
+        if kubectl delete job "$job" -n "${NAMESPACE}" --ignore-not-found=true >/dev/null 2>&1; then
+            log_info "  • Reset job: $job"
+        fi
+    done
     
     # Try to apply with kubectl apply -k
     if kubectl apply -k "${K8S_BASE}" 2>&1 | tee /tmp/kustomize-deploy.log; then
@@ -188,6 +201,28 @@ deploy_with_kustomize() {
     
     # Clean up temp log
     rm -f /tmp/kustomize-deploy.log
+    echo ""
+}
+
+restart_core_deployments() {
+    log_info "Restarting core deployments to pick up freshly built images..."
+    local deployments=(
+        "postgres"
+        "redis"
+        "temporal"
+        "temporal-admin-tools"
+        "temporal-web"
+        "app"
+        "worker"
+    )
+
+    for deployment in "${deployments[@]}"; do
+        if kubectl rollout restart deployment "$deployment" -n "${NAMESPACE}" >/dev/null 2>&1; then
+            log_info "  • Restarted deployment: $deployment"
+        else
+            log_warn "  • Unable to restart deployment: $deployment (may not exist)"
+        fi
+    done
     echo ""
 }
 
@@ -334,6 +369,7 @@ main() {
     sync_configs
     deploy_configmaps
     deploy_with_kustomize
+    restart_core_deployments
     wait_for_databases
     wait_for_temporal_setup
     wait_for_temporal

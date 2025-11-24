@@ -65,36 +65,42 @@ SUPERUSER_PASSWORD=$(read_secret_value POSTGRES_PASSWORD postgres_password)
 
 log "Synchronizing Postgres role passwords with secrets..."
 
-PSQL="psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1"
+PSQL_CMD=(psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1)
 if [ -n "$SUPERUSER_PASSWORD" ]; then
     export PGPASSWORD="${SUPERUSER_PASSWORD}"
-    if echo "SELECT 1" | $PSQL >/dev/null 2>&1; then
+    if echo "SELECT 1" | "${PSQL_CMD[@]}" -d postgres >/dev/null 2>&1; then
         log "Connected via password authentication"
     else
         log "Password authentication failed; attempting local peer auth as postgres user"
         unset PGPASSWORD
-        PSQL="psql -U postgres -d postgres -v ON_ERROR_STOP=1"
+        PSQL_CMD=(psql -U postgres -v ON_ERROR_STOP=1)
         if [ "$(id -un)" != "postgres" ]; then
             log "ERROR: peer authentication fallback requires running as postgres user"
             exit 1
         fi
     fi
 else
-    PSQL="psql -U postgres -d postgres -v ON_ERROR_STOP=1"
+    PSQL_CMD=(psql -U postgres -v ON_ERROR_STOP=1)
     if [ "$(id -un)" != "postgres" ]; then
         log "ERROR: peer authentication requires running as postgres user"
         exit 1
     fi
 fi
 
-$PSQL \
+"${PSQL_CMD[@]}" \
+  -d postgres \
   -v APP_USER="${APP_DB_USER}" \
   -v APP_RO_USER="${APP_DB_RO_USER}" \
   -v TEMPORAL_USER="${TEMPORAL_DB_USER}" \
   -v APP_USER_PASSWORD="${APP_USER_PASSWORD}" \
   -v APP_RO_USER_PASSWORD="${APP_RO_PASSWORD}" \
-  -v TEMPORAL_USER_PASSWORD="${TEMPORAL_PASSWORD}" <<'SQL'
+  -v TEMPORAL_USER_PASSWORD="${TEMPORAL_PASSWORD}" \
+  -v SUPERUSER_PASSWORD="${SUPERUSER_PASSWORD}" <<'SQL'
 \set ON_ERROR_STOP on
+
+-- Sync postgres superuser password (used for TCP/IP connections per pg_hba.conf)
+SELECT format('ALTER ROLE postgres WITH PASSWORD %L', :'SUPERUSER_PASSWORD')
+\gexec
 
 SELECT format('ALTER ROLE %I WITH PASSWORD %L', :'APP_USER', :'APP_USER_PASSWORD')
 WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'APP_USER')

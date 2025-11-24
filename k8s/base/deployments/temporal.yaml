@@ -60,7 +60,7 @@ spec:
             - name: SQL_TLS_ENABLED
               value: "true"
             - name: SQL_CA
-              value: /run/secrets/ca-bundle.crt
+              value: /run/secrets/root-ca.crt
             - name: SQL_HOST_VERIFICATION
               value: "true"
             - name: SQL_HOST_NAME
@@ -127,6 +127,10 @@ spec:
               mountPath: /run/secrets/ca-bundle.crt
               subPath: ca-bundle.crt
               readOnly: true
+            - name: postgres-ca
+              mountPath: /run/secrets/root-ca.crt
+              subPath: root-ca.crt
+              readOnly: true
             - name: temporal-certs
               mountPath: /etc/temporal/certs
             - name: temporal-scripts
@@ -147,6 +151,8 @@ spec:
             items:
               - key: ca-bundle.crt
                 path: ca-bundle.crt
+              - key: root-ca.crt
+                path: root-ca.crt
         - name: temporal-certs
           persistentVolumeClaim:
             claimName: temporal-certs

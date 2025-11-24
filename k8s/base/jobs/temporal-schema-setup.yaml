@@ -70,7 +70,7 @@ spec:
             - name: SSL_MODE
               value: verify-ca
             - name: TLS_CA_FILE
-              value: /run/secrets/ca-bundle.crt
+              value: /run/secrets/root-ca.crt
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -93,6 +93,10 @@ spec:
               mountPath: /run/secrets/ca-bundle.crt
               subPath: ca-bundle.crt
               readOnly: true
+            - name: postgres-ca
+              mountPath: /run/secrets/root-ca.crt
+              subPath: root-ca.crt
+              readOnly: true
             - name: schema-script
               mountPath: /scripts
               readOnly: true
@@ -109,6 +113,8 @@ spec:
             items:
               - key: ca-bundle.crt
                 path: ca-bundle.crt
+              - key: root-ca.crt
+                path: root-ca.crt
         - name: schema-script
           configMap:
             name: temporal-config

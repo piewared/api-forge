@@ -30,19 +30,33 @@ class K8sDeployer(BaseDeployer):
         """Deploy to Kubernetes cluster.
 
         Args:
-            **kwargs: Additional deployment options
+            **kwargs: Additional deployment options (namespace, no_wait, force_recreate)
         """
         # Check for .env file before deployment
         if not self.check_env_file():
             return
 
         namespace = kwargs.get("namespace", self.DEFAULT_NAMESPACE)
+        force_recreate = kwargs.get("force_recreate", False)
 
-        # Build images
-        self._build_images()
+        # Build images (force rebuild for secret rotation)
+        self._build_images(force=force_recreate)
 
         # Create secrets
         self._create_secrets(namespace)
+
+        # For secret rotation, restart postgres deployment to pick up new secrets
+        if force_recreate:
+            self.info("Force recreate enabled - restarting postgres deployment for secret rotation...")
+            self.run_command([
+                "kubectl", "rollout", "restart", "deployment/postgres",
+                "-n", namespace
+            ])
+            # Wait for rollout to complete
+            self.run_command([
+                "kubectl", "rollout", "status", "deployment/postgres",
+                "-n", namespace, "--timeout=300s"
+            ])
 
         # Deploy resources
         self._deploy_resources(namespace)
@@ -77,9 +91,24 @@ class K8sDeployer(BaseDeployer):
             namespace = self.DEFAULT_NAMESPACE
         self.status_display.show_k8s_status(namespace)
 
-    def _build_images(self) -> None:
-        """Build Docker images for Kubernetes deployment."""
+    def _build_images(self, force: bool = False) -> None:
+        """Build Docker images for Kubernetes deployment.
+
+        Args:
+            force: If True, rebuild postgres image for secret rotation
+        """
         self.console.print("[bold cyan]🔨 Building Docker images...[/bold cyan]")
+
+        # If force, rebuild postgres image first
+        if force:
+            with self.create_progress() as progress:
+                task = progress.add_task("Rebuilding postgres image (for secret rotation)...", total=1)
+                self.run_command([
+                    "docker", "compose", "-f", "docker-compose.prod.yml",
+                    "build", "postgres"
+                ])
+                progress.update(task, completed=1)
+            self.success("Postgres image rebuilt")
 
         script_path = self.k8s_scripts / "build-images.sh"
         with self.create_progress() as progress:
@@ -144,6 +173,26 @@ class K8sDeployer(BaseDeployer):
             progress.update(task, completed=1)
 
         self.success(f"Secrets applied in namespace {namespace}")
+
+    def _sync_postgres_passwords(self, namespace: str) -> None:
+        """Ensure Postgres role passwords align with current secrets.
+
+        Args:
+            namespace: Target namespace
+        """
+        script_path = self.k8s_scripts / "sync-postgres-passwords.sh"
+        if not script_path.exists():
+            self.warning("Postgres password sync script not found; skipping")
+            return
+
+        self.console.print("[bold cyan]🔁 Syncing Postgres passwords...[/bold cyan]")
+
+        with self.create_progress() as progress:
+            task = progress.add_task("Syncing Postgres passwords...", total=1)
+            self.run_command(["bash", str(script_path), namespace])
+            progress.update(task, completed=1)
+
+        self.success("Postgres passwords synchronized")
 
     def _deploy_resources(self, namespace: str) -> None:
         """Deploy Kubernetes resources.

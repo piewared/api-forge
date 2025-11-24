@@ -8,6 +8,7 @@ This directory contains automation scripts for building, deploying, and managing
 |--------|---------|-------|
 | `build-images.sh` | Build all Docker images | `./build-images.sh` |
 | `apply-secrets.sh` | Apply Kubernetes secrets | `./apply-secrets.sh [namespace]` |
+| `sync-postgres-passwords.sh` | Update Postgres role passwords with latest secrets | `./sync-postgres-passwords.sh [namespace]` |
 | `deploy-config.sh` | Sync config files and deploy | `./deploy-config.sh [--restart] [--sync-only]` |
 | `deploy-resources.sh` | Deploy all resources | `./deploy-resources.sh [namespace]` |
 
@@ -128,8 +129,8 @@ Applies Kubernetes secrets by combining generated files in `infra/secrets/keys/`
 - Deletes existing secrets (clean slate)
 - Creates 5 secret resources:
    - `postgres-secrets` - Database passwords
-   - `postgres-tls` - PostgreSQL TLS certificate and key
-   - `postgres-ca` - CA bundle for TLS verification
+   - `postgres-tls` - PostgreSQL TLS certificate **chain** (server cert + intermediates) and key
+   - `postgres-ca` - CA bundle plus discrete `root-ca.crt` / `intermediate-ca.crt` files for clients that pin a specific trust anchor
    - `redis-secrets` - Redis password
    - `app-secrets` - Session/CSRF signing secrets + OIDC client secrets from `user-provided.env`
 - Verifies all secrets exist
@@ -141,6 +142,35 @@ Applies Kubernetes secrets by combining generated files in `infra/secrets/keys/`
 **Example with custom namespace**:
 ```bash
 ./apply-secrets.sh my-app-prod
+```
+
+---
+
+### sync-postgres-passwords.sh
+
+Executes the in-container `/opt/entry/admin-scripts/sync-passwords.sh` helper so Postgres roles pick up any newly rotated secrets.
+
+**Requirements**:
+- `kubectl` access to the target cluster/namespace
+- Existing Postgres pod (skips automatically if none are found)
+- Secrets already applied so updated password files exist in the mounted volume
+
+**Arguments**:
+- `[namespace]` - Target namespace (default: `api-forge-prod`)
+
+**What it does**:
+1. Verifies `kubectl` connectivity
+2. Locates the current Postgres pod via labels
+3. Waits for the pod to report `Ready`
+4. Runs the password sync script inside the pod so the `app`, `readonly`, and `temporal` users match the latest secrets
+
+**Exit codes**:
+- `0` - Success or skipped (no pod found)
+- `1` - Prerequisites failed or password sync failed
+
+**Example**:
+```bash
+./sync-postgres-passwords.sh staging
 ```
 
 ---

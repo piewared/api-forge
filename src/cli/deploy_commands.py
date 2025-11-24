@@ -31,6 +31,9 @@ def up(
     skip_build: bool = typer.Option(
         False, "--skip-build", help="Skip building the app image (prod only)"
     ),
+    force_recreate: bool = typer.Option(
+        False, "--force-recreate", help="Force recreate containers to pick up new secrets (prod/k8s only)"
+    ),
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
@@ -61,11 +64,11 @@ def up(
 
     elif env == Environment.PROD:
         deployer = ProdDeployer(console, project_root)
-        deployer.deploy(skip_build=skip_build, no_wait=no_wait)
+        deployer.deploy(skip_build=skip_build, no_wait=no_wait, force_recreate=force_recreate)
 
     elif env == Environment.K8S:
         deployer = K8sDeployer(console, project_root)
-        deployer.deploy(namespace=namespace, no_wait=no_wait)
+        deployer.deploy(namespace=namespace, no_wait=no_wait, force_recreate=force_recreate)
 
 
 @deploy_app.command()

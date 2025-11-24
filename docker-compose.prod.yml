@@ -83,8 +83,8 @@ services:
       - -ec
       - |
         set -euo pipefail
-        export PGPASSWORD="$(cat /run/secrets/postgres_app_user_pw)"      # APP_USER for most checks
-        export PGSU_PASSWORD="$(cat /run/secrets/postgres_password)"      # ⬅️ superuser just for pg_hba checks
+        export PGPASSWORD="$$(cat /run/secrets/postgres_app_user_pw)"
+        export PGSU_PASSWORD="$$(cat /run/secrets/postgres_password)"
         exec /verify.sh
     networks:
       - backend

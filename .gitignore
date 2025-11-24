@@ -145,6 +145,8 @@ data/
 logs/
 k8s-out/
 .docker/
+# Kubernetes build artifacts
+k8s/base/.k8s-sources/
 
 # Secrets - never commit secrets to git
 /secrets/
