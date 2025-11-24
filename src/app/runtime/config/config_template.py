@@ -176,6 +176,11 @@ def load_templated_yaml(file_path: Path) -> ConfigData:
 
         config.oidc.providers = enabled_providers
 
+    # Clear Redis password for development environment (dev Redis has no auth)
+    if env_mode == "development" and config.redis and config.redis.password:
+        logger.info("Clearing Redis password for development environment (dev Redis has no authentication)")
+        config.redis.password = ""
+
     return config
 
 
