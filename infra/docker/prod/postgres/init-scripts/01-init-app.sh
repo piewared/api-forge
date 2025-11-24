@@ -81,7 +81,7 @@ SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I',
 SELECT format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I',
               :'APP_SCHEMA', :'APP_RO_USER')\gexec
 
--- App: future objects default privileges
+-- App: future objects default privileges (for objects created by owner)
 SELECT format(
   'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
   :'APP_OWNER_USER', :'APP_SCHEMA', :'APP_USER'
@@ -97,6 +97,18 @@ SELECT format(
 SELECT format(
   'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON SEQUENCES TO %I',
   :'APP_OWNER_USER', :'APP_SCHEMA', :'APP_RO_USER'
+)\gexec
+
+-- App: future objects default privileges (for objects created by app_user itself)
+-- This ensures that when appuser creates tables directly (e.g., via SQLModel), 
+-- the RO user automatically gets SELECT privileges
+SELECT format(
+  'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON TABLES TO %I',
+  :'APP_USER', :'APP_SCHEMA', :'APP_RO_USER'
+)\gexec
+SELECT format(
+  'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON SEQUENCES TO %I',
+  :'APP_USER', :'APP_SCHEMA', :'APP_RO_USER'
 )\gexec
 
 \echo === App DB/roles initialized (3-role pattern) ===

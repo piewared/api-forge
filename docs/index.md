@@ -78,6 +78,7 @@ Visit http://localhost:8000/docs for interactive API documentation.
 
 - **[Kubernetes Deployment](./fastapi-kubernetes-deployment.md)** - Deploy to production Kubernetes
 - **[Docker Compose Production](./fastapi-production-deployment-docker-compose.md)** - Deploy with Docker Compose, TLS, and mTLS
+- **[Secret Rotation](./secret-rotation.md)** - Automated secret rotation with zero-downtime redeployment
 
 ### Client Examples
 
@@ -188,6 +189,7 @@ uv run api-forge-cli entity list         # List entities
 # Deployment
 uv run api-forge-cli deploy up k8s       # Deploy to Kubernetes
 uv run api-forge-cli deploy down k8s     # Remove from Kubernetes
+uv run api-forge-cli deploy rotate k8s   # Rotate secrets and redeploy
 ```
 
 ## Testing

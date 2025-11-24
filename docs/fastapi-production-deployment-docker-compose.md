@@ -27,6 +27,10 @@ Deploy to production with Docker Compose:
 cd infra/secrets
 ./generate_secrets.sh
 
+# Copy deterministic secret template and fill OIDC client secrets, webhook tokens, etc.
+cp user-provided.env.example user-provided.env
+# Edit user-provided.env with production-only values (not committed to git)
+
 # Create .env file with production values
 cp .env.example .env
 # Edit .env with production configuration
@@ -117,6 +121,8 @@ This generates:
 - `temporal_client.crt` - Temporal client certificate
 - `temporal_client.key` - Temporal client key
 
+> ℹ️ Deterministic credentials (OIDC client secrets, webhook tokens, vendor API keys, etc.) are **not** generated automatically. Store those values in `infra/secrets/user-provided.env` (copied from the `.example` file) and keep it out of version control. The production Compose stack now mounts this file via `env_file` so `app` and `worker` receive `OIDC_*_CLIENT_SECRET` at runtime.
+
 ### Using Docker Secrets
 
 The production configuration uses Docker secrets for sensitive data:
@@ -142,6 +148,8 @@ services:
 ```
 
 Secrets are mounted as files in `/run/secrets/` within containers.
+
+For deterministic values that live outside the generator (like OIDC client secrets), `docker-compose.prod.yml` now includes `infra/secrets/user-provided.env` in the `env_file` list for the `app` and `worker` services. Populate that file locally and Docker Compose will inject the variables alongside those from `.env`.
 
 ### Reading Secrets in Application
 
@@ -458,11 +466,12 @@ SESSION_SIGNING_SECRET_FILE=/run/secrets/session_signing_secret
 CSRF_SIGNING_SECRET_FILE=/run/secrets/csrf_signing_secret
 
 # OIDC Providers (production)
+# Place these in infra/secrets/user-provided.env so docker-compose.prod.yml can load them
 OIDC_GOOGLE_CLIENT_ID=your-google-client-id
-OIDC_GOOGLE_CLIENT_SECRET_FILE=/run/secrets/google_client_secret
+OIDC_GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 OIDC_MICROSOFT_CLIENT_ID=your-microsoft-client-id
-OIDC_MICROSOFT_CLIENT_SECRET_FILE=/run/secrets/microsoft_client_secret
+OIDC_MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
 
 # Logging
 LOG_LEVEL=INFO

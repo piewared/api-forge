@@ -384,16 +384,16 @@ Sessions are automatically rotated after authentication events:
 - Old session ID invalidated
 - Prevents session fixation attacks
 
-### Token Refresh
+### Token Refresh (Optional)
 
-FastAPI automatically refreshes OIDC access tokens when they expire:
+When `oidc.refresh_tokens.enabled` **and** `persist_in_session_store` are true, the BFF can refresh OIDC access tokens server-side:
 
 1. Request arrives with expired access token
 2. FastAPI uses refresh token to get new access token
 3. Session in Redis updated with new token
 4. Request continues transparently
 
-This happens server-side - the client never sees or handles refresh tokens.
+This happens server-side - the client never sees or handles refresh tokens. Leave the feature disabled (default) unless your IdP requires long-lived sessions.
 
 ## Development Setup
 

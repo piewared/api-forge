@@ -91,11 +91,11 @@ CLIENT_ORIGIN=https://yourdomain.com
 ```env
 # Google OAuth
 OIDC_GOOGLE_CLIENT_ID=your-google-client-id
-OIDC_GOOGLE_CLIENT_SECRET_FILE=/opt/app/secrets/oidc_google_client_secret.txt
+OIDC_GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # Microsoft OAuth
 OIDC_MICROSOFT_CLIENT_ID=your-microsoft-client-id
-OIDC_MICROSOFT_CLIENT_SECRET_FILE=/opt/app/secrets/oidc_microsoft_client_secret.txt
+OIDC_MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
 ```
 
 ### Secret Management
@@ -111,6 +111,11 @@ All sensitive data is stored in `/opt/app/secrets/` with restricted permissions:
 # Update manually
 /opt/app/secrets/oidc_google_client_secret.txt
 /opt/app/secrets/oidc_microsoft_client_secret.txt
+
+> For Docker Compose-based deployments, keep deterministic secrets such as `OIDC_*_CLIENT_SECRET`
+> inside `infra/secrets/user-provided.env` (copied from the `.example`), which is mounted via
+> `env_file`. When deploying directly to servers or Kubernetes, provide these values through your
+> secret manager of choice—the application only requires them as environment variables.
 ```
 
 ## 🛡️ Security Considerations

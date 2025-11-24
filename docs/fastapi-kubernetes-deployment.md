@@ -157,7 +157,7 @@ uv run api-forge-cli deploy up k8s
 
 ```bash
 # Generate all secrets and certificates
-./k8s/scripts/create-secrets.sh
+./infra/secrets/generate_secrets.sh
 ```
 
 **Manual alternative:**
@@ -173,9 +173,10 @@ This creates:
 - Redis password (redis_password.txt)
 - Session signing secrets (session_signing_secret.txt)
 - CSRF signing secrets (csrf_signing_secret.txt)
-- OIDC client secrets (oidc_google_client_secret.txt, etc.)
 - TLS certificates and keys (postgres.crt, postgres.key, redis.crt, redis.key)
 - CA certificates for mTLS (ca.crt, ca.key)
+- Deterministic OIDC client secrets captured during the script run (prompts, CLI flags, or
+  `--user-secrets-file`) and written to `infra/secrets/keys/oidc_*_client_secret.txt` for reuse.
 
 ### Step 3: Create Namespace
 
@@ -201,6 +202,19 @@ kubectl create namespace my-project-prod
 uv run api-forge-cli deploy up k8s
 ```
 
+**Using the script:**
+
+```bash
+# After running generate_secrets.sh (interactive prompts or --user-secrets-file),
+# apply all generated secrets to your namespace
+./k8s/scripts/apply-secrets.sh my-project-prod
+```
+
+This script reads every secret under `infra/secrets/keys/` (including the
+deterministic OIDC client secret files) plus TLS assets under `infra/secrets/certs/`, then
+creates/updates all Kubernetes secrets (`postgres-secrets`, `postgres-tls`, `postgres-ca`,
+`redis-secrets`, and `app-secrets`) in the selected namespace.
+
 **Manual alternative:**
 
 ```bash
@@ -221,6 +235,8 @@ kubectl create secret generic app-secrets \
   --from-file=session_signing_secret=infra/secrets/keys/session_signing_secret.txt \
   --from-file=csrf_signing_secret=infra/secrets/keys/csrf_signing_secret.txt \
   --from-file=oidc_google_client_secret=infra/secrets/keys/oidc_google_client_secret.txt \
+  --from-file=oidc_microsoft_client_secret=infra/secrets/keys/oidc_microsoft_client_secret.txt \
+  --from-file=oidc_keycloak_client_secret=infra/secrets/keys/oidc_keycloak_client_secret.txt \
   -n my-project-prod
 
 # Create TLS secrets

@@ -386,6 +386,8 @@ class TestSessionService:
     async def test_refresh_user_session_success(self, auth_test_config, provider, user_session_service: UserSessionService, oidc_client_service: OidcClientService):
         """Test successful user session refresh."""
         user_id = "12345678-1234-5678-9abc-123456789012"
+        auth_test_config.oidc.refresh_tokens.enabled = True
+        auth_test_config.oidc.refresh_tokens.persist_in_session_store = True
 
         with with_context(config_override=auth_test_config):
             # Create initial session
@@ -425,60 +427,129 @@ class TestSessionService:
                 assert new_session.access_token == "new-access-token"
                 assert new_session.refresh_token == "new-refresh-token"
 
+    @pytest.mark.asyncio
+    async def test_refresh_user_session_disabled_policy(
+        self,
+        auth_test_config,
+        user_session_service: UserSessionService,
+        oidc_client_service: OidcClientService,
+    ):
+        auth_test_config.oidc.refresh_tokens.enabled = False
+        user_id = "12345678-1234-5678-9abc-123456789012"
+
+        with with_context(config_override=auth_test_config):
+            session_id = await user_session_service.create_user_session(
+                client_fingerprint="test_fingerprint",
+                user_id=user_id,
+                provider="google",
+                refresh_token="refresh-token",
+                access_token="access-token",
+                access_token_expires_at=int(time.time()) + 3600,
+            )
+
+            with pytest.raises(ValueError, match="Refresh tokens are disabled"):
+                await user_session_service.refresh_user_session(session_id, oidc_client_service)
+
+    @pytest.mark.asyncio
+    async def test_refresh_user_session_lifetime_enforced(
+        self,
+        auth_test_config,
+        user_session_service: UserSessionService,
+        oidc_client_service: OidcClientService,
+    ):
+        auth_test_config.oidc.refresh_tokens.enabled = True
+        auth_test_config.oidc.refresh_tokens.max_session_lifetime_seconds = 60
+        user_id = "12345678-1234-5678-9abc-123456789012"
+
+        with with_context(config_override=auth_test_config):
+            session_id = await user_session_service.create_user_session(
+                client_fingerprint="test_fingerprint",
+                user_id=user_id,
+                provider="google",
+                refresh_token="refresh-token",
+                access_token="access-token",
+                access_token_expires_at=int(time.time()) + 3600,
+            )
+            storage = user_session_service._storage  # test-only access
+            stored_session = await storage.get(f"user:{session_id}", UserSession)
+            assert stored_session is not None
+            stored_session.created_at -= 120
+            await storage.set(
+                f"user:{session_id}", stored_session, auth_test_config.app.session_max_age
+            )
+
+            with pytest.raises(ValueError, match="Refresh token lifetime exceeded"):
+                await user_session_service.refresh_user_session(session_id, oidc_client_service)
+
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_not_found(
-        self, user_session_service: UserSessionService, oidc_client_service: OidcClientService
+        self,
+        auth_test_config,
+        user_session_service: UserSessionService,
+        oidc_client_service: OidcClientService,
     ):
         """Test refreshing non-existent session raises error."""
-        with pytest.raises(ValueError, match="Session not found or expired"):
-            await user_session_service.refresh_user_session("nonexistent-session", oidc_client_service)
+        auth_test_config.oidc.refresh_tokens.enabled = True
+        with with_context(config_override=auth_test_config):
+            with pytest.raises(ValueError, match="Session not found or expired"):
+                await user_session_service.refresh_user_session("nonexistent-session", oidc_client_service)
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_no_refresh_token(
-        self, user_session_service: UserSessionService, oidc_client_service: OidcClientService
+        self,
+        auth_test_config,
+        user_session_service: UserSessionService,
+        oidc_client_service: OidcClientService,
     ):
         """Test refreshing session without refresh token raises error."""
         user_id = "12345678-1234-5678-9abc-123456789012"
 
-        # Create session without refresh token
-        session_id = await user_session_service.create_user_session(
-            client_fingerprint="test_fingerprint",
-            user_id=user_id,
-            provider="google",
-            refresh_token=None,  # No refresh token
-            access_token="access-token",
-            access_token_expires_at=int(time.time()) + 3600,
-        )
+        auth_test_config.oidc.refresh_tokens.enabled = True
 
-        with pytest.raises(ValueError, match="No refresh token available"):
-            await user_session_service.refresh_user_session(session_id, oidc_client_service)
+        with with_context(config_override=auth_test_config):
+            session_id = await user_session_service.create_user_session(
+                client_fingerprint="test_fingerprint",
+                user_id=user_id,
+                provider="google",
+                refresh_token=None,  # No refresh token
+                access_token="access-token",
+                access_token_expires_at=int(time.time()) + 3600,
+            )
+
+            with pytest.raises(ValueError, match="No refresh token available"):
+                await user_session_service.refresh_user_session(session_id, oidc_client_service)
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_refresh_fails(
-        self, user_session_service: UserSessionService, oidc_client_service: OidcClientService
+        self,
+        auth_test_config,
+        user_session_service: UserSessionService,
+        oidc_client_service: OidcClientService,
     ):
         """Test refresh session when token refresh fails."""
         user_id = "12345678-1234-5678-9abc-123456789012"
+        auth_test_config.oidc.refresh_tokens.enabled = True
 
-        session_id = await user_session_service.create_user_session(
-            client_fingerprint="test_fingerprint",
-            user_id=user_id,
-            provider="google",
-            refresh_token="refresh-token",
-            access_token="access-token",
-            access_token_expires_at=int(time.time()) + 3600,
-        )
+        with with_context(config_override=auth_test_config):
+            session_id = await user_session_service.create_user_session(
+                client_fingerprint="test_fingerprint",
+                user_id=user_id,
+                provider="google",
+                refresh_token="refresh-token",
+                access_token="access-token",
+                access_token_expires_at=int(time.time()) + 3600,
+            )
 
-        # Mock refresh to fail
-        with patch.object(oidc_client_service, 'refresh_access_token') as mock_refresh:
-            mock_refresh.side_effect = Exception("Token refresh failed")
+            # Mock refresh to fail
+            with patch.object(oidc_client_service, 'refresh_access_token') as mock_refresh:
+                mock_refresh.side_effect = Exception("Token refresh failed")
 
-            with pytest.raises(ValueError, match="Token refresh failed"):
-                await user_session_service.refresh_user_session(session_id, oidc_client_service)
+                with pytest.raises(ValueError, match="Token refresh failed"):
+                    await user_session_service.refresh_user_session(session_id, oidc_client_service)
 
-            # Session should be cleaned up on failure
-            assert await user_session_service.get_user_session(session_id) is None
+                # Session should be cleaned up on failure
+                assert await user_session_service.get_user_session(session_id) is None
 
     def test_csrf_token_malformed_handling(self):
         """Test validating malformed CSRF token doesn't crash."""

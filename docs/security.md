@@ -291,25 +291,23 @@ await jwt_verify_service.verify_jwt(
 **Important**: The backend **never stores access tokens or ID tokens long-term**.
 
 - **Auth flow**: Tokens are used once during callback then discarded
-- **User sessions**: Only session metadata and optional refresh tokens are stored
-- **Refresh tokens**: Stored securely in session storage (Redis/in-memory) with encryption at rest
-- **JWKS caching**: Public keys cached with TTL to reduce provider requests
+- **User sessions**: Only session metadata (and optional refresh tokens) are stored
+- **Refresh tokens**: Disabled by default. When enabled, they are persisted only if `oidc.refresh_tokens.persist_in_session_store` is true and are subject to a configurable lifetime cap.
+- **JWKS caching**: Public keys cached with configurable TTL to reduce provider requests
 
 ### JWKS (JSON Web Key Set) Management
 
 ```python
 # Automatic JWKS fetching and caching
-class JWKSCache:
-    """Cache JWKS with automatic refresh and TTL management."""
-    
-    # Default TTL: 1 hour
-    # Refresh interval: 10 minutes
-    # Supports multiple providers simultaneously
+jwks_cache = JWKSCacheInMemory(
+   max_entries=config.jwt.jwks_cache_max_entries,
+   ttl_seconds=config.jwt.jwks_cache_ttl_seconds,
+)
 ```
 
 **Features**:
-- Automatic key rotation detection
-- Background refresh before expiration
+- Automatic key rotation detection with forced refresh on `kid` misses
+- Configurable TTL + cache size per environment
 - Provider-specific key caching
 - Thread-safe operations
 

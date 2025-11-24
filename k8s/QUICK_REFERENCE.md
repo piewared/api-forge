@@ -6,7 +6,7 @@ Quick reference for common operations with the API Template Kubernetes deploymen
 
 ```bash
 # Create secrets
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 
 # Deploy everything
 kubectl apply -k k8s/base/
@@ -133,7 +133,7 @@ kubectl get secret app-secrets -n api-forge-prod -o jsonpath='{.data.session_sig
 
 # Delete and recreate secrets
 kubectl delete secret postgres-secrets -n api-forge-prod
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 ```
 
 ## 📊 Scaling

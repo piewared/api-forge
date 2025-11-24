@@ -2,6 +2,7 @@
 
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 import yaml
@@ -9,6 +10,57 @@ from loguru import logger
 from pydantic_core import ValidationError
 
 from src.app.runtime.config.config_data import ConfigData
+
+_SECRETS_LOADED = False
+
+
+def _get_project_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _candidate_secret_dirs() -> Iterable[Path]:
+    custom_dir = os.getenv("SECRETS_KEYS_DIR")
+    if custom_dir:
+        yield Path(custom_dir)
+    project_root = _get_project_root()
+    yield project_root / "infra" / "secrets" / "keys"
+    yield project_root / "secrets" / "keys"
+
+
+def _load_secret_files_into_env() -> None:
+    global _SECRETS_LOADED
+    if _SECRETS_LOADED:
+        return
+
+    for directory in _candidate_secret_dirs():
+        if not directory.exists() or not directory.is_dir():
+            continue
+
+        for file_path in directory.iterdir():
+            if not file_path.is_file():
+                continue
+
+            env_name = file_path.stem.upper()
+            if not env_name or env_name in os.environ:
+                continue
+
+            try:
+                raw_value = file_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "Unable to read secret file %s: %s",
+                    file_path,
+                    exc,
+                )
+                continue
+
+            value = raw_value.strip()
+            if value:
+                os.environ[env_name] = value
+
+        break
+
+    _SECRETS_LOADED = True
 
 
 def substitute_env_vars(text: str) -> str:
@@ -20,6 +72,9 @@ def substitute_env_vars(text: str) -> str:
     - ${VAR_NAME:-default} - optional with default value
     - ${VAR_NAME:?error_message} - required with custom error message
     """
+
+    _load_secret_files_into_env()
+
     def replacer(match):
         var_expr = match.group(1)
 
@@ -120,6 +175,11 @@ def load_templated_yaml(file_path: Path) -> ConfigData:
             logger.warning("No OIDC providers are enabled after applying configuration filters")
 
         config.oidc.providers = enabled_providers
+
+    # Clear Redis password for development environment (dev Redis has no auth)
+    if env_mode == "development" and config.redis and config.redis.password:
+        logger.info("Clearing Redis password for development environment (dev Redis has no authentication)")
+        config.redis.password = ""
 
     return config
 

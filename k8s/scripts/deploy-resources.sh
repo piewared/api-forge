@@ -75,7 +75,7 @@ check_secrets() {
     
     if [ ${#missing_secrets[@]} -gt 0 ]; then
         log_error "Missing required secrets: ${missing_secrets[*]}"
-        log_error "Please run: ./create-secrets.sh ${NAMESPACE}"
+        log_error "Please run: ./apply-secrets.sh ${NAMESPACE}"
         exit 1
     fi
     
@@ -129,6 +129,19 @@ deploy_with_kustomize() {
     log_step "5/10 - Deploying all resources with Kustomize..."
     
     log_info "Building and applying Kustomize resources..."
+
+    # Remove completed jobs so each deploy reruns init tasks and avoids immutable template errors
+    local jobs_to_reset=(
+        "postgres-verifier"
+        "temporal-schema-setup"
+        "temporal-namespace-init"
+    )
+    log_info "Deleting previous job runs (if any) before applying manifests..."
+    for job in "${jobs_to_reset[@]}"; do
+        if kubectl delete job "$job" -n "${NAMESPACE}" --ignore-not-found=true >/dev/null 2>&1; then
+            log_info "  • Reset job: $job"
+        fi
+    done
     
     # Try to apply with kubectl apply -k
     if kubectl apply -k "${K8S_BASE}" 2>&1 | tee /tmp/kustomize-deploy.log; then
@@ -191,26 +204,64 @@ deploy_with_kustomize() {
     echo ""
 }
 
+restart_core_deployments() {
+    log_info "Restarting core deployments to pick up freshly built images..."
+    local deployments=(
+        "postgres"
+        "redis"
+        "temporal"
+        "temporal-admin-tools"
+        "temporal-web"
+        "app"
+        "worker"
+    )
+
+    for deployment in "${deployments[@]}"; do
+        if kubectl rollout restart deployment "$deployment" -n "${NAMESPACE}" >/dev/null 2>&1; then
+            log_info "  • Restarted deployment: $deployment"
+        else
+            log_warn "  • Unable to restart deployment: $deployment (may not exist)"
+        fi
+    done
+    echo ""
+}
+
 wait_for_databases() {
     log_step "6/10 - Waiting for databases and caches..."
     
     log_info "Waiting for PostgreSQL to be ready..."
-    if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "${NAMESPACE}" --timeout=120s; then
-        log_info "✓ PostgreSQL is ready"
+    # Wait for rollout to ensure we're checking the new pod, not a terminating one
+    if kubectl rollout status deployment/postgres -n "${NAMESPACE}" --timeout=180s >/dev/null 2>&1; then
+        # Now wait for the actual pod to be ready
+        if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "${NAMESPACE}" --timeout=30s; then
+            log_info "✓ PostgreSQL is ready"
+        else
+            log_error "PostgreSQL pod failed readiness check"
+            log_info "Checking PostgreSQL logs..."
+            kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=postgres --tail=50 || true
+            exit 1
+        fi
     else
-        log_error "PostgreSQL failed to become ready"
-        log_info "Checking PostgreSQL logs..."
-        kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=postgres --tail=50 || true
+        log_error "PostgreSQL deployment rollout failed"
+        kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=postgres || true
         exit 1
     fi
     
     log_info "Waiting for Redis to be ready..."
-    if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n "${NAMESPACE}" --timeout=120s; then
-        log_info "✓ Redis is ready"
+    # Wait for rollout to ensure we're checking the new pod, not a terminating one
+    if kubectl rollout status deployment/redis -n "${NAMESPACE}" --timeout=120s >/dev/null 2>&1; then
+        # Now wait for the actual pod to be ready
+        if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n "${NAMESPACE}" --timeout=30s; then
+            log_info "✓ Redis is ready"
+        else
+            log_error "Redis pod failed readiness check"
+            log_info "Checking Redis logs..."
+            kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=redis --tail=50 || true
+            exit 1
+        fi
     else
-        log_error "Redis failed to become ready"
-        log_info "Checking Redis logs..."
-        kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=redis --tail=50 || true
+        log_error "Redis deployment rollout failed"
+        kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=redis || true
         exit 1
     fi
     echo ""
@@ -334,6 +385,7 @@ main() {
     sync_configs
     deploy_configmaps
     deploy_with_kustomize
+    restart_core_deployments
     wait_for_databases
     wait_for_temporal_setup
     wait_for_temporal

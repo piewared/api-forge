@@ -6,9 +6,11 @@
 # Complete deployment in 4 commands
 ./k8s/scripts/build-images.sh && \
 cd infra/secrets && ./generate_secrets.sh && cd ../.. && \
-./k8s/scripts/create-secrets.sh && \
+./k8s/scripts/apply-secrets.sh && \
 ./k8s/scripts/deploy-resources.sh
 ```
+
+> ℹ️ Before running `apply-secrets.sh`, copy `infra/secrets/user-provided.env.example` to `infra/secrets/user-provided.env` and fill in the deterministic secrets (OIDC client secrets, etc.).
 
 ---
 
@@ -26,11 +28,11 @@ cd infra/secrets && ./generate_secrets.sh && cd ../.. && \
   ```
   ✅ Creates: TLS certs, passwords, signing secrets
 
-- [ ] **Step 3**: Create Kubernetes secrets
+- [ ] **Step 3**: Apply Kubernetes secrets (after filling `infra/secrets/user-provided.env`)
   ```bash
-  ./k8s/scripts/create-secrets.sh
+  ./k8s/scripts/apply-secrets.sh
   ```
-  ✅ Uploads: 5 secret resources to cluster
+  ✅ Uploads: 5 secret resources to cluster (passwords, TLS certs, OIDC client secrets)
 
 - [ ] **Step 4**: Deploy resources
   ```bash
@@ -133,7 +135,7 @@ minikube ssh "docker images | grep 'api-forge\|my-temporal' | awk '{print \$3}' 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
 | `ImagePullBackOff` | Images not in cluster | Run `./build-images.sh` |
-| Secrets not found | Missing secrets | Run `./create-secrets.sh` |
+| Secrets not found | Missing secrets | Run `./apply-secrets.sh` |
 | Connection refused | Service selector mismatch | Don't use `kubectl apply -k` |
 | Temporal won't start | Schemas not initialized | Schema job runs automatically |
 | Pod crashes immediately | Config/secret error | Check logs: `kubectl logs` |
@@ -253,7 +255,7 @@ vim config.yaml
 cd infra/secrets && ./generate_secrets.sh && cd ../..
 
 # 2. Update Kubernetes secrets
-./k8s/scripts/create-secrets.sh
+./k8s/scripts/apply-secrets.sh
 
 # 3. Restart affected pods
 kubectl rollout restart deployment/postgres -n api-forge-prod

@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from src.app.core.models.session import TokenClaims
-from src.app.runtime.config.config_data import ConfigData, OIDCProviderConfig
+from src.app.runtime.config.config_data import OIDCProviderConfig
 from src.app.runtime.context import get_config
 
 # ---------------- tunables ----------------
@@ -228,7 +228,13 @@ def create_token_claims(
     # Make a copy to avoid modifying the original claims dict
     remaining_claims = claims.copy()
 
-    logger.debug(f"Creating TokenClaims from claims: {remaining_claims}")
+    logger.debug(
+        "Creating TokenClaims for issuer=%s subject=%s token_type=%s (claims=%d)",
+        remaining_claims.get("iss"),
+        remaining_claims.get("sub"),
+        token_type,
+        len(remaining_claims),
+    )
 
     uid = extract_uid(remaining_claims)
 

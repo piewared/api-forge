@@ -14,15 +14,13 @@
 
 ## Repository Overview
 
-**Project Type**: Cookiecutter-based FastAPI API template for production-ready microservices  
+**Project Type**: Copier-based FastAPI API template for production-ready microservices  
 **Primary Language**: Python 3.13+  
 **Package Manager**: `uv` (fast Python package installer/manager)  
-**Size**: ~500 files, dual structure (infrastructure + cookiecutter template)  
+**Size**: ~500 files (infrastructure code plus some legacy template remnants)  
 **Key Frameworks**: FastAPI, SQLModel, Pydantic, Temporal, Docker Compose
 
-This is both a **working infrastructure codebase** AND a **Cookiecutter template generator**. The repository contains:
-1. **Infrastructure code** in `src/` - the actual working codebase for testing/development
-2. **Template code** in `{{cookiecutter.project_slug}}/` - what gets generated when users run `cruft create`
+This repository hosts the primary infrastructure codebase inside `src/` along with the Copier template definition (`copier.yml` plus supporting scripts). Generated projects pull directly from this tree, so keep it production-grade.
 
 ### Core Features
 - OIDC authentication (Keycloak dev/test, Google/Microsoft prod) with BFF pattern
@@ -32,6 +30,7 @@ This is both a **working infrastructure codebase** AND a **Cookiecutter template
 - Temporal workflows for async/background processing
 - Full Docker Compose development environment (Keycloak, PostgreSQL, Redis, Temporal)
 - Clean Architecture with entities → repositories → services → API layers
+- Hardened OIDC/JWT pipeline with nonce enforcement, configurable refresh-token policy, JWKS cache controls, and sanitized logging
 
 ---
 
@@ -39,7 +38,7 @@ This is both a **working infrastructure codebase** AND a **Cookiecutter template
 
 **ALWAYS use these exact command sequences. They have been validated to work.**
 
-**CLI Entrypoint Reminder**: All repository automation flows run through the `api-forge-cli` Typer app. Always invoke it with `uv run api-forge-cli …` (the name stays the same even inside template-generated projects).
+**CLI Entrypoint Reminder**: All repository automation flows run through the `api-forge-cli` Typer app. Always invoke it with `uv run api-forge-cli …` so the managed virtualenv is used.
 
 ### Environment Setup (First Time)
 ```bash
@@ -68,8 +67,6 @@ uv run api-forge-cli dev start-server
 # Method 2: Direct uvicorn (infrastructure testing)
 PYTHONPATH=src uv run uvicorn src.app.api.http.app:app --reload
 
-# Method 3: Legacy dev mode (for cookiecutter template testing)
-uv run uvicorn main:app --reload
 ```
 
 ### Testing
@@ -80,7 +77,6 @@ uv run pytest tests/ -v
 # Run specific test categories
 uv run pytest tests/unit/ -v              # Unit tests only
 uv run pytest tests/integration/ -v       # Integration tests
-uv run pytest tests/template/ -v          # Template generation tests
 
 # With coverage
 uv run pytest --cov=src --cov-report=xml
@@ -196,6 +192,25 @@ sudo netstat -tlnp | grep -E ':8080|:5432|:6379|:7233'
 **Current State**: 36 ruff errors (mostly whitespace/formatting)  
 **Safe to ignore** for functionality, but run `uv run ruff check src/ --fix` before committing
 
+## Recent Security Updates (Nov 2025)
+
+- **OIDC nonce + fallback tightening**: `src/app/core/services/oidc_client_service.py` now enforces nonce alignment and only falls back to `userinfo` if an ID token omits required claims. When modifying callback flows (see `src/app/api/http/routers/auth_bff_enhanced.py`), ensure the nonce travels end-to-end.
+- **Refresh-token policy guardrails**: `config.yaml` exposes `oidc.refresh_tokens` (modeled by `OIDCRefreshTokenPolicy` in `config_data.py`) so environments can enable/disable refresh handling, opt into persistence, and cap session lifetimes. Always read these flags before storing refresh tokens in Redis-backed sessions.
+- **JWKS cache tuning + forced refresh**: `JWTConfig` gained `jwks_cache_ttl_seconds` and `jwks_cache_max_entries`. `JwtVerificationService` can now request `force_refresh=True` when a `kid` is missing—update any mocks/fixtures to accept that kwarg.
+- **Logging + session sanitization**: Token/JWT helpers (`jwt_utils.py`, `jwt_verify.py`) only log metadata, never raw claims, and session refresh requests validate lifetimes via `user_session.py`. Preserve this posture when adding new logs or session mutations.
+
+Reference tests: `tests/unit/app/core/services/test_jwt_services.py`, `tests/unit/app/core/services/test_oidc_client_service.py`, and `tests/unit/app/core/services/test_session_service_new.py` cover the behaviors above—extend them when you touch these code paths.
+
+## Future Development Context & Tips
+
+- **CLI-first workflows**: The `api-forge-cli` Typer app is the entrypoint for local env management (`dev start-env`, `dev status`, `dev start-server`), entity scaffolding, and deployments (`deploy up k8s`). Prefer enhancing CLI commands over ad-hoc scripts so contributors follow one path.
+- **Config + model parity**: All config surface area lives in `config.yaml` and is validated by `ConfigData` models. When adding a knob, update both the YAML defaults and the corresponding Pydantic model (plus docs under `docs/configuration.md`) and extend tests that rely on the new setting.
+- **Database + storage changes**: Until Alembic migrations land, schema adjustments go through `src/app/runtime/init_db.py` and the SQLite dev database. Update fixtures under `tests/fixtures/` and add helper data in `data/` if the change requires dev/test visibility.
+- **Testing strategy**: Keep fast unit tests under `tests/unit/` and lean on the provided Redis/Postgres/Temporal containers for integration suites. For anything auth-related, reuse the Keycloak fixtures in `tests/fixtures/auth.py` and avoid hardcoding secrets.
+- **Deployment surfaces**: Docker Compose files live in `docker/`, while Kubernetes manifests are in `k8s/` with overlays emitted to `k8s-out/`. CI/CD and local smoke tests rely on `uv run api-forge-cli deploy up k8s` plus the `postgres-verifier` job, so ensure any new assets (TLS certs, ConfigMaps) thread through that flow.
+- **Observability + logging**: Structured logging defaults to JSON via Loguru. When adding logs, avoid secrets, prefer metadata, and ensure new components emit health info that shows up in `uv run api-forge-cli dev logs <service>`.
+- **Stateful services**: Redis (sessions/cache), PostgreSQL (app DB + Temporal), and Temporal itself all have dev/prod splits. For changes touching these systems, note the different ports/secrets and update `docs/redis/`, `docs/postgres/`, or `docs/temporal/` as needed.
+
 ---
 
 ## Development Environment Test Users
@@ -256,11 +271,10 @@ The development Keycloak service (`api-forge-keycloak-dev`) is automatically con
 │   │   ├── setup_keycloak.py      # Keycloak setup automation
 │   │   └── dev_utils.py           # Development utilities
 │   └── utils/                     # Shared utilities
-├── {{cookiecutter.project_slug}}/ # Cookiecutter template (generated projects)
 ├── tests/                         # Test suites
 │   ├── unit/                      # Unit tests
 │   ├── integration/               # Integration tests (require Docker)
-│   ├── template/                  # Template generation tests
+│   ├── template/                  # Legacy template tests (unused)
 │   └── fixtures/                  # Test fixtures
 ├── docker/                        # Docker configurations
 │   ├── dev/                       # Development services
@@ -274,7 +288,6 @@ The development Keycloak service (`api-forge-keycloak-dev`) is automatically con
 │   ├── prod/                      # Production deployment
 │   └── clients/                   # Client integration examples
 ├── secrets/                       # Production secrets (gitignored)
-├── hooks/                         # Cookiecutter hooks
 ├── pyproject.toml                 # Python dependencies & config
 ├── config.yaml                    # Application configuration
 ├── .env.example                   # Environment variables template
@@ -292,7 +305,9 @@ The development Keycloak service (`api-forge-keycloak-dev`) is automatically con
   - `redis` - cache/session store
   - `temporal` - workflow engine
   - `oidc.providers` - authentication providers (keycloak, google, microsoft)
+  - `oidc.refresh_tokens` - governs whether refresh tokens are accepted, persisted, and max session lifetime for refresh flows
   - `jwt` - token validation rules
+    - Includes `jwks_cache_ttl_seconds` & `jwks_cache_max_entries` for cache sizing
   - `rate_limiter` - per-endpoint throttling
   - `logging` - structured logging config
 
@@ -310,7 +325,7 @@ The development Keycloak service (`api-forge-keycloak-dev`) is automatically con
 - **Scripts**: 
   - `init-db` - database initialization
   - `cli` - development CLI
-- **Ruff Config**: Line length 88, target py313, excludes cookiecutter dirs
+- **Ruff Config**: Line length 88, target py313, scope limited to `src/` plus active tooling modules
 - **MyPy Config**: Strict type checking enabled
 - **Pytest Config**: Auto asyncio mode, marks for manual tests
 
@@ -353,8 +368,8 @@ Session creation, validation, rotation, CSRF protection
 
 ## CI/CD & Validation
 
-### GitHub Actions (Template Projects)
-**Location**: `{{cookiecutter.project_slug}}/.github/workflows/ci.yml`
+### GitHub Actions
+**Location**: `.github/workflows/ci.yml`
 
 **Workflow**:
 1. **Test Job**: Python 3.13, `uv sync --dev`, `uv run pytest -v --cov`
@@ -463,29 +478,29 @@ This template evolves quickly. Here are the highest-priority improvements we pla
   - Ship default OpenTelemetry instrumentation + Tempo/Grafana wiring in `docker-compose.dev.yml` and k8s overlays  
   - Provide structured log shipping examples (Grafana Loki) and alert policies for auth/db regressions
 
-3. **Template scaffolding upgrades (planning)**  
-  - Extend `api-forge-cli entity add` to generate Temporal workflows + worker stubs  
-  - Add optional Frontend/BFF stub with OAuth-ready routes and typed client generation
-
-4. **Developer experience polish (backlog)**  
+3. **Developer experience polish (backlog)**  
   - New `api-forge-cli doctor` command that checks `.env`, Docker health, and TLS prerequisites  
   - Automated Docker cleanup + artifact pruning hooks to keep local environments slim  
   - Pre-commit config bundling (ruff, mypy, pytest smoke) to standardize contributor workflow
 
-5. **Services security review & hardening (research)**  
+4. **Services security review & hardening (research)**  
   - Inventory all running services to ensure TLS is enforced end-to-end (ingress, PostgreSQL, Redis, Temporal, internal APIs)  
   - Extend `secrets/generate_secrets.sh` (and related docs) to mint cert/key pairs when missing  
   - Document verification steps so contributors can confirm certificate wiring locally before deploying
 
-6. **Database migrations with Alembic (design)**  
+5. **Database migrations with Alembic (design)**  
   - Introduce Alembic to manage schema drift for both the infrastructure app and generated templates  
   - Wire migration commands into `api-forge-cli` (`upgrade`, `downgrade`, `stamp`) with SQLite + Postgres compatibility  
   - Add CI guardrails that fail when migrations are missing or out-of-date
 
-7. **Additional deployment options (exploration)**  
+6. **Additional deployment options (exploration)**  
   - Produce Fly.io deployment guide + automation scripts mirroring the existing Kubernetes workflow  
   - Provide reference manifests/Helm chart tweaks for standard Kubernetes clusters outside our k8s overlays  
   - Ensure secrets, TLS assets, and init jobs (postgres-verifier, TLS bootstrap) adapt cleanly across these targets
+
+7. **Add secret rotation CLI commands (TBD)**  
+  - New `api-forge-cli secrets rotate` command to regenerate signing secrets, TLS certs, and database passwords  
+  - Update deployment docs to include rotation steps and post-rotation verification checks
 
 Contributions toward any of these items are welcome; just open an issue referencing the roadmap bullet so we can coordinate.
 
@@ -512,6 +527,6 @@ Contributions toward any of these items are welcome; just open an issue referenc
 - Temporal requires PostgreSQL schemas `temporal` and `temporal_visibility` with proper search_path
 - Integration tests will fail if Docker services aren't running
 - Some tests marked `@pytest.mark.manual` require user interaction - skip with `-m "not manual"`
-- Cookiecutter template files in `{{cookiecutter.project_slug}}/` use Jinja2 syntax - don't lint them
 - Development and production use different ports (dev offset by 1000: 5433 vs 5432, 6380 vs 6379)
+- JWKS fixtures (e.g., `tests/fixtures/services.py::jwks_service_fake`) must accept the `force_refresh` kwarg to stay in sync with `JwksService.fetch_jwks`
 

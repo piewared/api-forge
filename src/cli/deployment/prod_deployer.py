@@ -16,6 +16,15 @@ class ProdDeployer(BaseDeployer):
     """Deployer for production environment using Docker Compose."""
 
     COMPOSE_FILE = "docker-compose.prod.yml"
+    DATA_SUBDIRS = [
+        Path("postgres"),
+        Path("postgres-backups"),
+        Path("postgres-ssl"),
+        Path("redis"),
+        Path("redis-backups"),
+        Path("app-logs"),
+        Path("temporal-certs"),
+    ]
 
     # Service monitoring configuration
     SERVICES = [
@@ -42,20 +51,29 @@ class ProdDeployer(BaseDeployer):
         """Deploy the production environment.
 
         Args:
-            **kwargs: Deployment options (skip_build, no_wait)
+            **kwargs: Deployment options (skip_build, no_wait, force_recreate)
         """
         # Check for .env file first
         if not self.check_env_file():
             raise typer.Exit(1)
 
+        self._ensure_required_directories()
+
         skip_build = kwargs.get("skip_build", False)
         no_wait = kwargs.get("no_wait", False)
-        # Build app image if needed
-        if not skip_build:
-            self._build_app_image()
+        force_recreate = kwargs.get("force_recreate", False)
 
-        # Start services
-        self._start_services()
+        # Build app image if needed (or force rebuild for secret rotation)
+        if not skip_build or force_recreate:
+            self._build_app_image(force=force_recreate)
+
+        # For secret rotation, we need to stop and recreate containers
+        if force_recreate:
+            self.info("Force recreate enabled - stopping containers to pick up new secrets...")
+            self.run_command(["docker", "compose", "-f", self.COMPOSE_FILE, "down"])
+
+        # Start services (with force-recreate if specified)
+        self._start_services(force_recreate=force_recreate)
 
         # Wait for health checks
         if not no_wait:
@@ -64,6 +82,10 @@ class ProdDeployer(BaseDeployer):
         # Display final status
         self.console.print("\n[bold green]🎉 Production deployment complete![/bold green]")
         self.status_display.show_prod_status()
+
+    def _ensure_required_directories(self) -> None:
+        data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
+        self.info(f"Ensured data directories exist under {data_root}")
 
     def teardown(self, **kwargs) -> None:
         """Stop the production environment.
@@ -79,8 +101,57 @@ class ProdDeployer(BaseDeployer):
         with self.console.status("[bold red]Stopping containers..."):
             self.run_command(cmd)
 
+        # Named volumes require explicit removal (docker compose down -v only removes anonymous volumes)
         if volumes:
-            self.success("Production services stopped and volumes removed")
+            self.info("Removing named data volumes...")
+            # Get list of volumes for this project
+            result = self.run_command(
+                ["docker", "volume", "ls", "-q", "--filter", "label=com.docker.compose.project=api_project_template3"],
+                capture_output=True
+            )
+            if result and result.stdout:
+                volume_names = [v for v in result.stdout.strip().split('\n') if v]
+                if volume_names:
+                    for volume in volume_names:
+                        self.run_command(
+                            ["docker", "volume", "rm", volume],
+                            check=False,
+                            capture_output=True
+                        )
+                    self.success(f"Production services stopped and {len(volume_names)} volume objects removed")
+                else:
+                    self.success("Production services stopped (no volumes found)")
+            else:
+                self.success("Production services stopped and volumes removed")
+
+            # Also remove the actual data directories (since volumes use bind mounts)
+            self.info("Removing data directories...")
+            data_dir = self.project_root / "data"
+            if data_dir.exists():
+                import shutil
+                failed_dirs = []
+                for subdir in self.DATA_SUBDIRS:
+                    dir_path = data_dir / subdir
+                    if dir_path.exists():
+                        try:
+                            shutil.rmtree(dir_path)
+                        except PermissionError:
+                            failed_dirs.append(dir_path)
+                        except Exception as e:
+                            self.console.print(f"[yellow]Warning: Could not remove {dir_path}: {e}[/yellow]")
+
+                # Retry failed directories with sudo
+                if failed_dirs:
+                    dir_list = ", ".join([str(d.relative_to(self.project_root)) for d in failed_dirs])
+                    self.console.print(f"[yellow]Elevated permissions required to remove: {dir_list}[/yellow]")
+                    self.console.print("[yellow]Using sudo to remove Docker-created files...[/yellow]")
+                    for dir_path in failed_dirs:
+                        self.run_command(
+                            ["sudo", "rm", "-rf", str(dir_path)],
+                            check=False
+                        )
+                self.success("Data directories removed")
+
         else:
             self.success("Production services stopped (volumes preserved)")
 
@@ -88,9 +159,29 @@ class ProdDeployer(BaseDeployer):
         """Display the current status of the production deployment."""
         self.status_display.show_prod_status()
 
-    def _build_app_image(self) -> None:
-        """Build the application Docker image using Docker layer caching."""
+    def _build_app_image(self, force: bool = False) -> None:
+        """Build the application Docker image using Docker layer caching.
+
+        Args:
+            force: If True, rebuild postgres image for secret rotation
+        """
         with self.create_progress() as progress:
+            # Build postgres first if force (for secret rotation with updated sync script)
+            if force:
+                task = progress.add_task("Rebuilding postgres image (for secret rotation)...", total=1)
+                self.run_command(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        self.COMPOSE_FILE,
+                        "build",
+                        "postgres",
+                    ]
+                )
+                progress.update(task, completed=1)
+                self.success("Postgres image rebuilt")
+
             task = progress.add_task("Building application image...", total=1)
             self.run_command(
                 [
@@ -105,13 +196,18 @@ class ProdDeployer(BaseDeployer):
             progress.update(task, completed=1)
         self.success("Application image built (using cached layers)")
 
-    def _start_services(self) -> None:
-        """Start all production services."""
+    def _start_services(self, force_recreate: bool = False) -> None:
+        """Start all production services.
+
+        Args:
+            force_recreate: If True, force recreate containers (for secret rotation)
+        """
         with self.create_progress() as progress:
             task = progress.add_task("Starting production services...", total=1)
-            self.run_command(
-                ["docker", "compose", "-f", self.COMPOSE_FILE, "up", "-d", "--remove-orphans"]
-            )
+            cmd = ["docker", "compose", "-f", self.COMPOSE_FILE, "up", "-d", "--remove-orphans"]
+            if force_recreate:
+                cmd.append("--force-recreate")
+            self.run_command(cmd)
             progress.update(task, completed=1)
         self.success("Production services started")
 

@@ -126,6 +126,15 @@ Your app's `config.yaml` decides which to use based on `APP_ENVIRONMENT`.
 
 ## Troubleshooting
 
+### Rotating Postgres passwords / secrets
+
+When you regenerate secrets (for example by re-running `infra/secrets/generate_secrets.sh` or rotating files under `infra/secrets/keys`), the Kubernetes `Secret` objects get recreated by `k8s/scripts/apply-secrets.sh`. The mounted files inside the Postgres pod update automatically, but the database roles still keep their previous passwords until you run the `sync-passwords` helper.
+
+- **CLI users:** `uv run api-forge-cli deploy k8s` now runs the sync step automatically after secrets are applied.
+- **Manual users:** run `./k8s/scripts/sync-postgres-passwords.sh <namespace>` (defaults to `api-forge-prod`). The script waits for the running Postgres pod and executes `/opt/entry/admin-scripts/sync-passwords.sh` inside it so all roles (`app`, `readonly`, and `temporal`) align with the latest secrets.
+
+If the script cannot find a Postgres pod it simply logs a warning and exits, which is expected on the very first deploy. For rotations, ensure the pod is running before invoking the script.
+
 ### ConfigMap not updating
 
 The ConfigMap only updates when you run `kubectl apply -k k8s/base/`. Changes to `.env` don't automatically deploy.

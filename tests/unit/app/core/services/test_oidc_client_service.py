@@ -4,10 +4,9 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from src.app.core.models.session import TokenClaims
 from src.app.core.security import generate_pkce_pair, generate_state
-from src.app.core.services import (
-    OidcClientService,
-)
+from src.app.core.services import OidcClientService
 from src.app.core.services.jwt.jwt_verify import JwtVerificationService
 from src.app.core.services.oidc_client_service import TokenResponse
 from src.app.runtime.context import with_context
@@ -129,7 +128,7 @@ class TestOIDCClientService:
                 assert headers["Authorization"].startswith("Basic ")
 
     @pytest.mark.asyncio
-    async def test_get_user_claims_from_userinfo_endpoint(
+    async def test_get_user_claims_from_userinfo_endpoint_when_id_token_missing(
         self,
         base_oidc_provider,
         mock_http_response_factory,
@@ -156,8 +155,7 @@ class TestOIDCClientService:
         mock_response = mock_http_response_factory(claims)
 
         with patch.object(jwt_verify_service, "verify_jwt") as mock_verify:
-            # Make JWT verification fail to force fallback to userinfo
-            mock_verify.side_effect = Exception("JWT verification failed")
+            mock_verify.return_value = None
 
             with patch("httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.get.return_value = (
@@ -167,7 +165,7 @@ class TestOIDCClientService:
                 with with_context(config_override=auth_test_config):
                     result = await oidc_client_service.get_user_claims(
                         access_token="mock-access-token",
-                        id_token="mock-id-token",
+                        id_token=None,
                         provider="default",
                     )
 
@@ -187,29 +185,88 @@ class TestOIDCClientService:
                         mock_client.return_value.__aenter__.return_value.get.call_args
                     )
                     assert base_oidc_provider.userinfo_endpoint in call_args[0][0]
+                    mock_verify.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_get_user_claims_no_id_token_no_userinfo(self, oidc_client_service: OidcClientService, jwt_verify_service: JwtVerificationService, auth_test_config):
+    async def test_get_user_claims_invalid_id_token_raises(
+        self,
+        oidc_client_service: OidcClientService,
+        jwt_verify_service: JwtVerificationService,
+        auth_test_config,
+    ):
+        with patch.object(jwt_verify_service, "verify_jwt") as mock_verify:
+            mock_verify.side_effect = Exception("JWT verification failed")
+
+            with with_context(config_override=auth_test_config):
+                with pytest.raises(Exception, match="JWT verification failed"):
+                    await oidc_client_service.get_user_claims(
+                        access_token="mock-access-token",
+                        id_token="mock-id-token",
+                        provider="default",
+                        expected_nonce="nonce123",
+                    )
+
+    @pytest.mark.asyncio
+    async def test_get_user_claims_verifies_id_token_with_expected_params(
+        self,
+        oidc_client_service: OidcClientService,
+        jwt_verify_service: JwtVerificationService,
+        auth_test_config,
+    ):
+        token_claims = TokenClaims.from_jwt_payload(
+            {
+                "iss": "https://mock-provider.test",
+                "sub": "user-12345",
+                "aud": "test-client-id",
+                "exp": int(time.time()) + 3600,
+                "iat": int(time.time()),
+            },
+            raw_token="mock-id-token",
+        )
+
+        with patch.object(jwt_verify_service, "verify_jwt", return_value=token_claims) as mock_verify:
+            with with_context(config_override=auth_test_config):
+                result = await oidc_client_service.get_user_claims(
+                    access_token="mock-access-token",
+                    id_token="mock-id-token",
+                    provider="default",
+                    expected_nonce="nonce123",
+                )
+
+        assert result.subject == "user-12345"
+        mock_verify.assert_awaited_once()
+        _, kwargs = mock_verify.call_args
+        assert kwargs["expected_nonce"] == "nonce123"
+        assert kwargs["expected_audience"] == auth_test_config.oidc.providers["default"].client_id
+        assert kwargs["expected_issuer"] == auth_test_config.oidc.providers["default"].issuer
+
+    @pytest.mark.asyncio
+    async def test_get_user_claims_no_id_token_no_userinfo(
+        self,
+        oidc_client_service: OidcClientService,
+        jwt_verify_service: JwtVerificationService,
+        auth_test_config,
+    ):
         """Test error handling when both ID token and userinfo fail."""
         # Configure provider without userinfo endpoint
         auth_test_config.oidc.providers["default"].userinfo_endpoint = None
 
         with patch.object(jwt_verify_service, "verify_jwt") as mock_verify:
-            mock_verify.side_effect = Exception("JWT verification failed")
-
             with with_context(config_override=auth_test_config):
                 with pytest.raises(ValueError, match="Unable to retrieve user claims"):
                     await oidc_client_service.get_user_claims(
                         access_token="mock-access-token",
-                        id_token="mock-id-token",
+                        id_token=None,
                         provider="default",
                     )
+            mock_verify.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_success(
         self, oidc_client_service: OidcClientService, mock_http_response_factory, auth_test_config
     ):
         """Test successful access token refresh."""
+        auth_test_config.oidc.refresh_tokens.enabled = True
         mock_response_data = {
             "access_token": "new-access-token",
             "token_type": "Bearer",
@@ -239,6 +296,18 @@ class TestOIDCClientService:
                 form_data = call_args[1]["data"]
                 assert form_data["grant_type"] == "refresh_token"
                 assert form_data["refresh_token"] == "old-refresh-token"
+
+    @pytest.mark.asyncio
+    async def test_refresh_access_token_disabled(
+        self, oidc_client_service: OidcClientService, auth_test_config
+    ):
+        auth_test_config.oidc.refresh_tokens.enabled = False
+
+        with with_context(config_override=auth_test_config):
+            with pytest.raises(ValueError, match="Refresh tokens are disabled"):
+                await oidc_client_service.refresh_access_token(
+                    refresh_token="old-refresh-token", provider="default"
+                )
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_http_error(

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Kubernetes Secret Creation Script
-# This script creates all necessary secrets from the infra/secrets directory
-# Usage: ./create-secrets.sh [namespace]
+# Kubernetes Secret Application Script
+# This script pushes generated secrets from infra/secrets into Kubernetes
+# Usage: ./apply-secrets.sh [namespace]
 
 set -euo pipefail
 
@@ -29,7 +29,6 @@ log_warn() {
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
-
 check_prerequisites() {
     log_info "Checking prerequisites..."
     
@@ -118,7 +117,7 @@ create_postgres_tls_secrets() {
     fi
     
     kubectl create secret generic postgres-tls \
-        --from-file=server.crt="${certs_dir}/server.crt" \
+        --from-file=server.crt="${certs_dir}/server-chain.crt" \
         --from-file=server.key="${certs_dir}/server.key" \
         --namespace="${NAMESPACE}"
     
@@ -134,9 +133,21 @@ create_postgres_ca_secret() {
         log_error "CA bundle not found: ${certs_dir}/ca-bundle.crt"
         exit 1
     fi
+
+    if [ ! -f "${certs_dir}/root-ca.crt" ]; then
+        log_error "Root CA not found: ${certs_dir}/root-ca.crt"
+        exit 1
+    fi
+
+    if [ ! -f "${certs_dir}/intermediate-ca.crt" ]; then
+        log_error "Intermediate CA not found: ${certs_dir}/intermediate-ca.crt"
+        exit 1
+    fi
     
     kubectl create secret generic postgres-ca \
         --from-file=ca-bundle.crt="${certs_dir}/ca-bundle.crt" \
+        --from-file=root-ca.crt="${certs_dir}/root-ca.crt" \
+        --from-file=intermediate-ca.crt="${certs_dir}/intermediate-ca.crt" \
         --namespace="${NAMESPACE}"
     
     log_info "PostgreSQL CA secret created successfully"
@@ -168,6 +179,9 @@ create_app_secrets() {
     local required_files=(
         "session_signing_secret.txt"
         "csrf_signing_secret.txt"
+        "oidc_google_client_secret.txt"
+        "oidc_microsoft_client_secret.txt"
+        "oidc_keycloak_client_secret.txt"
     )
     
     for file in "${required_files[@]}"; do
@@ -176,10 +190,13 @@ create_app_secrets() {
             exit 1
         fi
     done
-    
+
     kubectl create secret generic app-secrets \
         --from-file=session_signing_secret="${keys_dir}/session_signing_secret.txt" \
         --from-file=csrf_signing_secret="${keys_dir}/csrf_signing_secret.txt" \
+        --from-file=oidc_google_client_secret="${keys_dir}/oidc_google_client_secret.txt" \
+        --from-file=oidc_microsoft_client_secret="${keys_dir}/oidc_microsoft_client_secret.txt" \
+        --from-file=oidc_keycloak_client_secret="${keys_dir}/oidc_keycloak_client_secret.txt" \
         --namespace="${NAMESPACE}"
     
     log_info "Application secrets created successfully"
@@ -235,7 +252,7 @@ main() {
     verify_secrets
     
     echo ""
-    log_info "✓ Secret creation completed successfully!"
+    log_info "✓ Secret application completed successfully!"
     log_info "You can now deploy the application using: kubectl apply -k k8s/base/"
 }
 

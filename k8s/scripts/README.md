@@ -7,7 +7,8 @@ This directory contains automation scripts for building, deploying, and managing
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `build-images.sh` | Build all Docker images | `./build-images.sh` |
-| `create-secrets.sh` | Create Kubernetes secrets | `./create-secrets.sh [namespace]` |
+| `apply-secrets.sh` | Apply Kubernetes secrets | `./apply-secrets.sh [namespace]` |
+| `sync-postgres-passwords.sh` | Update Postgres role passwords with latest secrets | `./sync-postgres-passwords.sh [namespace]` |
 | `deploy-config.sh` | Sync config files and deploy | `./deploy-config.sh [--restart] [--sync-only]` |
 | `deploy-resources.sh` | Deploy all resources | `./deploy-resources.sh [namespace]` |
 
@@ -25,8 +26,10 @@ cd ../../infra/secrets && ./generate_secrets.sh && cd -
 # 3. Sync config files
 ./deploy-config.sh --sync-only
 
-# 4. Create Kubernetes secrets
-./create-secrets.sh
+# 4. Apply Kubernetes secrets (generated + user-provided)
+cp ../../infra/secrets/user-provided.env.example ../../infra/secrets/user-provided.env  # first time only
+# Fill in values, then run:
+./apply-secrets.sh
 
 # 5. Deploy everything
 ./deploy-resources.sh
@@ -107,27 +110,29 @@ Builds all required Docker images with proper build contexts.
 
 ---
 
-### create-secrets.sh
+### apply-secrets.sh
 
-Creates Kubernetes secrets from files in `infra/secrets/`.
+Applies Kubernetes secrets by combining generated files in `infra/secrets/keys/` + `infra/secrets/certs/` with deterministic values stored in `infra/secrets/user-provided.env`.
 
 **Requirements**:
 - kubectl installed and configured
 - Kubernetes cluster accessible
 - Secrets generated in `infra/secrets/` (run `infra/secrets/generate_secrets.sh` first)
+- `infra/secrets/user-provided.env` created from the `.example` template and populated with OIDC client secrets
 
 **Arguments**:
 - `[namespace]` - Target namespace (default: `api-forge-prod`)
 
 **What it does**:
 - Creates namespace if missing
+- Validates the user-provided secrets file is present
 - Deletes existing secrets (clean slate)
 - Creates 5 secret resources:
-  - `postgres-secrets` - Database passwords
-  - `postgres-tls` - PostgreSQL TLS certificate and key
-  - `postgres-ca` - CA bundle for TLS verification
-  - `redis-secrets` - Redis password
-  - `app-secrets` - Session and CSRF signing secrets
+   - `postgres-secrets` - Database passwords
+   - `postgres-tls` - PostgreSQL TLS certificate **chain** (server cert + intermediates) and key
+   - `postgres-ca` - CA bundle plus discrete `root-ca.crt` / `intermediate-ca.crt` files for clients that pin a specific trust anchor
+   - `redis-secrets` - Redis password
+   - `app-secrets` - Session/CSRF signing secrets + OIDC client secrets from `user-provided.env`
 - Verifies all secrets exist
 
 **Exit codes**:
@@ -136,7 +141,36 @@ Creates Kubernetes secrets from files in `infra/secrets/`.
 
 **Example with custom namespace**:
 ```bash
-./create-secrets.sh my-app-prod
+./apply-secrets.sh my-app-prod
+```
+
+---
+
+### sync-postgres-passwords.sh
+
+Executes the in-container `/opt/entry/admin-scripts/sync-passwords.sh` helper so Postgres roles pick up any newly rotated secrets.
+
+**Requirements**:
+- `kubectl` access to the target cluster/namespace
+- Existing Postgres pod (skips automatically if none are found)
+- Secrets already applied so updated password files exist in the mounted volume
+
+**Arguments**:
+- `[namespace]` - Target namespace (default: `api-forge-prod`)
+
+**What it does**:
+1. Verifies `kubectl` connectivity
+2. Locates the current Postgres pod via labels
+3. Waits for the pod to report `Ready`
+4. Runs the password sync script inside the pod so the `app`, `readonly`, and `temporal` users match the latest secrets
+
+**Exit codes**:
+- `0` - Success or skipped (no pod found)
+- `1` - Prerequisites failed or password sync failed
+
+**Example**:
+```bash
+./sync-postgres-passwords.sh staging
 ```
 
 ---
@@ -149,7 +183,7 @@ Deploys all Kubernetes resources in dependency order with health checks.
 - kubectl installed and configured
 - Kubernetes cluster accessible
 - Docker images built (run `build-images.sh` first)
-- Secrets created (run `create-secrets.sh` first)
+- Secrets applied (run `apply-secrets.sh` first)
 
 **Arguments**:
 - `[namespace]` - Target namespace (default: `api-forge-prod`)
@@ -219,8 +253,8 @@ cd ../../infra/secrets
 ./generate_secrets.sh
 cd -
 
-# Then create Kubernetes secrets
-./create-secrets.sh
+# Then apply Kubernetes secrets (after filling infra/secrets/user-provided.env)
+./apply-secrets.sh
 ```
 
 ### Deployment timeout
@@ -284,7 +318,7 @@ These scripts can be used in CI/CD pipelines:
 - name: Deploy to Kubernetes
   run: |
     ./k8s/scripts/build-images.sh
-    ./k8s/scripts/create-secrets.sh production
+   ./k8s/scripts/apply-secrets.sh production
     ./k8s/scripts/deploy-resources.sh production
 ```
 
@@ -293,7 +327,7 @@ These scripts can be used in CI/CD pipelines:
 deploy:
   script:
     - ./k8s/scripts/build-images.sh
-    - ./k8s/scripts/create-secrets.sh production
+   - ./k8s/scripts/apply-secrets.sh production
     - ./k8s/scripts/deploy-resources.sh production
 ```
 

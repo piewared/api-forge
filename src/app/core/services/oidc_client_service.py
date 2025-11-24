@@ -78,32 +78,47 @@ class OidcClientService:
             return TokenResponse(**token_data)
 
     async def get_user_claims(
-        self, access_token: str, id_token: str | None, provider: str
+        self,
+        access_token: str,
+        id_token: str | None,
+        provider: str,
+        *,
+        expected_nonce: str | None = None,
+        expected_audience: str | list[str] | None = None,
+        expected_issuer: str | None = None,
     ) -> TokenClaims:
         """Get user claims from ID token or userinfo endpoint.
 
         Args:
             access_token: Access token for userinfo endpoint.
-            id_token: ID token with user claims (optional)
+            id_token: ID token with user claims (optional, but required for nonce binding)
             provider: OIDC provider identifier
+            expected_nonce: Nonce that must match the ID token when provided
+            expected_audience: Audience constraint for ID token validation
+            expected_issuer: Issuer constraint for ID token validation
 
         Returns:
             User claims dictionary
         """
 
         # If we have an ID token, decode it for user claims
-        if id_token:
-            try:
-                # Validate ID token and extract claims
-                return await self._jwt_verify.verify_jwt(id_token)
-            except Exception as e:
-                logger.warning(f"ID token validation failed: {e}")
-                # Fall back to userinfo endpoint if ID token validation fails
-                pass
+        provider_config = get_config().oidc.providers[provider]
 
-        # Fall back to userinfo endpoint. the user endpoint is an optional
-        # part of the OIDC spec, so not all providers will have it. It provides
-        # additional user information that may not be included in the ID token. The format is as follows:
+        if id_token:
+            # Validate ID token and extract claims; failures are fatal because nonce binding is broken
+            return await self._jwt_verify.verify_jwt(
+                id_token,
+                expected_nonce=expected_nonce,
+                expected_audience=expected_audience or provider_config.client_id,
+                expected_issuer=expected_issuer or provider_config.issuer,
+            )
+
+        # Fall back to userinfo endpoint only when the provider did not issue an ID token.
+        logger.warning(
+            "Provider {} returned no ID token; using userinfo fallback", provider
+        )
+        # The userinfo endpoint is an optional part of the OIDC spec, so not all providers will have it.
+        # It provides additional user information that may not be included in the ID token. The format is as follows:
         #
         # {
         #     "sub": "user-12345",
@@ -112,7 +127,6 @@ class OidcClientService:
         #     "picture": "https://example.com/avatar.jpg"
         # }
 
-        provider_config = get_config().oidc.providers[provider]
         if provider_config.userinfo_endpoint:
             headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -144,7 +158,11 @@ class OidcClientService:
         Returns:
             New token response
         """
-        provider_config = get_config().oidc.providers[provider]
+        config = get_config()
+        if not config.oidc.refresh_tokens.enabled:
+            raise ValueError("Refresh tokens are disabled")
+
+        provider_config = config.oidc.providers[provider]
 
         token_data = {
             "grant_type": "refresh_token",

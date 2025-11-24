@@ -66,6 +66,10 @@ oidc:
       scopes: ["openid", "email", "profile"]
   default_provider: "keycloak"
   global_redirect_uri: "${OIDC_REDIRECT_URI:-http://localhost:8000/auth/web/callback}"
+  refresh_tokens:
+    enabled: false
+    persist_in_session_store: false
+    max_session_lifetime_seconds: 86400
 ```
 
 ### Key Behaviors
@@ -74,6 +78,7 @@ oidc:
 * Tokens verified via provider JWKS.
 * Short-lived auth session stored in Redis; long-lived session cookie issued on success.
 * Session cookies are **HttpOnly**, **signed**, and **rotated** on refresh.
+* **Refresh tokens disabled by default**. Enable `refresh_tokens.enabled` and `persist_in_session_store` only if your security review deems it necessary.
 
 ---
 
@@ -88,13 +93,15 @@ jwt:
     email: "${JWT_CLAIM_EMAIL:-email}"
     roles: "${JWT_CLAIM_ROLES:-roles}"
     groups: "${JWT_CLAIM_GROUPS:-groups}"
+  jwks_cache_ttl_seconds: 3600
+  jwks_cache_max_entries: 16
 ```
 
 ### Notes
 
 * Claims are **mapped dynamically** for different IdPs.
 * Audience lists may contain multiple entries for multi-tenant or multi-client APIs.
-* JWKS are fetched and cached; rotation handled automatically.
+* JWKS caching is configurable—tune TTL/max entries for providers with aggressive key rotation.
 
 ---
 

@@ -170,12 +170,23 @@ class UserSessionService:
         Raises:
             ValueError: If session not found or refresh fails
         """
+        config = get_config()
+        policy = config.oidc.refresh_tokens
+        if not policy.enabled:
+            raise ValueError("Refresh tokens are disabled")
+
         user_session = await self.get_user_session(session_id)
         if not user_session:
             raise ValueError("Session not found or expired")
 
         if not user_session.refresh_token:
             raise ValueError("No refresh token available")
+
+        if (
+            policy.max_session_lifetime_seconds
+            and int(time.time()) - user_session.created_at > policy.max_session_lifetime_seconds
+        ):
+            raise ValueError("Refresh token lifetime exceeded")
 
         try:
             # Refresh tokens with provider
@@ -195,7 +206,7 @@ class UserSessionService:
             await storage.set(
                 f"user:{user_session.id}",
                 user_session,
-                get_config().app.session_max_age,
+                config.app.session_max_age,
             )
 
             # Then rotate session ID for added security

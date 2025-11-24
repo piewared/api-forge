@@ -39,10 +39,10 @@ class JWKSCache(ABC):
 
 
 class JWKSCacheInMemory(JWKSCache):
-    _JWKS_CACHE: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=10, ttl=3600)
-
-    def __init__(self) -> None:
-        pass
+    def __init__(self, max_entries: int = 10, ttl_seconds: int = 3600) -> None:
+        self._cache: TTLCache[str, dict[str, Any]] = TTLCache(
+            maxsize=max_entries, ttl=ttl_seconds
+        )
 
     def get_jwks(self, issuer_url: str) -> dict[str, Any]:
         """Get JWKS for the given issuer URL, using cache if available.
@@ -53,7 +53,7 @@ class JWKSCacheInMemory(JWKSCache):
         Returns:
             JWKS dictionary
         """
-        return self._JWKS_CACHE.get(issuer_url, {})
+        return self._cache.get(issuer_url, {})
 
     def set_jwks(self, issuer_url: str, jwks: dict[str, Any]) -> None:
         """Set JWKS for the given issuer URL in the cache.
@@ -62,18 +62,20 @@ class JWKSCacheInMemory(JWKSCache):
             issuer_url: The OIDC issuer URL
             jwks: The JWKS dictionary to cache
         """
-        self._JWKS_CACHE[issuer_url] = jwks
+        self._cache[issuer_url] = jwks
 
     def clear_jwks_cache(self) -> None:
         """Clear the JWKS cache."""
-        self._JWKS_CACHE.clear()
+        self._cache.clear()
 
 
 class JwksService:
     def __init__(self, cache: JWKSCache) -> None:
         self._cache = cache
 
-    async def fetch_jwks(self, issuer: OIDCProviderConfig) -> dict[str, Any]:
+    async def fetch_jwks(
+        self, issuer: OIDCProviderConfig, *, force_refresh: bool = False
+    ) -> dict[str, Any]:
         jwks_url = issuer.jwks_uri
 
         if not jwks_url:
@@ -81,13 +83,15 @@ class JwksService:
                 status_code=401, detail="Issuer has no JWKS URI configured"
             )
 
-        jwks = self._cache.get_jwks(jwks_url)
-        if jwks:
+        jwks = {} if force_refresh else self._cache.get_jwks(jwks_url)
+        if jwks and not force_refresh:
             return jwks
 
         import httpx  # local import to avoid forcing httpx at import time
 
         try:
+            if force_refresh:
+                logger.info("Forcing JWKS refresh for issuer {}", jwks_url)
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(jwks_url)
                 resp.raise_for_status()

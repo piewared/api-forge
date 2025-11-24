@@ -1,10 +1,13 @@
 """Base deployer class with shared functionality."""
 
+import os
 import subprocess
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
@@ -21,6 +24,8 @@ class BaseDeployer(ABC):
         """
         self.console = console
         self.project_root = project_root
+        # Load .env so docker-compose substitutions (like DATA_PATH) are available
+        load_dotenv(self.project_root / ".env", override=False)
 
     @abstractmethod
     def deploy(self, **kwargs: Any) -> None:
@@ -89,12 +94,12 @@ class BaseDeployer(ABC):
             if env_example.exists():
                 self.console.print(
                     "  1. Copy the example environment file:\n"
-                    f"     [cyan]cp .env.example .env[/cyan]\n"
+                    "     [cyan]cp .env.example .env[/cyan]\n"
                 )
             else:
                 self.console.print(
                     "  1. Create a .env file in the project root:\n"
-                    f"     [cyan]touch .env[/cyan]\n"
+                    "     [cyan]touch .env[/cyan]\n"
                 )
 
             self.console.print(
@@ -161,3 +166,34 @@ class BaseDeployer(ABC):
             message: The message to print
         """
         self.console.print(f"[blue]ℹ {message}[/blue]")
+
+    def ensure_data_directories(
+        self,
+        subdirectories: Iterable[str | Path],
+        *,
+        data_env_var: str = "DATA_PATH",
+        default_root: str = "./data",
+    ) -> Path:
+        """Ensure host bind directories exist before running docker-compose.
+
+        Args:
+            subdirectories: Relative paths beneath the data root to create
+            data_env_var: Environment variable that overrides the data root
+            default_root: Fallback root path when env var isn't set
+
+        Returns:
+            Absolute path to the data root directory
+        """
+
+        data_root_value = os.environ.get(data_env_var, default_root)
+        data_root = Path(data_root_value)
+        if not data_root.is_absolute():
+            data_root = (self.project_root / data_root).resolve()
+
+        data_root.mkdir(parents=True, exist_ok=True)
+
+        for sub_path in subdirectories:
+            target = data_root / Path(sub_path)
+            target.mkdir(parents=True, exist_ok=True)
+
+        return data_root

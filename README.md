@@ -332,26 +332,38 @@ See [`docs/troubleshooting.md`](docs/troubleshooting.md) for detailed commands a
 ## Project Structure
 
 ```text
-your_project/
-├─ src/
-│  └─ your_package/
-│     ├─ app/
-│     │  ├─ entities/            # Domain entities (CLI generates packages here)
-│     │  ├─ api/                 # FastAPI routers
-│     │  ├─ core/                # Auth, DB, config, security
-│     │  ├─ runtime/             # App runtime
-│     │  └─ service/             # Domain services
-│     └─ dev/                    # Dev tooling
-├─ tests/                        # Unit, integration, E2E
-├─ infra/                        # Infrastructure files
-│  ├─ docker/                    # Docker configurations (dev/prod)
-│  ├─ scripts/                   # Deployment & utility scripts
-│  └─ secrets/                   # Secrets management & generation
-├─ docs/                         # Clients, guides, troubleshooting, etc.
-└─ dev_env/                      # Dockerized infra + local volumes
+api_project_template/
+├── src/
+│   ├── app/
+│   │   ├── api/             # FastAPI routers, dependencies, BFF endpoints
+│   │   ├── core/            # Auth, config, security, JWT/JWKS/session services
+│   │   ├── entities/        # Domain entities + SQLModel tables (CLI generates here)
+│   │   ├── runtime/         # App startup, config loading, DB init
+│   │   ├── service/         # Application/business services
+│   │   └── worker/          # Background/Temporal worker wiring
+│   ├── cli/                 # Typer-powered api-forge-cli commands
+│   ├── dev/                 # Dev helpers (Keycloak bootstrap, fixtures)
+│   ├── utils/               # Shared utilities
+│   └── worker/              # Worker entrypoints outside app package
+├── infra/
+│   ├── docker/              # Dockerfile fragments and compose helpers
+│   ├── scripts/             # Deployment + maintenance scripts
+│   └── secrets/             # Secret generation templates (kept empty in git)
+├── k8s/                     # Kubernetes manifests and helper scripts
+├── docs/                    # Architecture, auth, deployment, troubleshooting guides
+├── examples/                # Client + workflow examples
+├── tests/                   # Unit, integration, and template (Copier) tests
+├── scripts/                 # Additional automation scripts
+├── data/                    # Local volumes for dev services (postgres, redis, logs)
+├── logs/                    # Host-level logs when running outside Docker
+├── docker-compose.dev.yml   # Dev stack (Keycloak, Postgres, Redis, Temporal, API)
+├── docker-compose.prod.yml  # Production-like compose stack
+├── config.yaml              # Application configuration defaults
+├── copier.yml               # Copier template definition/questions
+└── pyproject.toml           # Project dependencies + tooling config
 ```
 
-Deleting volumes in `dev_env/` will wipe local data (e.g. `dev_env/postgres-data/`).
+The Dockerized dev stack stores persistent volumes under `data/` (e.g., `data/postgres` and `data/redis`). Removing those directories resets local databases, caches, and logs.
 
 ---
 
@@ -377,7 +389,7 @@ Comprehensive guides for using and deploying API Forge:
 - **[Docker Compose Production](./docs/fastapi-production-deployment-docker-compose.md)** - Production deployment with TLS/mTLS, secret management, and security hardening
 
 ### Additional Resources
-- **Dev environment**: `dev_env/README.md`
+- **Dev environment**: `docs/fastapi-docker-dev-environment.md`
 - **Client examples**: `docs/clients/`
 - **Troubleshooting**: `docs/troubleshooting.md`
 

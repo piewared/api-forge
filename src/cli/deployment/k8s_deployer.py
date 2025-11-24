@@ -30,19 +30,34 @@ class K8sDeployer(BaseDeployer):
         """Deploy to Kubernetes cluster.
 
         Args:
-            **kwargs: Additional deployment options
+            **kwargs: Additional deployment options (namespace, no_wait, force_recreate)
         """
         # Check for .env file before deployment
         if not self.check_env_file():
             return
 
         namespace = kwargs.get("namespace", self.DEFAULT_NAMESPACE)
+        force_recreate = kwargs.get("force_recreate", False)
 
-        # Build images
-        self._build_images()
+        # Build images (force rebuild for secret rotation)
+        self._build_images(force=force_recreate)
 
         # Create secrets
         self._create_secrets(namespace)
+
+        # For secret rotation, restart postgres deployment to pick up new secrets
+        # Note: Password sync happens automatically via pg-password-sync-wrapper.sh on container startup
+        if force_recreate:
+            self.info("Force recreate enabled - restarting postgres deployment for secret rotation...")
+            self.run_command([
+                "kubectl", "rollout", "restart", "deployment/postgres",
+                "-n", namespace
+            ])
+            # Wait for rollout to complete
+            self.run_command([
+                "kubectl", "rollout", "status", "deployment/postgres",
+                "-n", namespace, "--timeout=300s"
+            ])
 
         # Deploy resources
         self._deploy_resources(namespace)
@@ -58,14 +73,46 @@ class K8sDeployer(BaseDeployer):
         """Remove Kubernetes deployment.
 
         Args:
-            **kwargs: Additional teardown options
+            **kwargs: Additional teardown options (volumes, namespace)
         """
         namespace = kwargs.get("namespace", self.DEFAULT_NAMESPACE)
+        volumes = kwargs.get("volumes", False)
+
+        if volumes:
+            # First delete deployments/statefulsets to release PVC locks
+            self.info("Scaling down deployments to release volume locks...")
+            self.run_command(
+                ["kubectl", "delete", "deployments,statefulsets", "--all", "-n", namespace, "--wait=true", "--timeout=60s"],
+                check=False
+            )
+
+            # Now delete PVCs
+            self.info("Deleting PersistentVolumeClaims...")
+            result = self.run_command(
+                ["kubectl", "get", "pvc", "-n", namespace, "-o", "name"],
+                capture_output=True,
+                check=False
+            )
+            if result and result.returncode == 0 and result.stdout:
+                pvc_names = [name.strip() for name in result.stdout.strip().split('\n') if name.strip()]
+                if pvc_names:
+                    self.console.print(f"[yellow]Found {len(pvc_names)} PVC(s) to delete[/yellow]")
+                    # Delete all PVCs at once without waiting per-PVC
+                    self.run_command(
+                        ["kubectl", "delete"] + pvc_names + ["-n", namespace, "--wait=false"],
+                        check=False
+                    )
+                    self.success("PersistentVolumeClaim deletion initiated")
+                else:
+                    self.console.print("[dim]No PVCs found in namespace[/dim]")
 
         with self.console.status(f"[bold red]Deleting namespace {namespace}..."):
-            self.run_command(["kubectl", "delete", "namespace", namespace, "--wait=true"])
+            self.run_command(["kubectl", "delete", "namespace", namespace, "--wait=true", "--timeout=120s"])
 
-        self.success(f"Namespace {namespace} deleted")
+        if volumes:
+            self.success(f"Namespace {namespace} and volumes deleted")
+        else:
+            self.success(f"Namespace {namespace} deleted (volumes may be retained by storage class policy)")
 
     def show_status(self, namespace: str | None = None) -> None:
         """Display the current status of the Kubernetes deployment.
@@ -77,9 +124,24 @@ class K8sDeployer(BaseDeployer):
             namespace = self.DEFAULT_NAMESPACE
         self.status_display.show_k8s_status(namespace)
 
-    def _build_images(self) -> None:
-        """Build Docker images for Kubernetes deployment."""
+    def _build_images(self, force: bool = False) -> None:
+        """Build Docker images for Kubernetes deployment.
+
+        Args:
+            force: If True, rebuild postgres image for secret rotation
+        """
         self.console.print("[bold cyan]🔨 Building Docker images...[/bold cyan]")
+
+        # If force, rebuild postgres image first
+        if force:
+            with self.create_progress() as progress:
+                task = progress.add_task("Rebuilding postgres image (for secret rotation)...", total=1)
+                self.run_command([
+                    "docker", "compose", "-f", "docker-compose.prod.yml",
+                    "build", "postgres"
+                ])
+                progress.update(task, completed=1)
+            self.success("Postgres image rebuilt")
 
         script_path = self.k8s_scripts / "build-images.sh"
         with self.create_progress() as progress:
@@ -135,15 +197,15 @@ class K8sDeployer(BaseDeployer):
         # Generate secrets if needed
         self._generate_secrets_if_needed()
 
-        self.console.print("[bold cyan]🔐 Creating Kubernetes secrets...[/bold cyan]")
+        self.console.print("[bold cyan]🔐 Applying Kubernetes secrets...[/bold cyan]")
 
-        script_path = self.k8s_scripts / "create-secrets.sh"
+        script_path = self.k8s_scripts / "apply-secrets.sh"
         with self.create_progress() as progress:
-            task = progress.add_task("Creating secrets...", total=1)
+            task = progress.add_task("Applying secrets...", total=1)
             self.run_command(["bash", str(script_path), namespace])
             progress.update(task, completed=1)
 
-        self.success(f"Secrets created in namespace {namespace}")
+        self.success(f"Secrets applied in namespace {namespace}")
 
     def _deploy_resources(self, namespace: str) -> None:
         """Deploy Kubernetes resources.

@@ -64,7 +64,7 @@ spec:
             - name: SKIP_USER_SWITCH
               value: "false"
           # Worker command - polls all discovered task queues
-          command: ["python", "-m", "src.worker.main", "--log-level", "INFO"]
+          args: ["python", "-m", "src.worker.main", "--log-level", "INFO"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

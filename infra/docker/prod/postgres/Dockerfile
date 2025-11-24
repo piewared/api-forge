@@ -15,7 +15,9 @@ COPY postgres/admin-scripts/backup.sh /usr/local/bin/backup.sh
 
 # Make scripts executable
 RUN chmod +x /docker-entrypoint-initdb.d/*.sh && \
-    chmod +x /usr/local/bin/*.sh
+    chmod +x /usr/local/bin/*.sh && \
+    chmod +x /opt/entry/admin-scripts/*.sh && \
+    chmod +x /opt/entry/start-scripts/*.sh
 
 RUN chown -R 999:999 /opt/entry && chmod -R 755 /opt/entry
 # keep using your universal-entrypoint via CMD/ENTRYPOINT in compose
