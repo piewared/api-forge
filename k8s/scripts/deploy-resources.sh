@@ -285,11 +285,21 @@ wait_for_temporal_setup() {
 wait_for_temporal() {
     log_step "8/10 - Waiting for Temporal server..."
     
-    log_info "Waiting for Temporal to be ready..."
-    if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=temporal -n "${NAMESPACE}" --timeout=120s; then
-        log_info "✓ Temporal is ready"
+    log_info "Waiting for Temporal deployment rollout to complete..."
+    if kubectl rollout status deployment/temporal -n "${NAMESPACE}" --timeout=180s; then
+        log_info "✓ Temporal deployment rollout complete"
+        
+        # Now wait for the current pod to be ready
+        log_info "Waiting for Temporal pod to be ready..."
+        if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=temporal -n "${NAMESPACE}" --timeout=60s; then
+            log_info "✓ Temporal is ready"
+        else
+            log_warn "Temporal pod may not be fully ready yet"
+            log_info "Checking Temporal logs..."
+            kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=temporal --tail=50 || true
+        fi
     else
-        log_error "Temporal failed to become ready"
+        log_error "Temporal deployment rollout failed"
         log_info "Checking Temporal logs..."
         kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=temporal --tail=50 || true
         exit 1
@@ -300,11 +310,23 @@ wait_for_temporal() {
 wait_for_app() {
     log_step "9/10 - Waiting for application..."
     
-    log_info "Waiting for application to be ready..."
-    if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=app -n "${NAMESPACE}" --timeout=120s; then
-        log_info "✓ Application is ready"
+    log_info "Waiting for application deployment rollout to complete..."
+    if kubectl rollout status deployment/app -n "${NAMESPACE}" --timeout=180s; then
+        log_info "✓ Application deployment rollout complete"
+        
+        # Now wait for the current pod to be ready
+        log_info "Waiting for application pod to be ready..."
+        if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=app -n "${NAMESPACE}" --timeout=60s; then
+            log_info "✓ Application is ready"
+        else
+            log_warn "Application pod may not be fully ready yet"
+            log_info "Checking application logs..."
+            kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=app --tail=50 || true
+        fi
     else
-        log_error "Application failed to become ready"
+        log_error "Application deployment rollout failed"
+        log_info "Checking application status..."
+        kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=app || true
         log_info "Checking application logs..."
         kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/name=app --tail=50 || true
         exit 1
@@ -324,30 +346,27 @@ verify_deployment() {
     kubectl get svc -n "${NAMESPACE}"
     
     echo ""
-    log_info "Checking application health..."
+    log_info "Testing application health endpoint..."
     
     # Get app pod name
     local app_pod=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=app -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     
     if [ -n "${app_pod}" ]; then
-        log_info "Checking app logs for health status..."
-        if kubectl logs -n "${NAMESPACE}" "${app_pod}" | grep -q "Application startup complete"; then
-            log_info "✓ Application started successfully"
-            
-            # Check for healthy services
-            if kubectl logs -n "${NAMESPACE}" "${app_pod}" | grep -q "✓ Database is healthy"; then
-                log_info "  ✓ Database is healthy"
-            fi
-            if kubectl logs -n "${NAMESPACE}" "${app_pod}" | grep -q "✓ Redis is healthy"; then
-                log_info "  ✓ Redis is healthy"
-            fi
-            if kubectl logs -n "${NAMESPACE}" "${app_pod}" | grep -q "✓ Temporal is healthy"; then
-                log_info "  ✓ Temporal is healthy"
-            fi
+        # Test the /health endpoint directly
+        if kubectl exec -n "${NAMESPACE}" "${app_pod}" -- python -c "import urllib.request; import sys; response = urllib.request.urlopen('http://localhost:8000/health'); print(response.read().decode()); sys.exit(0 if response.status == 200 else 1)" 2>/dev/null; then
+            log_info "✓ Application health endpoint is responding"
         else
-            log_warn "Application may not have started properly. Recent logs:"
+            log_warn "Could not verify health endpoint. Application may still be starting."
+            log_info "Recent logs:"
             kubectl logs -n "${NAMESPACE}" "${app_pod}" --tail=20
         fi
+        
+        # Check if app is receiving requests (health checks from readiness probe)
+        if kubectl logs -n "${NAMESPACE}" "${app_pod}" --tail=100 | grep -q "request.start"; then
+            log_info "✓ Application is processing requests"
+        fi
+    else
+        log_warn "No app pod found for verification"
     fi
     echo ""
 }

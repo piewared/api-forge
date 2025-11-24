@@ -172,7 +172,28 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA temporal_visibility TO temporaluser
 - Run `uv run api-forge-cli deploy up k8s` (or rerun the job) after updating TLS assets so the verifier can re-check them
 **Troubleshooting**: If the job reports `Cert files not mounted` or permission errors, ensure the secret was created with `kubectl create secret tls postgres-tls ...`, then delete/recreate the `postgres-verifier` job so it picks up the new secret.
 
-### 5. Port Conflicts
+### 5. K8s Secret Management & Environment Variable Precedence (DOCUMENTED)
+**Context**: OIDC client secrets flow through multiple layers in K8s deployments  
+**Secret Flow**:
+1. Local files: `infra/secrets/keys/oidc_*_client_secret.txt` (actual values)
+2. K8s secrets: Created via `k8s/scripts/apply-secrets.sh` (base64 encoded)
+3. Volume mounts: `/run/secrets/oidc_*_client_secret` (mounted in pods)
+4. Entrypoint script: Copies to `/app/keys/` and creates env vars
+5. Application: Reads from entrypoint-created env vars
+
+**Environment Variable Precedence**:
+- Entrypoint exports env vars FIRST (from mounted secret files)
+- ConfigMap loads env vars AFTER (from `.env` file)
+- **Entrypoint values take precedence** and are what the application uses
+- When you run `env | grep OIDC` in pod, you see ConfigMap values, but app uses entrypoint values
+
+**Important**: 
+- `.env` file should NOT contain real OIDC secrets (removed as of Nov 2025)
+- ConfigMap may show placeholder values, but they're not used by the app
+- Real secrets only in `infra/secrets/keys/` and K8s secrets
+- See `docs/security/secrets_management.md` for complete flow documentation
+
+### 6. Port Conflicts
 **Ports Used**: 
 - 8000 (FastAPI app)
 - 8080 (Keycloak)
@@ -188,7 +209,7 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA temporal_visibility TO temporaluser
 sudo netstat -tlnp | grep -E ':8080|:5432|:6379|:7233'
 ```
 
-### 6. Linting Warnings
+### 7. Linting Warnings
 **Current State**: 36 ruff errors (mostly whitespace/formatting)  
 **Safe to ignore** for functionality, but run `uv run ruff check src/ --fix` before committing
 

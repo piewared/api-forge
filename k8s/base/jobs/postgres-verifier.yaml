@@ -8,8 +8,8 @@ metadata:
     app.kubernetes.io/component: database-verification
     app.kubernetes.io/part-of: api-forge
 spec:
-  # Keep successful job for 1 hour for debugging
-  ttlSecondsAfterFinished: 3600
+  # Keep successful job for 30 minutes for debugging
+  ttlSecondsAfterFinished: 1800
   # Retry up to 3 times on failure
   backoffLimit: 3
   template:

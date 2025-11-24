@@ -100,4 +100,6 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "manual: marks tests as requiring manual intervention (deselect with '-m \"not manual\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "k8s: marks tests that require Kubernetes cluster",
 ]

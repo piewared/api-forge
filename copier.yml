@@ -46,6 +46,16 @@ _exclude:
   - "/secrets/**"
   - ".docker"
   - ".docker/**"
+  # Exclude template's development secrets (generated projects create their own)
+  - "infra/secrets/keys"
+  - "infra/secrets/keys/**"
+  - "infra/secrets/certs"
+  - "infra/secrets/certs/**"
+  - "infra/secrets/backup_*"
+  - "infra/secrets/backup_*/**"
+  - "infra/secrets/tls"
+  - "infra/secrets/tls/**"
+  - "infra/secrets/user-provided.env"
   # Critical: Don't render bundled infrastructure files (they contain Jinja2-like syntax)
   # Development template file
   - "pyproject.toml.template_dev"

@@ -26,6 +26,21 @@ def generate(
         "--pki",
         help="Also generate PKI certificates (root CA, intermediate CA, service certs for PostgreSQL, Redis, Temporal)",
     ),
+    oidc_google_secret: str = typer.Option(
+        None,
+        "--oidc-google-secret",
+        help="Google OIDC client secret (avoids interactive prompt)",
+    ),
+    oidc_microsoft_secret: str = typer.Option(
+        None,
+        "--oidc-microsoft-secret",
+        help="Microsoft OIDC client secret (avoids interactive prompt)",
+    ),
+    oidc_keycloak_secret: str = typer.Option(
+        None,
+        "--oidc-keycloak-secret",
+        help="Keycloak OIDC client secret (avoids interactive prompt)",
+    ),
 ) -> None:
     """
     🔐 Generate all production secrets (database passwords, signing keys, etc.).
@@ -84,6 +99,14 @@ def generate(
         if force:
             # Pass --force to the script to regenerate all secrets
             cmd.append("--force")
+        
+        # Pass OIDC secrets if provided (avoids interactive prompts)
+        if oidc_google_secret:
+            cmd.extend(["--oidc-google-secret", oidc_google_secret])
+        if oidc_microsoft_secret:
+            cmd.extend(["--oidc-microsoft-secret", oidc_microsoft_secret])
+        if oidc_keycloak_secret:
+            cmd.extend(["--oidc-keycloak-secret", oidc_keycloak_secret])
 
         # Run the script interactively (no capture_output so user can see prompts)
         result = subprocess.run(

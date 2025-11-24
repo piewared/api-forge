@@ -59,11 +59,8 @@ class K8sDeployer(BaseDeployer):
                 "-n", namespace, "--timeout=300s"
             ])
 
-        # Deploy resources
+        # Deploy resources (includes waiting for pods)
         self._deploy_resources(namespace)
-
-        # Wait for pods to be ready
-        self._wait_for_pods(namespace)
 
         # Display status
         self.console.print("\n[bold green]🎉 Kubernetes deployment complete![/bold green]")
@@ -241,10 +238,10 @@ class K8sDeployer(BaseDeployer):
                     "wait",
                     "--for=condition=ready",
                     "pod",
-                    "-l", "app.kubernetes.io/component in (api,database,cache,workflow-engine,worker,web-ui)",
+                    "-l", "app.kubernetes.io/component in (application,database,cache,workflow-engine,temporal-worker,workflow-ui)",
                     "-n",
                     namespace,
-                    "--timeout=180s",
+                    "--timeout=300s",
                 ],
                 capture_output=False,
             )

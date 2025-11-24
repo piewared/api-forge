@@ -123,6 +123,19 @@ spec:
               mountPath: /run/secrets/csrf_signing_secret
               subPath: csrf_signing_secret
               readOnly: true
+            # OIDC secrets
+            - name: app-secrets
+              mountPath: /run/secrets/oidc_google_client_secret
+              subPath: oidc_google_client_secret
+              readOnly: true
+            - name: app-secrets
+              mountPath: /run/secrets/oidc_microsoft_client_secret
+              subPath: oidc_microsoft_client_secret
+              readOnly: true
+            - name: app-secrets
+              mountPath: /run/secrets/oidc_keycloak_client_secret
+              subPath: oidc_keycloak_client_secret
+              readOnly: true
             # Configuration
             - name: app-config
               mountPath: /app/config.yaml

@@ -83,7 +83,7 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -123,6 +123,19 @@ spec:
             - name: app-secrets
               mountPath: /run/secrets/csrf_signing_secret
               subPath: csrf_signing_secret
+              readOnly: true
+            # OIDC secrets
+            - name: app-secrets
+              mountPath: /run/secrets/oidc_google_client_secret
+              subPath: oidc_google_client_secret
+              readOnly: true
+            - name: app-secrets
+              mountPath: /run/secrets/oidc_microsoft_client_secret
+              subPath: oidc_microsoft_client_secret
+              readOnly: true
+            - name: app-secrets
+              mountPath: /run/secrets/oidc_keycloak_client_secret
+              subPath: oidc_keycloak_client_secret
               readOnly: true
             # Configuration
             - name: app-config

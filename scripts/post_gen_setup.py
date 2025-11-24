@@ -32,7 +32,7 @@ def update_pyproject_toml(project_dir: Path, answers: dict):
             f'description = "{answers["project_description"]}"',
         'requires-python = ">=3.13"': f'requires-python = ">={answers["python_version"]}"',
         'api-forge-init-db = "src.app.runtime.init_db:init_db"':
-            f'{answers["project_slug"]}-init-db = "{answers["package_name"]}.app.runtime.init_db:init_db"',
+            f'api-forge-init-db = "{answers["package_name"]}.app.runtime.init_db:init_db"',
         'api-forge-cli = "src.cli:app"':
             f'api-forge-cli = "{answers["package_name"]}.cli.__main__:app"',
         'packages = ["src"]':
@@ -84,35 +84,73 @@ def update_pyproject_toml(project_dir: Path, answers: dict):
     print("✅ pyproject.toml updated")
 
 
-def fix_imports_in_files(project_dir: Path, package_name: str):
-    """Fix all hardcoded 'src.' imports to use the actual package name."""
-    package_dir = project_dir / package_name
-
-    if not package_dir.exists():
-        print(f"⚠️  Package directory {package_name}/ not found")
-        return
-
-    python_files = list(package_dir.rglob("*.py"))
+def fix_all_src_references(project_dir: Path, package_name: str):
+    """
+    Globally replace all 'src.' references with '{package_name}.' across the entire project.
+    
+    This is more robust than targeting specific files/patterns because it catches:
+    - Python imports (from src.app, import src.cli, etc.)
+    - Docker COPY commands (COPY src/ src/)
+    - YAML command arrays (["python", "-m", "src.worker.main"])
+    - File paths (/app/src/worker/)
+    - Module strings ("src.app.worker.activities")
+    """
+    # File extensions and patterns to process
+    patterns = ['*.py', '*.yml', '*.yaml', 'Dockerfile', 'docker-compose*.yml']
+    
+    files_to_process = []
+    for pattern in patterns:
+        if pattern == 'Dockerfile':
+            dockerfile = project_dir / 'Dockerfile'
+            if dockerfile.exists():
+                files_to_process.append(dockerfile)
+        elif pattern.startswith('docker-compose'):
+            files_to_process.extend(project_dir.glob(pattern))
+        else:
+            files_to_process.extend(project_dir.rglob(pattern))
+    
+    # Also add src_main.py explicitly
+    src_main = project_dir / 'src_main.py'
+    if src_main.exists():
+        files_to_process.append(src_main)
+    
     fixed_count = 0
-
-    for py_file in python_files:
+    
+    for file_path in files_to_process:
         try:
-            content = py_file.read_text()
+            # Skip files in certain directories
+            if any(skip in file_path.parts for skip in ['.venv', '__pycache__', '.git', 'node_modules', 'data']):
+                continue
+                
+            content = file_path.read_text()
             original_content = content
-
-            # Replace 'from src.' with 'from {package_name}.'
+            
+            # Replace Python imports: from src. / import src.
             content = re.sub(r'\bfrom src\.', f'from {package_name}.', content)
-            # Replace 'import src.' with 'import {package_name}.'
             content = re.sub(r'\bimport src\.', f'import {package_name}.', content)
-
+            
+            # Replace string literals in quotes: "src.worker.main" -> "{package_name}.worker.main"
+            content = re.sub(r'"src\.(app|cli|dev|utils|worker)', rf'"{package_name}.\1', content)
+            content = re.sub(r"'src\.(app|cli|dev|utils|worker)", rf"'{package_name}.\1", content)
+            
+            # Replace file paths: /app/src/ -> /app/{package_name}/
+            content = re.sub(r'/app/src/', f'/app/{package_name}/', content)
+            
+            # Replace Docker COPY: COPY src/ src/ -> COPY {package_name}/ {package_name}/
+            content = re.sub(
+                r'COPY(\s+--chown=\S+)?\s+src/\s+src/',
+                rf'COPY\1 {package_name}/ {package_name}/',
+                content
+            )
+            
             if content != original_content:
-                py_file.write_text(content)
+                file_path.write_text(content)
                 fixed_count += 1
         except Exception as e:
-            print(f"⚠️  Error processing {py_file}: {e}")
-
+            print(f"⚠️  Error processing {file_path}: {e}")
+    
     if fixed_count > 0:
-        print(f"✅ Fixed imports in {fixed_count} files")
+        print(f"✅ Fixed src references in {fixed_count} files")
 
 
 def rename_package_directory(project_dir: Path, package_name: str):
@@ -129,139 +167,6 @@ def rename_package_directory(project_dir: Path, package_name: str):
         print(f"✅ Package directory {package_name}/ already exists")
     else:
         print(f"⚠️  Neither src/ nor {package_name}/ found")
-
-
-def fix_src_main_imports(project_dir: Path, package_name: str):
-    """Fix imports in src_main.py to use the actual package name."""
-    src_main_file = project_dir / "src_main.py"
-    
-    if not src_main_file.exists():
-        return
-    
-    try:
-        content = src_main_file.read_text()
-        original_content = content
-        
-        # Replace 'from src.' with 'from {package_name}.'
-        content = re.sub(r'\bfrom src\.', f'from {package_name}.', content)
-        # Replace 'import src.' with 'import {package_name}.'
-        content = re.sub(r'\bimport src\.', f'import {package_name}.', content)
-        
-        if content != original_content:
-            src_main_file.write_text(content)
-            print(f"✅ Fixed imports in src_main.py")
-    except Exception as e:
-        print(f"⚠️  Error processing src_main.py: {e}")
-
-
-def fix_dockerfile(project_dir: Path, package_name: str):
-    """Fix Dockerfile to use the actual package name instead of 'src'."""
-    try:
-        dockerfile = project_dir / "Dockerfile"
-        if not dockerfile.exists():
-            return
-        
-        content = dockerfile.read_text()
-        original_content = content
-        
-        # Replace 'COPY src/ src/' with 'COPY {package_name}/ {package_name}/'
-        content = re.sub(
-            r'COPY\s+(--chown=\S+\s+)?src/\s+src/',
-            rf'COPY \1{package_name}/ {package_name}/',
-            content
-        )
-        
-        if content != original_content:
-            dockerfile.write_text(content)
-            print(f"✅ Fixed Dockerfile to use {package_name}/ instead of src/")
-    except Exception as e:
-        print(f"⚠️  Error processing Dockerfile: {e}")
-
-
-def fix_worker_deployment(project_dir: Path, package_name: str):
-    """Fix worker deployment to use the actual package name instead of 'src'."""
-    try:
-        worker_yaml = project_dir / "k8s" / "base" / "deployments" / "worker.yaml"
-        if not worker_yaml.exists():
-            return
-        
-        content = worker_yaml.read_text()
-        original_content = content
-        
-        # Replace 'src.worker.main' with '{package_name}.worker.main'
-        content = re.sub(
-            r'"src\.worker\.main"',
-            rf'"{package_name}.worker.main"',
-            content
-        )
-        
-        # Replace '/app/src/worker/health_check.py' with '/app/{package_name}/worker/health_check.py'
-        content = re.sub(
-            r'/app/src/worker/',
-            rf'/app/{package_name}/worker/',
-            content
-        )
-        
-        if content != original_content:
-            worker_yaml.write_text(content)
-            print(f"✅ Fixed worker deployment to use {package_name}.worker paths")
-    except Exception as e:
-        print(f"⚠️  Error processing worker deployment: {e}")
-
-
-def fix_docker_compose_worker(project_dir: Path, package_name: str):
-    """Fix docker-compose.prod.yml worker command to use actual package name."""
-    try:
-        compose_file = project_dir / "docker-compose.prod.yml"
-        if not compose_file.exists():
-            return
-        
-        content = compose_file.read_text()
-        original_content = content
-        
-        # Replace 'src.worker.main' with '{package_name}.worker.main' in command
-        content = re.sub(
-            r'"src\.worker\.main"',
-            rf'"{package_name}.worker.main"',
-            content
-        )
-        
-        # Replace '/app/src/worker/health_check.py' with '/app/{package_name}/worker/health_check.py'
-        content = re.sub(
-            r'/app/src/worker/health_check\.py',
-            rf'/app/{package_name}/worker/health_check.py',
-            content
-        )
-        
-        if content != original_content:
-            compose_file.write_text(content)
-            print(f"✅ Fixed docker-compose.prod.yml worker to use {package_name}.worker paths")
-    except Exception as e:
-        print(f"⚠️  Error processing docker-compose.prod.yml: {e}")
-
-
-def fix_worker_registry(project_dir: Path, package_name: str):
-    """Fix worker registry.py to use the actual package name instead of 'src'."""
-    try:
-        registry_file = project_dir / package_name / "app" / "worker" / "registry.py"
-        if not registry_file.exists():
-            return
-        
-        content = registry_file.read_text()
-        original_content = content
-        
-        # Replace hardcoded "src.app.worker.activities" and "src.app.worker.workflows"
-        content = re.sub(
-            r'"src\.app\.worker\.(activities|workflows)"',
-            rf'"{package_name}.app.worker.\1"',
-            content
-        )
-        
-        if content != original_content:
-            registry_file.write_text(content)
-            print(f"✅ Fixed worker registry to use {package_name}.app.worker paths")
-    except Exception as e:
-        print(f"⚠️  Error processing worker registry: {e}")
 
 
 def should_copy_file(file_path: Path, base_dir: Path, gitignore_patterns: list) -> bool:
@@ -390,25 +295,12 @@ def main():
         # 2. Rename package directory
         rename_package_directory(project_dir, package_name)
 
-        # 3. Fix all hardcoded 'src.' imports in package files
-        fix_imports_in_files(project_dir, package_name)
+        # 3. Fix ALL 'src.' references throughout the project
+        #    This replaces the old fragile approach of targeting specific files
+        #    Now handles: Python imports, Docker commands, YAML configs, file paths, etc.
+        fix_all_src_references(project_dir, package_name)
 
-        # 4. Fix imports in src_main.py
-        fix_src_main_imports(project_dir, package_name)
-
-        # 5. Fix Dockerfile to use package name
-        fix_dockerfile(project_dir, package_name)
-
-        # 6. Fix worker deployment (K8s) to use package name
-        fix_worker_deployment(project_dir, package_name)
-
-        # 7. Fix docker-compose worker to use package name
-        fix_docker_compose_worker(project_dir, package_name)
-
-        # 8. Fix worker registry autodiscovery paths
-        fix_worker_registry(project_dir, package_name)
-
-        # 9. Update pyproject.toml
+        # 4. Update pyproject.toml
         update_pyproject_toml(project_dir, answers)
 
         print("\n✅ Post-generation setup complete!")
