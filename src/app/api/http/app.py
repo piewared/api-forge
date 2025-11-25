@@ -32,7 +32,7 @@ from src.app.core.services import (
     TemporalClientService,
     UserSessionService,
 )
-from src.app.core.storage.session_storage import get_session_storage
+from src.app.core.services.storage.factory import get_session_storage, get_storage
 from src.app.runtime.context import get_config
 
 # Load configuration
@@ -297,13 +297,22 @@ async def startup() -> None:
         jwt_verify_service = JwtVerificationService(jwks_service)
         jwt_generation_service = JwtGeneratorService()
 
-        logger.info("Setting up session storage and services")
-        session_storage = await get_session_storage()
+        redis_service = None
+        if config.redis.enabled:
+            logger.info("Creating Redis service")
+            redis_service = RedisService()
+            if redis_service.health_check():
+                logger.info("Redis service is available")
+            else:
+                logger.warning("Redis service is not available")
+                redis_service = None
 
-        logger.info("Creating OIDC client service")
-        oidc_client_service = OidcClientService(jwt_verify_service)
 
-        logger.info("Creating session services")
+        logger.info("Setting up storage services")
+        app_storage = get_storage(redis_service)
+        session_storage = get_session_storage(redis_service)
+
+        logger.info("Creating user session services")
         user_session_service = UserSessionService(session_storage)
 
         logger.info("Creating authentication session service")
@@ -312,8 +321,8 @@ async def startup() -> None:
         logger.info("Creating database session service")
         database_service = DbSessionService()
 
-        logger.info("Creating Redis service")
-        redis_service = RedisService()
+        logger.info("Creating OIDC client service")
+        oidc_client_service = OidcClientService(jwt_verify_service)
 
         logger.info("Creating Temporal client service")
         temporal_service = TemporalClientService()
@@ -324,6 +333,7 @@ async def startup() -> None:
             jwks_service=jwks_service,
             jwt_verify_service=jwt_verify_service,
             jwt_generation_service=jwt_generation_service,
+            app_storage=app_storage,
             oidc_client_service=oidc_client_service,
             user_session_service=user_session_service,
             auth_session_service=auth_session_service,
@@ -362,7 +372,7 @@ async def startup() -> None:
         health_check_errors.append(("database", str(e)))
 
     # Redis health check (non-critical, just warn)
-    if config.redis.enabled:
+    if deps.redis_service is not None:
         try:
             logger.info("Checking Redis connectivity...")
             redis_healthy = await deps.redis_service.health_check()
@@ -428,8 +438,8 @@ async def shutdown() -> None:
     # Clean up application-wide dependencies here
     await app_dependencies.auth_session_service.purge_expired()
     await app_dependencies.user_session_service.purge_expired()
-    # Close Redis connection
-    await app_dependencies.redis_service.close()
+    if app_dependencies.redis_service is not None:
+        await app_dependencies.redis_service.close()
     # Close Temporal client connection
     await app_dependencies.temporal_service.close()
 

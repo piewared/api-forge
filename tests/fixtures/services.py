@@ -8,18 +8,18 @@ from sqlmodel import Session
 
 from src.app.core.services import (
     AuthSessionService,
-    InMemorySessionStorage,
+    InMemoryStorage,
     JWKSCache,
     JWKSCacheInMemory,
     JwksService,
     JwtGeneratorService,
     JwtVerificationService,
     OidcClientService,
+    SessionStorage,
     UserManagementService,
     UserSessionService,
 )
 from src.app.core.services.session.manage_sessions import clear_all_sessions
-from src.app.core.storage.session_storage import SessionStorage
 from src.app.runtime.config.config_data import OIDCProviderConfig
 
 
@@ -74,14 +74,14 @@ def oidc_client_service(
 
 
 @pytest.fixture
-def session_storage() -> InMemorySessionStorage:
+def session_storage() -> SessionStorage:
     """Get a mocked session storage instance for testing."""
-    return InMemorySessionStorage()
+    return SessionStorage(storage=InMemoryStorage())
 
 
 @pytest.fixture
 def user_session_service(
-    session_storage: InMemorySessionStorage, oidc_client_service: OidcClientService
+    session_storage: SessionStorage, oidc_client_service: OidcClientService
 ) -> UserSessionService:
     """Get a User Session service instance for testing."""
     return UserSessionService(
@@ -90,7 +90,7 @@ def user_session_service(
 
 
 @pytest.fixture
-def auth_session_service(session_storage: InMemorySessionStorage) -> AuthSessionService:
+def auth_session_service(session_storage: SessionStorage) -> AuthSessionService:
     """Get an Auth Session service instance for testing."""
     return AuthSessionService(session_storage=session_storage)
 

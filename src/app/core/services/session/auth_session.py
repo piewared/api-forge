@@ -5,7 +5,7 @@ from src.app.core.models.session import AuthSession
 from src.app.core.security import (
     sanitize_return_url,
 )
-from src.app.core.storage.session_storage import SessionStorage
+from src.app.core.services.storage.session import SessionStorage
 from src.app.runtime.context import get_config
 
 

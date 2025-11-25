@@ -6,7 +6,7 @@ from src.app.core.models.session import UserSession
 from src.app.core.security import (
     hash_client_fingerprint,
 )
-from src.app.core.storage.session_storage import SessionStorage
+from src.app.core.services.storage.session import SessionStorage
 from src.app.runtime.context import get_config
 
 if TYPE_CHECKING:

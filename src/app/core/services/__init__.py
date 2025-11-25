@@ -2,9 +2,10 @@
 
 # JWT Services
 # Session Storage for testing
-from src.app.core.storage.session_storage import (
-    InMemorySessionStorage,
-    RedisSessionStorage,
+from src.app.core.services.storage import (
+    InMemoryStorage,
+    RedisStorage,
+    SessionStorage,
 )
 
 # Database Service
@@ -43,13 +44,15 @@ __all__ = [
     "UserManagementService",
     # OIDC Services
     "OidcClientService",
-    # Session Storage for testing
-    "InMemorySessionStorage",
-    "RedisSessionStorage",
+    # Storage for testing
+    "InMemoryStorage",
+    "RedisStorage",
     # Database Service
     "DbSessionService",
     # Redis Service
     "RedisService",
+    # Session Storage
+    "SessionStorage",
     # Temporal Services
     "TemporalClientService",
 ]

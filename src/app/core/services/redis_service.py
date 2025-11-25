@@ -1,6 +1,6 @@
 """Redis connection service for managing Redis client lifecycle and health checks."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 from redis.backoff import ExponentialBackoff
@@ -8,6 +8,8 @@ from redis.client import Retry
 
 from src.app.runtime.context import get_config
 
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 class RedisService:
     """Service for managing Redis connection lifecycle and health checks.
@@ -93,7 +95,7 @@ class RedisService:
             if config.app.environment == "production":
                 raise
 
-    def get_client(self):
+    def get_client(self) -> Optional['Redis']:
         """Get the Redis async client instance.
 
         Returns:

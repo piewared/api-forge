@@ -70,6 +70,8 @@ class DevDeployer(BaseDeployer):
             )
             self.console.print("\n[bold green]🎉 Development environment is ready![/bold green]")
             self.status_display.show_dev_status()
+            # Continue to start dev server even if services are already running
+            self._start_dev_server()
             return
 
         if running_services and force:

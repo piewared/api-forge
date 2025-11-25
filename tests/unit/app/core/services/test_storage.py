@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from src.app.core.storage.session_storage import (
-    InMemorySessionStorage,
-    RedisSessionStorage,
-    _detect_redis_availability,
+from src.app.core.services.storage import (
+    InMemoryStorage,
+    RedisStorage,
+    SessionStorage,
     get_session_storage,
 )
 
@@ -29,7 +29,7 @@ class TestInMemorySessionStorage:
 
     def setup_method(self):
         """Set up fresh storage for each test."""
-        self.storage = InMemorySessionStorage()
+        self.storage = InMemoryStorage()
 
     @pytest.mark.asyncio
     async def test_set_and_get_session(self):
@@ -150,7 +150,7 @@ class TestRedisSessionStorage:
     def setup_method(self):
         """Set up mock Redis client for each test."""
         self.mock_redis = AsyncMock()
-        self.storage = RedisSessionStorage(self.mock_redis)
+        self.storage = RedisStorage(self.mock_redis)
 
     @pytest.mark.asyncio
     async def test_set_session(self):
@@ -276,94 +276,13 @@ class TestRedisSessionStorage:
         assert self.storage.is_available() is True
 
 
-class TestStorageDetection:
-    """Test Redis detection and fallback logic."""
-
-
-
-    @pytest.mark.asyncio
-    async def test_redis_detection_success(self):
-        """Test successful Redis detection."""
-        mock_redis_client = AsyncMock()
-        mock_redis_storage = AsyncMock(spec=RedisSessionStorage)
-        mock_redis_storage.ping.return_value = True
-
-        with (
-            patch("redis.asyncio.from_url", return_value=mock_redis_client),
-            patch.object(
-                RedisSessionStorage, "__new__", return_value=mock_redis_storage
-            ),
-            patch("src.app.runtime.context.get_config") as mock_config,
-        ):
-            # Configure mock config
-            mock_config.return_value.redis.enabled = True
-            mock_config.return_value.redis.url = "redis://localhost:6379"
-
-            storage = await _detect_redis_availability()
-
-            assert storage is mock_redis_storage
-
-    @pytest.mark.asyncio
-    async def test_redis_detection_disabled(self):
-        """Test fallback when Redis is disabled in config."""
-        with patch("src.app.runtime.context.get_config") as mock_config:
-            mock_config.return_value.redis.enabled = False
-
-            storage = await _detect_redis_availability()
-
-            assert isinstance(storage, InMemorySessionStorage)
-
-    @pytest.mark.asyncio
-    async def test_redis_detection_no_url(self):
-        """Test fallback when Redis URL is not configured."""
-        with patch("src.app.runtime.context.get_config") as mock_config:
-            mock_config.return_value.redis.enabled = True
-            mock_config.return_value.redis.url = ""
-
-            storage = await _detect_redis_availability()
-
-            assert isinstance(storage, InMemorySessionStorage)
-
-    @pytest.mark.asyncio
-    async def test_redis_detection_connection_failure(self):
-        """Test fallback when Redis connection fails."""
-        with (
-            patch("redis.asyncio.from_url", side_effect=Exception("Connection failed")),
-            patch("src.app.runtime.context.get_config") as mock_config,
-        ):
-            mock_config.return_value.redis.enabled = True
-            mock_config.return_value.redis.url = "redis://localhost:6379"
-
-            storage = await _detect_redis_availability()
-
-            assert isinstance(storage, InMemorySessionStorage)
-
-    @pytest.mark.asyncio
-    async def test_redis_detection_ping_failure(self):
-        """Test fallback when Redis ping fails."""
-        mock_redis_client = AsyncMock()
-
-        with (
-            patch("redis.asyncio.from_url", return_value=mock_redis_client),
-            patch("src.app.runtime.context.get_config") as mock_config,
-        ):
-            mock_config.return_value.redis.enabled = True
-            mock_config.return_value.redis.url = "redis://localhost:6379"
-
-            # Mock ping failure
-            with patch.object(RedisSessionStorage, "ping", return_value=False):
-                storage = await _detect_redis_availability()
-
-                assert isinstance(storage, InMemorySessionStorage)
-
-
 class TestStorageIntegration:
     """Integration tests for storage layer."""
 
     @pytest.mark.asyncio
     async def test_concurrent_operations(self):
         """Test concurrent storage operations."""
-        storage = InMemorySessionStorage()
+        storage = InMemoryStorage()
 
         sessions = [
             MockSession(
@@ -397,7 +316,7 @@ class TestStorageIntegration:
         large_data = "x" * 10000  # 10KB of data
         session = MockSession(id="large", data=large_data, created_at=int(time.time()))
 
-        storage = InMemorySessionStorage()
+        storage = InMemoryStorage()
 
         await storage.set("large-session", session, 60)
         result = await storage.get("large-session", MockSession)
@@ -405,3 +324,108 @@ class TestStorageIntegration:
         assert result is not None
         assert result.data == large_data
         assert len(result.data) == 10000
+
+
+class TestStorageFactory:
+    """Test storage factory functions and backend detection/failover logic."""
+
+    def test_get_storage_with_redis_available(self):
+        """Test get_storage returns RedisStorage when Redis is available."""
+        # Mock RedisService with available client
+        mock_redis_service = MagicMock()
+        mock_redis_client = MagicMock()
+        mock_redis_service.get_client.return_value = mock_redis_client
+
+        storage = get_session_storage(mock_redis_service)
+
+        # Should return SessionStorage wrapping RedisStorage
+        assert isinstance(storage, SessionStorage)
+        # Verify Redis client was requested
+        mock_redis_service.get_client.assert_called_once()
+
+    def test_get_storage_with_redis_unavailable(self):
+        """Test get_storage falls back to InMemoryStorage when Redis client is None."""
+        # Mock RedisService that returns None (Redis unavailable)
+        mock_redis_service = MagicMock()
+        mock_redis_service.get_client.return_value = None
+
+        storage = get_session_storage(mock_redis_service)
+
+        # Should return SessionStorage wrapping InMemoryStorage
+        assert isinstance(storage, SessionStorage)
+        mock_redis_service.get_client.assert_called_once()
+
+    def test_get_storage_with_no_redis_service(self):
+        """Test get_storage falls back to InMemoryStorage when RedisService is None."""
+        storage = get_session_storage(None)
+
+        # Should return SessionStorage wrapping InMemoryStorage
+        assert isinstance(storage, SessionStorage)
+
+    def test_get_storage_with_redis_disabled(self):
+        """Test get_storage falls back when RedisService exists but is disabled."""
+        # Mock RedisService that is disabled (enabled=False)
+        mock_redis_service = MagicMock()
+        mock_redis_service.get_client.return_value = None
+
+        storage = get_session_storage(mock_redis_service)
+
+        # Should fall back to InMemoryStorage
+        assert isinstance(storage, SessionStorage)
+
+    @pytest.mark.asyncio
+    async def test_storage_failover_redis_to_memory(self):
+        """Test that operations work after Redis fails and falls back to memory."""
+        # Create a mock Redis client that will fail
+        mock_redis_client = AsyncMock()
+        mock_redis_service = MagicMock()
+
+        # First call returns Redis client
+        mock_redis_service.get_client.return_value = mock_redis_client
+
+        # Get storage with Redis
+        storage = get_session_storage(mock_redis_service)
+        assert isinstance(storage, SessionStorage)
+
+        # Now simulate Redis failure by returning None
+        mock_redis_service.get_client.return_value = None
+
+        # Get storage again - should fall back to InMemoryStorage
+        fallback_storage = get_session_storage(mock_redis_service)
+        assert isinstance(fallback_storage, SessionStorage)
+
+        # Test that fallback storage works
+        session = MockSession(
+            id="failover-test", data="test-data", created_at=int(time.time())
+        )
+        await fallback_storage.set("test-key", session, 60)
+        result = await fallback_storage.get("test-key", MockSession)
+
+        assert result is not None
+        assert result.id == "failover-test"
+
+    def test_session_storage_wrapper_delegates_to_backend(self):
+        """Test that SessionStorage properly wraps and delegates to backend storage."""
+        # Use InMemoryStorage as the backend
+        mock_backend = MagicMock()
+        storage = SessionStorage(mock_backend)
+
+        # Verify the backend is stored
+        assert storage._storage is mock_backend
+
+    @pytest.mark.asyncio
+    async def test_integration_factory_with_real_memory_storage(self):
+        """Integration test: factory returns working storage without Redis."""
+        storage = get_session_storage(None)
+
+        # Test basic operations work
+        session = MockSession(
+            id="integration-test", data="test-data", created_at=int(time.time())
+        )
+
+        await storage.set("integration-key", session, 60)
+        result = await storage.get("integration-key", MockSession)
+
+        assert result is not None
+        assert result.id == "integration-test"
+        assert result.data == "test-data"

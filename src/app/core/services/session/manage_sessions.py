@@ -3,7 +3,7 @@
 from src.app.core.models.session import AuthSession, UserSession
 from src.app.core.services.session.auth_session import AuthSessionService
 from src.app.core.services.session.user_session import UserSessionService
-from src.app.core.storage.session_storage import SessionStorage
+from src.app.core.services.storage.session import SessionStorage
 
 
 async def count_active_sessions(
