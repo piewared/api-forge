@@ -50,6 +50,8 @@ jobs:
     name: Docker Compose E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Only run on manual trigger or release branches
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
@@ -97,6 +99,8 @@ jobs:
     name: Kubernetes E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Only run on manual trigger or release branches
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
@@ -169,11 +173,21 @@ jobs:
           echo "Docker tests: ${{ needs.e2e-docker.result }}"
           echo "Kubernetes tests: ${{ needs.e2e-kubernetes.result }}"
           
-          if [[ "${{ needs.e2e-fast.result }}" == "failure" ]] || \
-             [[ "${{ needs.e2e-docker.result }}" == "failure" ]] || \
-             [[ "${{ needs.e2e-kubernetes.result }}" == "failure" ]]; then
-            echo "❌ Some E2E tests failed"
+          # Fast tests must pass
+          if [[ "${{ needs.e2e-fast.result }}" == "failure" ]]; then
+            echo "❌ Fast E2E tests failed"
             exit 1
-          else
-            echo "✅ All E2E tests passed"
           fi
+          
+          # Docker/K8s tests only checked if they ran (not skipped)
+          if [[ "${{ needs.e2e-docker.result }}" == "failure" ]]; then
+            echo "❌ Docker E2E tests failed"
+            exit 1
+          fi
+          
+          if [[ "${{ needs.e2e-kubernetes.result }}" == "failure" ]]; then
+            echo "❌ Kubernetes E2E tests failed"
+            exit 1
+          fi
+          
+          echo "✅ All E2E tests passed (or were skipped)"

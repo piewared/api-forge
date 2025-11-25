@@ -14,8 +14,6 @@ from loguru import logger
 
 from src.app.runtime.context import get_config
 
-main_config = get_config()
-
 try:
     from fastapi_limiter.depends import RateLimiter
 
@@ -111,7 +109,9 @@ class DefaultLocalRateLimiter:
         """Clean up resources for this rate limiter instance."""
         async with self._lock:
             self._hits.clear()
-            logger.debug(f"Cleaned up local rate limiter with {len(self._hits)} tracked keys")
+            logger.debug(
+                f"Cleaned up local rate limiter with {len(self._hits)} tracked keys"
+            )
 
     async def _throttle(self, key: str, times: int, seconds: int) -> None:
         await self._cleanup_old_keys()  # Add periodic cleanup
@@ -164,7 +164,9 @@ def configure_rate_limiter(
         def local_rate_limiter_factory(
             times: int, milliseconds: int, per_endpoint: bool, per_method: bool
         ) -> RateLimiterType:
-            limiter = DefaultLocalRateLimiter(times, milliseconds, per_endpoint, per_method)
+            limiter = DefaultLocalRateLimiter(
+                times, milliseconds, per_endpoint, per_method
+            )
             _local_limiters.append(limiter)  # Track for cleanup
             return limiter
 
@@ -178,7 +180,7 @@ def _create_rate_limiter(
     window_ms: int,
     per_endpoint: bool,
     per_method: bool,
-    factory_id: int  # Use factory ID instead of factory itself
+    factory_id: int,  # Use factory ID instead of factory itself
 ) -> RateLimiterType:
     """Create a rate limiter with specific configuration (cached)."""
     if _rate_limiter_factory is None:
@@ -208,10 +210,15 @@ def get_rate_limiter(
 
 
 def rate_limit(
-    requests: int = main_config.rate_limiter.requests,
-    window_ms: int = main_config.rate_limiter.window_ms,
+    requests: int | None = None,
+    window_ms: int | None = None,
 ) -> RateLimiterType:
-    """Return a dependency enforcing request quotas."""
+    """Return a dependency enforcing request quotas.
+
+    Args:
+        requests: Number of requests allowed (defaults to config value)
+        window_ms: Time window in milliseconds (defaults to config value)
+    """
 
     async def dependency(request: Request, response: Response) -> Any:
         limiter = get_rate_limiter(requests, window_ms)
@@ -231,9 +238,11 @@ async def close_rate_limiter() -> None:
 
         # Clean up local rate limiter instances
         if _local_limiters:
-            logger.info(f"Cleaning up {len(_local_limiters)} local rate limiter instances")
+            logger.info(
+                f"Cleaning up {len(_local_limiters)} local rate limiter instances"
+            )
             for limiter in _local_limiters:
-                if hasattr(limiter, 'cleanup'):
+                if hasattr(limiter, "cleanup"):
                     await limiter.cleanup()
             _local_limiters.clear()
 
@@ -242,11 +251,12 @@ async def close_rate_limiter() -> None:
             try:
                 # Import FastAPILimiter for cleanup
                 from fastapi_limiter import FastAPILimiter
-                if hasattr(FastAPILimiter, 'aclose'):
+
+                if hasattr(FastAPILimiter, "aclose"):
                     # Use the new aclose() method (fastapi-limiter >= 5.0.1)
                     await FastAPILimiter.aclose()  # type: ignore[attr-defined]
                     logger.info("Closed FastAPILimiter Redis connections")
-                elif hasattr(FastAPILimiter, 'close'):
+                elif hasattr(FastAPILimiter, "close"):
                     # Fallback to deprecated close() method
                     await FastAPILimiter.close()
                     logger.info("Closed FastAPILimiter Redis connections")
