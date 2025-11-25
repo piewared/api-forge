@@ -35,14 +35,6 @@ from src.app.core.services import (
 from src.app.core.services.storage.factory import get_session_storage, get_storage
 from src.app.runtime.context import get_config
 
-# Load configuration
-main_config = get_config()
-
-
-# Initialize logging
-configure_logging()
-
-
 # --- Rate limiter dependencies ---
 try:
     import redis.asyncio as redis_async
@@ -275,6 +267,9 @@ async def startup() -> None:
     # Initialize application-wide dependencies here
     # e.g. database connections, caches, etc.
 
+    # Configure logging first before any log calls
+    configure_logging()
+
     config = get_config()
 
     logger.info("Initializing database schema")
@@ -282,7 +277,7 @@ async def startup() -> None:
         from src.app.runtime.init_db import init_db
         init_db()
         logger.info("Database schema initialized successfully")
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to initialize database schema")
         raise
 
@@ -340,7 +335,7 @@ async def startup() -> None:
             redis_service=redis_service,
             temporal_service=temporal_service,
         )
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to initialize application dependencies")
         # Re-raise to avoid continuing startup with incomplete dependencies
         raise

@@ -42,10 +42,10 @@ def update_book(
 ) -> Book:
     """Update a book."""
     repository = BookRepository(session)
-    
+
     # Ensure the ID matches
     book_update.id = item_id
-    
+
     try:
         updated_book = repository.update(book_update)
         session.commit()

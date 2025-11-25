@@ -252,10 +252,8 @@ some_other_section:
             f.flush()
 
             try:
-                # Should create ConfigData with defaults when config section is missing
-                config = load_config(Path(f.name))
-                assert hasattr(config, "app")
-                assert hasattr(config, "database")
+                with pytest.raises(ValueError, match="Invalid YAML structure: missing 'config' key"):
+                    load_config(Path(f.name))
             finally:
                 os.unlink(f.name)
 

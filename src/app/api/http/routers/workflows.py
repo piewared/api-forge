@@ -1,8 +1,8 @@
 # api/routes/workflows.py
+from api.deps import get_temporal_client
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from temporalio.client import Client
-from api.deps import get_temporal_client
 
 router = APIRouter(prefix="/workflows")
 

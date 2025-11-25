@@ -31,10 +31,10 @@ def list_users(
 ) -> None:
     """List all users in the Keycloak realm."""
     client = get_keycloak_client()
-    
+
     try:
         users = client.get_users(realm, limit=limit)
-        
+
         if not users:
             console.print(f"[yellow]No users found in realm '{realm}'[/yellow]")
             return
@@ -78,7 +78,7 @@ def add_user(
 ) -> None:
     """Add a new user to the Keycloak realm."""
     client = get_keycloak_client()
-    
+
     try:
         # Check if user already exists
         if client.user_exists(realm, username):
@@ -120,7 +120,7 @@ def delete_user(
 ) -> None:
     """Delete a user from the Keycloak realm."""
     client = get_keycloak_client()
-    
+
     try:
         # Get user details
         user = client.get_user_by_username(realm, username)
@@ -133,7 +133,7 @@ def delete_user(
             user_info = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip()
             if user_info:
                 user_info = f" ({user_info})"
-            
+
             if not Confirm.ask(f"Are you sure you want to delete user '{username}'{user_info}?"):
                 console.print("[yellow]Deletion cancelled[/yellow]")
                 return
@@ -157,7 +157,7 @@ def user_info(
 ) -> None:
     """Show detailed information about a user."""
     client = get_keycloak_client()
-    
+
     try:
         user = client.get_user_by_username(realm, username)
         if not user:
@@ -194,7 +194,7 @@ def reset_password(
 ) -> None:
     """Reset a user's password."""
     client = get_keycloak_client()
-    
+
     try:
         # Get user details
         user = client.get_user_by_username(realm, username)

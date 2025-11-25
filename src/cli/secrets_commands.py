@@ -99,7 +99,7 @@ def generate(
         if force:
             # Pass --force to the script to regenerate all secrets
             cmd.append("--force")
-        
+
         # Pass OIDC secrets if provided (avoids interactive prompts)
         if oidc_google_secret:
             cmd.extend(["--oidc-google-secret", oidc_google_secret])

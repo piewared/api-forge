@@ -5,7 +5,6 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from src.utils.package_utils import get_package_module_path, get_package_root
 from src.dev.dev_utils import (
     check_container_running,
     check_postgres_status,
@@ -14,6 +13,7 @@ from src.dev.dev_utils import (
     run_keycloak_setup,
     wait_for_keycloak,
 )
+from src.utils.package_utils import get_package_module_path, get_package_root
 
 from .base import BaseDeployer
 from .health_checks import HealthChecker

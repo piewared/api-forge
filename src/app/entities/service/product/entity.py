@@ -2,8 +2,6 @@
 
 from typing import Any
 
-from pydantic import Field
-
 from src.app.entities.core._base import Entity
 
 

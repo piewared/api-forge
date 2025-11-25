@@ -485,14 +485,14 @@ class TestRedisRemovalFromDockerCompose:
         # Redis service should be completely removed
         assert "container_name: api-forge-redis" not in result
         assert "  redis:" not in result or "temporal-" in result  # Only temporal-related, not redis service
-        
+
         # Redis comment should be removed
         assert "# Redis Cache/Session Store" not in result
-        
+
         # Redis volumes should be gone
         assert result.count("redis_data:") == 0  # In volumes section
         assert result.count("redis_backups:") == 0  # In volumes section
-        
+
         # Redis in secrets list should be gone
         assert "  - redis_password" not in result
 
@@ -504,7 +504,7 @@ class TestRedisRemovalFromDockerCompose:
         assert "  temporal-namespace-init:" in result, "BUG: temporal-namespace-init was removed!"
         assert "api-forge-temporal-namespace-init" in result
         assert "  temporal:" in result
-        
+
         # All other services should remain
         assert "  postgres:" in result
         assert "  postgres-verifier:" in result

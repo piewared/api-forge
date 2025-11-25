@@ -10,7 +10,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
 from docker_compose_utils import remove_redis_from_docker_compose
 
 from src.app.runtime.config.config_loader import load_config, save_config

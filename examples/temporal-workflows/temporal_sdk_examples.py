@@ -664,7 +664,7 @@ async def example_9_workflow_with_timeout() -> None:
             timeout=3.0,  # Wait up to 3 seconds for result
         )
         print(f"Result: {result.status}")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print("Result retrieval timed out")
     except Exception as e:
         print(f"Workflow execution failed: {type(e).__name__}: {e}")
@@ -728,7 +728,7 @@ async def check_namespaces():
     print("=" * 70)
     print("Temporal Connection Information")
     print("=" * 70)
-    print(f"✓ Connected to Temporal at localhost:7233")
+    print("✓ Connected to Temporal at localhost:7233")
     print(f"  Client identity: {client.identity}")
     print(f"  Default namespace: {client.namespace}")
     print()

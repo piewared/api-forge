@@ -1,9 +1,7 @@
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
-from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
 
 from src.app.runtime.config.config_data import ConfigData

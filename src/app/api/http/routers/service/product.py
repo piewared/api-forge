@@ -6,7 +6,6 @@ from sqlmodel import Session
 from src.app.api.http.deps import get_session
 from src.app.entities.service.product import Product, ProductRepository
 
-
 router = APIRouter()
 
 
@@ -43,10 +42,10 @@ def update_product(
 ) -> Product:
     """Update a product."""
     repository = ProductRepository(session)
-    
+
     # Ensure the ID matches
     product_update.id = item_id
-    
+
     try:
         updated_product = repository.update(product_update)
         session.commit()

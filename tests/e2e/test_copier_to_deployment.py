@@ -404,41 +404,10 @@ class TestCopierToDeployment:
 
         print("✅ CLI is functional")
 
-    def test_05_python_imports(self):
-        """Test 5: Verify Python imports work correctly."""
+    def test_05_secrets_generation(self):
+        """Test 5: Generate secrets including PKI certificates."""
         print(f"\n{'=' * 80}")
-        print("TEST 5: Python Imports")
-        print(f"{'=' * 80}")
-
-        # Access class variables set by setup_project fixture
-        project_dir = TestCopierToDeployment._project_dir
-        project_name = TestCopierToDeployment._project_name
-
-        # Test importing the app (just verify basic imports work)
-        test_import = f"""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path.cwd()))
-
-from {project_name}.app.api.http.app import app
-from {project_name}.app.runtime.config.config_data import ConfigData
-
-print("✅ All imports successful")
-"""
-
-        result = self.run_command(
-            ["uv", "run", "python", "-c", test_import],
-            cwd=project_dir,
-        )
-
-        assert "✅ All imports successful" in result.stdout, "Import test failed"
-
-        print("✅ Python imports working")
-
-    def test_06_secrets_generation(self):
-        """Test 6: Generate secrets including PKI certificates."""
-        print(f"\n{'=' * 80}")
-        print("TEST 6: Secrets Generation")
+        print("TEST 5: Secrets Generation")
         print(f"{'=' * 80}")
 
         # Access class variables set by setup_project fixture
@@ -514,6 +483,37 @@ print("✅ All imports successful")
         )
 
         print("✅ All secrets generated with correct values")
+
+    def test_06_python_imports(self):
+        """Test 6: Verify Python imports work correctly."""
+        print(f"\n{'=' * 80}")
+        print("TEST 6: Python Imports")
+        print(f"{'=' * 80}")
+
+        # Access class variables set by setup_project fixture
+        project_dir = TestCopierToDeployment._project_dir
+        project_name = TestCopierToDeployment._project_name
+
+        # Test importing the app (just verify basic imports work)
+        test_import = f"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd()))
+
+from {project_name}.app.api.http.app import app
+from {project_name}.app.runtime.config.config_data import ConfigData
+
+print("✅ All imports successful")
+"""
+
+        result = self.run_command(
+            ["uv", "run", "python", "-c", test_import],
+            cwd=project_dir,
+        )
+
+        assert "✅ All imports successful" in result.stdout, "Import test failed"
+
+        print("✅ Python imports working")
 
     @pytest.mark.slow
     def test_07_docker_compose_prod_deployment(self):

@@ -14,17 +14,17 @@ def get_package_root() -> Path:
     """
     # Start from this file's location
     current_file = Path(__file__).resolve()
-    
+
     # This file is in {package}/utils/package_utils.py
     # So package root is 2 levels up
     package_root = current_file.parent.parent
-    
+
     # Verify it's the correct directory by checking for app/
     if not (package_root / "app").exists():
         raise RuntimeError(
             f"Could not find package root. Expected app/ directory in {package_root}"
         )
-    
+
     return package_root
 
 

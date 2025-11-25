@@ -101,8 +101,8 @@ def activity_defn(
         # Apply Temporal's decorator (already typed with ParamSpec/TypeVar)
         wrapped = activity.defn(**activity_kwargs)(fn)
         # Attach metadata / register (your registries etc.)
-        setattr(wrapped, "__temporal_registered__", True)
-        setattr(wrapped, "__activity_queue__", queue)
+        wrapped.__temporal_registered__ = True
+        wrapped.__activity_queue__ = queue
         _ACTIVITY_BY_QUEUE.setdefault(queue, set()).add(wrapped)  # type: ignore[arg-type]
         # logger.debug(f"Registering activity {wrapped.__name__} to queue '{queue}'")
         # Tell the checker: same signature as input
@@ -149,8 +149,8 @@ def workflow_defn(
     def deco(cls: WFClass) -> WFClass:
         wrapped_cls = workflow.defn(**workflow_kwargs)(cls)
         # attach metadata + register
-        setattr(wrapped_cls, "__temporal_registered__", True)
-        setattr(wrapped_cls, "__workflow_queue__", queue)
+        wrapped_cls.__temporal_registered__ = True
+        wrapped_cls.__workflow_queue__ = queue
         # logger.debug(f"Registering workflow {wrapped_cls.__name__} to queue '{queue}'")
         _WORKFLOW_BY_QUEUE.setdefault(queue, set()).add(wrapped_cls)  # type: ignore[arg-type]
         # Tell the checker: this decorator preserves the original class type

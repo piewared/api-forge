@@ -17,12 +17,12 @@ def get_project_root() -> Path:
     identified by the presence of pyproject.toml.
     """
     current = Path(__file__).resolve()
-    
+
     # Walk up the directory tree looking for pyproject.toml
     for parent in [current, *current.parents]:
         if (parent / "pyproject.toml").exists():
             return parent
-    
+
     # Fallback to three levels up (src/cli/utils.py -> project root)
     return Path(__file__).parent.parent.parent
 

@@ -18,7 +18,7 @@ from .core.user_identity import UserIdentity, UserIdentityRepository, UserIdenti
 
 __all__ = [
     "User",
-    "UserTable", 
+    "UserTable",
     "UserRepository",
     "UserIdentity",
     "UserIdentityTable",
