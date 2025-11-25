@@ -237,13 +237,12 @@ async def _initialize_rate_limiter() -> None:
     # Skip initialization when Redis is not configured
     config = get_config()
     if config.redis.url is None:
-        logger.info("Redis URL not configured; skipping rate limiter initialization")
+        logger.info("Redis URL not configured; using local in-memory rate limiter")
         _activate_local_rate_limiter()
         return None
+
     if FastAPILimiter is None or redis_async is None:
-        logger.error("Rate limiter deps missing but REDIS_URL provided")
-        if config.app.environment == "production":
-            raise RuntimeError("Rate limiter dependencies missing in production")
+        logger.info("FastAPILimiter or redis.asyncio not installed; using local in-memory rate limiter")
         _activate_local_rate_limiter()
         return
 

@@ -86,7 +86,7 @@ prompt_for_secret() {
     local secret_value=""
     while [ -z "$secret_value" ]; do
         read -r -s -p "$prompt_message: " secret_value
-        echo ""
+        echo "" >&2  # Write newline to stderr instead of stdout
     done
     echo "$secret_value"
 }

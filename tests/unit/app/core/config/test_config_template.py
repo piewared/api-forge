@@ -9,10 +9,9 @@ import pytest
 import yaml
 from pydantic_core import ValidationError
 
-from src.app.runtime.config.config_template import (
-    load_templated_yaml,
+from src.app.runtime.config.config_loader import (
+    load_config,
     substitute_env_vars,
-    validate_config_env_vars,
 )
 
 
@@ -172,7 +171,7 @@ config:
                 f.flush()
 
                 try:
-                    config = load_templated_yaml(Path(f.name))
+                    config = load_config(Path(f.name))
 
                     assert config.app.environment == "test"
                     assert config.app.host == "0.0.0.0"
@@ -202,7 +201,7 @@ config:
                         ValueError,
                         match="Required environment variable OIDC_KEYCLOAK_CLIENT_ID not set",
                     ):
-                        load_templated_yaml(Path(f.name))
+                        load_config(Path(f.name))
                 finally:
                     os.unlink(f.name)
 
@@ -210,7 +209,7 @@ config:
         """Test loading fails when YAML file doesn't exist."""
         non_existent_path = Path("/path/that/does/not/exist.yaml")
         with pytest.raises(FileNotFoundError):
-            load_templated_yaml(non_existent_path)
+            load_config(non_existent_path)
 
     def test_load_templated_yaml_invalid_yaml(self):
         """Test loading fails with invalid YAML syntax."""
@@ -226,7 +225,7 @@ config:
 
             try:
                 with pytest.raises(ValueError, match="Error parsing YAML"):
-                    load_templated_yaml(Path(f.name))
+                    load_config(Path(f.name))
             finally:
                 os.unlink(f.name)
 
@@ -238,7 +237,7 @@ config:
 
             try:
                 with pytest.raises(ValueError, match="Failed to parse YAML"):
-                    load_templated_yaml(Path(f.name))
+                    load_config(Path(f.name))
             finally:
                 os.unlink(f.name)
 
@@ -254,7 +253,7 @@ some_other_section:
 
             try:
                 # Should create ConfigData with defaults when config section is missing
-                config = load_templated_yaml(Path(f.name))
+                config = load_config(Path(f.name))
                 assert hasattr(config, "app")
                 assert hasattr(config, "database")
             finally:
@@ -273,55 +272,9 @@ config:
 
             try:
                 with pytest.raises(ValueError, match="Invalid configuration"):
-                    load_templated_yaml(Path(f.name))
+                    load_config(Path(f.name))
             finally:
                 os.unlink(f.name)
-
-
-class TestValidateConfigEnvVars:
-    """Test cases for validate_config_env_vars function."""
-
-    def test_validate_config_env_vars_all_present(self):
-        """Test validation passes when all required env vars are present."""
-        env_vars = {
-            "OIDC_KEYCLOAK_CLIENT_ID": "test-client",
-            "OIDC_KEYCLOAK_CLIENT_SECRET": "test-secret",
-        }
-        with patch.dict(os.environ, env_vars):
-            missing = validate_config_env_vars()
-            assert missing == {}
-
-    def test_validate_config_env_vars_all_missing(self):
-        """Test validation reports all missing env vars."""
-        with patch.dict(os.environ, {}, clear=True):
-            missing = validate_config_env_vars()
-            assert "OIDC_KEYCLOAK_CLIENT_ID" in missing
-            assert "OIDC_KEYCLOAK_CLIENT_SECRET" in missing
-            assert missing["OIDC_KEYCLOAK_CLIENT_ID"] == "Keycloak OAuth client ID"
-            assert (
-                missing["OIDC_KEYCLOAK_CLIENT_SECRET"] == "Keycloak OAuth client secret"
-            )
-
-    def test_validate_config_env_vars_partial_missing(self):
-        """Test validation reports only missing env vars."""
-        with patch.dict(
-            os.environ, {"OIDC_KEYCLOAK_CLIENT_ID": "test-client"}, clear=True
-        ):
-            missing = validate_config_env_vars()
-            assert "OIDC_KEYCLOAK_CLIENT_ID" not in missing
-            assert "OIDC_KEYCLOAK_CLIENT_SECRET" in missing
-            assert len(missing) == 1
-
-    def test_validate_config_env_vars_empty_values(self):
-        """Test validation treats empty string as missing."""
-        env_vars = {
-            "OIDC_KEYCLOAK_CLIENT_ID": "",
-            "OIDC_KEYCLOAK_CLIENT_SECRET": "test-secret",
-        }
-        with patch.dict(os.environ, env_vars):
-            missing = validate_config_env_vars()
-            assert "OIDC_KEYCLOAK_CLIENT_ID" in missing
-            assert "OIDC_KEYCLOAK_CLIENT_SECRET" not in missing
 
 
 class TestIntegration:
@@ -365,12 +318,8 @@ config:
                 f.flush()
 
                 try:
-                    # Test that validation passes
-                    missing = validate_config_env_vars()
-                    assert missing == {}
-
                     # Test that config loads successfully
-                    config = load_templated_yaml(Path(f.name))
+                    config = load_config(Path(f.name))
 
                     # Verify all values are correctly substituted
                     assert config.app.environment == "test"
@@ -415,7 +364,7 @@ config:
                     with pytest.raises(
                         ValueError, match="This variable is absolutely required"
                     ):
-                        load_templated_yaml(Path(f.name))
+                        load_config(Path(f.name))
                 finally:
                     os.unlink(f.name)
 

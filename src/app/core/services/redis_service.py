@@ -3,8 +3,6 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
-from redis.backoff import ExponentialBackoff
-from redis.client import Retry
 
 from src.app.runtime.context import get_config
 
@@ -37,11 +35,16 @@ class RedisService:
         if not self._url:
             logger.warning("Redis URL not configured, service will not connect")
             self._enabled = False
+            self._client = None
             return
 
         try:
             # Import Redis dependencies (optional dependencies)
             import redis.asyncio as redis_async
+
+            # Try to import Redis dependencies, but handle gracefully if not installed
+            from redis.backoff import ExponentialBackoff
+            from redis.client import Retry
 
             logger.info(
                 "Initializing Redis client with connection string: {}",

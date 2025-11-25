@@ -29,14 +29,12 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install copier pytest pyyaml
           uv sync --dev
+          uv run pip install -e .
       
       - name: Run fast E2E tests
         run: |
-          pytest tests/e2e/test_copier_to_deployment.py -v -m "not slow" --tb=short
-        env:
-          PYTHONPATH: .
+          uv run pytest tests/e2e/test_copier_to_deployment.py -v -m "not slow" --tb=short
       
       - name: Upload test results
         if: always()
@@ -69,17 +67,15 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install copier pytest pyyaml
           uv sync --dev
+          uv run pip install -e .
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
       - name: Run Docker Compose E2E tests
         run: |
-          pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_07_docker_compose_prod_deployment -v -s --tb=short
-        env:
-          PYTHONPATH: .
+          uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_07_docker_compose_prod_deployment -v -s --tb=short
       
       - name: Cleanup Docker resources
         if: always()
@@ -118,8 +114,8 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install copier pytest pyyaml
           uv sync --dev
+          uv run pip install -e .
       
       - name: Set up Minikube
         uses: medyagh/setup-minikube@latest
@@ -136,9 +132,7 @@ jobs:
       
       - name: Run Kubernetes E2E tests
         run: |
-          pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_08_kubernetes_deployment -v -s --tb=short
-        env:
-          PYTHONPATH: .
+          uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_08_kubernetes_deployment -v -s --tb=short
       
       - name: Get Kubernetes logs on failure
         if: failure()

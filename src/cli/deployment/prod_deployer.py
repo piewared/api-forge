@@ -9,6 +9,7 @@ from rich.table import Table
 
 from .base import BaseDeployer
 from .health_checks import HealthChecker
+from .service_config import get_production_services
 from .status_display import StatusDisplay
 
 
@@ -26,16 +27,6 @@ class ProdDeployer(BaseDeployer):
         Path("temporal-certs"),
     ]
 
-    # Service monitoring configuration
-    SERVICES = [
-        ("api-forge-postgres", "PostgreSQL"),
-        ("api-forge-redis", "Redis"),
-        ("api-forge-temporal", "Temporal"),
-        ("api-forge-temporal-web", "Temporal Web"),
-        ("api-forge-app", "FastAPI App"),
-        ("api-forge-worker", "Temporal Worker"),
-    ]
-
     def __init__(self, console: Console, project_root: Path):
         """Initialize the production deployer.
 
@@ -46,6 +37,10 @@ class ProdDeployer(BaseDeployer):
         super().__init__(console, project_root)
         self.status_display = StatusDisplay(console)
         self.health_checker = HealthChecker()
+
+        # Build services list dynamically based on config.yaml
+        self.SERVICES = get_production_services()
+
 
     def deploy(self, **kwargs) -> None:
         """Deploy the production environment.
@@ -69,8 +64,11 @@ class ProdDeployer(BaseDeployer):
 
         # For secret rotation, we need to stop and recreate containers
         if force_recreate:
-            self.info("Force recreate enabled - stopping containers to pick up new secrets...")
-            self.run_command(["docker", "compose", "-f", self.COMPOSE_FILE, "down"])
+            self.info(
+                "Force recreate enabled - stopping containers to pick up new secrets..."
+            )
+            # Use teardown to stop containers properly
+            self.teardown(volumes=False)
 
         # Start services (with force-recreate if specified)
         self._start_services(force_recreate=force_recreate)
@@ -80,7 +78,9 @@ class ProdDeployer(BaseDeployer):
             self._monitor_health_checks()
 
         # Display final status
-        self.console.print("\n[bold green]🎉 Production deployment complete![/bold green]")
+        self.console.print(
+            "\n[bold green]🎉 Production deployment complete![/bold green]"
+        )
         self.status_display.show_prod_status()
 
     def _ensure_required_directories(self) -> None:
@@ -94,31 +94,81 @@ class ProdDeployer(BaseDeployer):
             **kwargs: Teardown options (volumes)
         """
         volumes = kwargs.get("volumes", False)
-        cmd = ["docker", "compose", "-f", self.COMPOSE_FILE, "down", "--remove-orphans"]
-        if volumes:
-            cmd.append("-v")
 
-        with self.console.status("[bold red]Stopping containers..."):
-            self.run_command(cmd)
+        # Find all production containers (api-forge-* but not *-dev)
+        self.info("Finding production containers...")
+        result = self.run_command(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "name=api-forge",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+        )
+
+        if result and result.stdout:
+            container_names = [
+                name.strip()
+                for name in result.stdout.strip().split("\n")
+                if name.strip()
+                and not name.endswith("-dev")
+                and "keycloak" not in name  # Only exclude dev-environment keycloak
+            ]
+
+            if container_names:
+                self.info(f"Found {len(container_names)} production containers to stop")
+                with self.console.status("[bold red]Stopping containers..."):
+                    for container in container_names:
+                        self.run_command(
+                            ["docker", "stop", container],
+                            check=False,
+                            capture_output=True,
+                        )
+                    for container in container_names:
+                        self.run_command(
+                            ["docker", "rm", container],
+                            check=False,
+                            capture_output=True,
+                        )
+                self.success(f"Stopped and removed {len(container_names)} containers")
+            else:
+                self.info("No production containers found to stop")
+        else:
+            self.info("No production containers found to stop")
 
         # Named volumes require explicit removal (docker compose down -v only removes anonymous volumes)
         if volumes:
             self.info("Removing named data volumes...")
+            # Use the same consistent project name as _start_services
+            project_name = "api-forge-prod"
             # Get list of volumes for this project
             result = self.run_command(
-                ["docker", "volume", "ls", "-q", "--filter", "label=com.docker.compose.project=api_project_template3"],
-                capture_output=True
+                [
+                    "docker",
+                    "volume",
+                    "ls",
+                    "-q",
+                    "--filter",
+                    f"label=com.docker.compose.project={project_name}",
+                ],
+                capture_output=True,
             )
             if result and result.stdout:
-                volume_names = [v for v in result.stdout.strip().split('\n') if v]
+                volume_names = [v for v in result.stdout.strip().split("\n") if v]
                 if volume_names:
                     for volume in volume_names:
                         self.run_command(
                             ["docker", "volume", "rm", volume],
                             check=False,
-                            capture_output=True
+                            capture_output=True,
                         )
-                    self.success(f"Production services stopped and {len(volume_names)} volume objects removed")
+                    self.success(
+                        f"Production services stopped and {len(volume_names)} volume objects removed"
+                    )
                 else:
                     self.success("Production services stopped (no volumes found)")
             else:
@@ -129,6 +179,7 @@ class ProdDeployer(BaseDeployer):
             data_dir = self.project_root / "data"
             if data_dir.exists():
                 import shutil
+
                 failed_dirs = []
                 for subdir in self.DATA_SUBDIRS:
                     dir_path = data_dir / subdir
@@ -138,17 +189,24 @@ class ProdDeployer(BaseDeployer):
                         except PermissionError:
                             failed_dirs.append(dir_path)
                         except Exception as e:
-                            self.console.print(f"[yellow]Warning: Could not remove {dir_path}: {e}[/yellow]")
+                            self.console.print(
+                                f"[yellow]Warning: Could not remove {dir_path}: {e}[/yellow]"
+                            )
 
                 # Retry failed directories with sudo
                 if failed_dirs:
-                    dir_list = ", ".join([str(d.relative_to(self.project_root)) for d in failed_dirs])
-                    self.console.print(f"[yellow]Elevated permissions required to remove: {dir_list}[/yellow]")
-                    self.console.print("[yellow]Using sudo to remove Docker-created files...[/yellow]")
+                    dir_list = ", ".join(
+                        [str(d.relative_to(self.project_root)) for d in failed_dirs]
+                    )
+                    self.console.print(
+                        f"[yellow]Elevated permissions required to remove: {dir_list}[/yellow]"
+                    )
+                    self.console.print(
+                        "[yellow]Using sudo to remove Docker-created files...[/yellow]"
+                    )
                     for dir_path in failed_dirs:
                         self.run_command(
-                            ["sudo", "rm", "-rf", str(dir_path)],
-                            check=False
+                            ["sudo", "rm", "-rf", str(dir_path)], check=False
                         )
                 self.success("Data directories removed")
 
@@ -168,7 +226,9 @@ class ProdDeployer(BaseDeployer):
         with self.create_progress() as progress:
             # Build postgres first if force (for secret rotation with updated sync script)
             if force:
-                task = progress.add_task("Rebuilding postgres image (for secret rotation)...", total=1)
+                task = progress.add_task(
+                    "Rebuilding postgres image (for secret rotation)...", total=1
+                )
                 self.run_command(
                     [
                         "docker",
@@ -204,16 +264,40 @@ class ProdDeployer(BaseDeployer):
         """
         with self.create_progress() as progress:
             task = progress.add_task("Starting production services...", total=1)
-            cmd = ["docker", "compose", "-f", self.COMPOSE_FILE, "up", "-d", "--remove-orphans"]
+            # Use fixed project name to avoid conflicts with old networks
+            cmd = [
+                "docker",
+                "compose",
+                "-p",
+                "api-forge-prod",
+                "-f",
+                self.COMPOSE_FILE,
+                "up",
+                "-d",
+                "--remove-orphans",
+            ]
             if force_recreate:
                 cmd.append("--force-recreate")
-            self.run_command(cmd)
+
+            result = self.run_command(cmd, check=False)
             progress.update(task, completed=1)
+
+            if result and result.returncode != 0:
+                self.console.print(
+                    "[yellow]⚠ Some services may have failed to start. Check the output above.[/yellow]"
+                )
+                self.console.print(
+                    "[yellow]  Tip: Run 'uv run api-forge-cli deploy down prod' to clean up, then try again.[/yellow]"
+                )
+                raise typer.Exit(1)
+
         self.success("Production services started")
 
     def _monitor_health_checks(self) -> None:
         """Monitor health checks for all services."""
-        self.console.print("\n[bold cyan]🔍 Monitoring service health checks...[/bold cyan]")
+        self.console.print(
+            "\n[bold cyan]🔍 Monitoring service health checks...[/bold cyan]"
+        )
         self.console.print("[dim]This may take up to 90 seconds per service...[/dim]\n")
 
         # Create status table
@@ -240,11 +324,15 @@ class ProdDeployer(BaseDeployer):
 
             if is_healthy:
                 table.add_row(
-                    service_name, "[bold green]✓ Healthy[/bold green]", status or "Running"
+                    service_name,
+                    "[bold green]✓ Healthy[/bold green]",
+                    status or "Running",
                 )
             elif status == "starting":
                 table.add_row(
-                    service_name, "[bold yellow]⚡ Starting[/bold yellow]", "Still starting up..."
+                    service_name,
+                    "[bold yellow]⚡ Starting[/bold yellow]",
+                    "Still starting up...",
                 )
                 all_healthy = False
             elif status == "no-healthcheck":
@@ -267,17 +355,23 @@ class ProdDeployer(BaseDeployer):
                     )
                 else:
                     table.add_row(
-                        service_name, "[bold red]✗ Not Running[/bold red]", "Container stopped"
+                        service_name,
+                        "[bold red]✗ Not Running[/bold red]",
+                        "Container stopped",
                     )
                     all_healthy = False
             else:
                 table.add_row(
-                    service_name, "[bold red]✗ Unhealthy[/bold red]", status or "Health check failed"
+                    service_name,
+                    "[bold red]✗ Unhealthy[/bold red]",
+                    status or "Health check failed",
                 )
                 all_healthy = False
 
         # Display results
-        self.console.print(Panel(table, title="Service Health Status", border_style="green"))
+        self.console.print(
+            Panel(table, title="Service Health Status", border_style="green")
+        )
 
         if not all_healthy:
             self.warning(

@@ -10,6 +10,11 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+from docker_compose_utils import remove_redis_from_docker_compose
+
+from src.app.runtime.config.config_loader import load_config, save_config
+
 
 def update_pyproject_toml(project_dir: Path, answers: dict):
     """Update pyproject.toml with values from copier answers."""
@@ -28,57 +33,44 @@ def update_pyproject_toml(project_dir: Path, answers: dict):
     replacements = {
         'name = "api-forge"': f'name = "{answers["project_slug"]}"',
         'version = "0.1.0"': f'version = "{answers["version"]}"',
-        'description = "A FastAPI service built with hexagonal architecture"':
-            f'description = "{answers["project_description"]}"',
+        'description = "Production-ready API platform with OIDC auth, PostgreSQL, Redis, Temporal workflows, and Kubernetes deployment"': f'description = "{answers["project_description"]}"',
         'requires-python = ">=3.13"': f'requires-python = ">={answers["python_version"]}"',
-        'api-forge-init-db = "src.app.runtime.init_db:init_db"':
-            f'api-forge-init-db = "{answers["package_name"]}.app.runtime.init_db:init_db"',
-        'api-forge-cli = "src.cli:app"':
-            f'api-forge-cli = "{answers["package_name"]}.cli.__main__:app"',
-        'packages = ["src"]':
-            f'packages = ["{answers["package_name"]}"]',
-        'target-version = "py313"':
-            f'target-version = "py{answers["python_version"].replace(".", "")}"',
-        'python_version = "3.13"':
-            f'python_version = "{answers["python_version"]}"',
+        'api-forge-init-db = "src.app.runtime.init_db:init_db"': f'init-db = "{answers["package_name"]}.app.runtime.init_db:init_db"',
+        'api-forge-cli = "src.cli:app"': f'api-forge-cli = "{answers["package_name"]}.cli:app"',
+        'packages = ["src"]': f'packages = ["{answers["package_name"]}"]',
+        'target-version = "py313"': f'target-version = "py{answers["python_version"].replace(".", "")}"',
+        'python_version = "3.13"': f'python_version = "{answers["python_version"]}"',
     }
 
     for old, new in replacements.items():
         content = content.replace(old, new)
 
     # Handle optional fields
-    if answers["author_name"] and answers["author_email"]:
+    if answers.get("author_name") and answers.get("author_email"):
         # Replace the placeholder authors with actual values
         content = re.sub(
             r'authors = \[\s*\{name = "Your Name", email = "your\.email@example\.com"\}\s*\]',
             f'authors = [\n    {{name = "{answers["author_name"]}", email = "{answers["author_email"]}"}}\n]',
-            content
+            content,
         )
 
-    if answers["license"] != "None":
+    if answers.get("license", "MIT") != "None":
         # Add license after requires-python
         license_block = f'license = {{text = "{answers["license"]}"}}\n'
         content = re.sub(
-            r'(requires-python = "[^"]*"\n)',
-            r'\1' + license_block,
-            content
+            r'(requires-python = "[^"]*"\n)', r"\1" + license_block, content
         )
 
-    # Handle conditional dependencies
-    if not answers["use_redis"]:
-        # Remove Redis-related dependencies
-        content = re.sub(
-            r'\s+"fastapi-limiter>=[\d.]+",\n',
-            '',
-            content
-        )
-        content = re.sub(
-            r'\s+"aioredis>=[\d.]+",\n',
-            '',
-            content
-        )
+    # Handle conditional dependencies - Remove Redis if not wanted
+    if not answers.get("use_redis", True):
+        print("  ⚙️  Removing Redis dependencies (use_redis=false)...")
+        # Remove Redis and fastapi-limiter dependencies
+        content = re.sub(r'\s+"redis\[hiredis\]>=[\d.]+",\n', "", content)
+        content = re.sub(r'\s+"fastapi-limiter>=[\d.]+",\n', "", content)
+        content = re.sub(r'\s+"aioredis>=[\d.]+",\n', "", content)
+        print("  ✅ Redis dependencies removed")
 
-    with open(pyproject_path, 'w') as f:
+    with open(pyproject_path, "w") as f:
         f.write(content)
 
     print("✅ pyproject.toml updated")
@@ -87,7 +79,7 @@ def update_pyproject_toml(project_dir: Path, answers: dict):
 def fix_all_src_references(project_dir: Path, package_name: str):
     """
     Globally replace all 'src.' references with '{package_name}.' across the entire project.
-    
+
     This is more robust than targeting specific files/patterns because it catches:
     - Python imports (from src.app, import src.cli, etc.)
     - Docker COPY commands (COPY src/ src/)
@@ -96,59 +88,66 @@ def fix_all_src_references(project_dir: Path, package_name: str):
     - Module strings ("src.app.worker.activities")
     """
     # File extensions and patterns to process
-    patterns = ['*.py', '*.yml', '*.yaml', 'Dockerfile', 'docker-compose*.yml']
-    
+    patterns = ["*.py", "*.yml", "*.yaml", "Dockerfile", "docker-compose*.yml"]
+
     files_to_process = []
     for pattern in patterns:
-        if pattern == 'Dockerfile':
-            dockerfile = project_dir / 'Dockerfile'
+        if pattern == "Dockerfile":
+            dockerfile = project_dir / "Dockerfile"
             if dockerfile.exists():
                 files_to_process.append(dockerfile)
-        elif pattern.startswith('docker-compose'):
+        elif pattern.startswith("docker-compose"):
             files_to_process.extend(project_dir.glob(pattern))
         else:
             files_to_process.extend(project_dir.rglob(pattern))
-    
+
     # Also add src_main.py explicitly
-    src_main = project_dir / 'src_main.py'
+    src_main = project_dir / "src_main.py"
     if src_main.exists():
         files_to_process.append(src_main)
-    
+
     fixed_count = 0
-    
+
     for file_path in files_to_process:
         try:
             # Skip files in certain directories
-            if any(skip in file_path.parts for skip in ['.venv', '__pycache__', '.git', 'node_modules', 'data']):
+            if any(
+                skip in file_path.parts
+                for skip in [".venv", "__pycache__", ".git", "node_modules", "data"]
+            ):
                 continue
-                
+
             content = file_path.read_text()
             original_content = content
-            
+
             # Replace Python imports: from src. / import src.
-            content = re.sub(r'\bfrom src\.', f'from {package_name}.', content)
-            content = re.sub(r'\bimport src\.', f'import {package_name}.', content)
-            
+            content = re.sub(r"\bfrom src\.", f"from {package_name}.", content)
+            content = re.sub(r"\bimport src\.", f"import {package_name}.", content)
+
             # Replace string literals in quotes: "src.worker.main" -> "{package_name}.worker.main"
-            content = re.sub(r'"src\.(app|cli|dev|utils|worker)', rf'"{package_name}.\1', content)
-            content = re.sub(r"'src\.(app|cli|dev|utils|worker)", rf"'{package_name}.\1", content)
-            
+            content = re.sub(
+                r'"src\.(app|cli|dev|utils|worker)', rf'"{package_name}.\1', content
+            )
+            content = re.sub(
+                r"'src\.(app|cli|dev|utils|worker)", rf"'{package_name}.\1", content
+            )
+
             # Replace file paths: /app/src/ -> /app/{package_name}/
-            content = re.sub(r'/app/src/', f'/app/{package_name}/', content)
-            
+            content = re.sub(r"/app/src/", f"/app/{package_name}/", content)
+
             # Replace Docker COPY: COPY src/ src/ -> COPY {package_name}/ {package_name}/
             content = re.sub(
-                r'COPY(\s+--chown=\S+)?\s+src/\s+src/',
-                rf'COPY\1 {package_name}/ {package_name}/',
-                content
+                r"COPY(\s+--chown=\S+)?\s+src/\s+src/",
+                rf"COPY\1 {package_name}/ {package_name}/",
+                content,
             )
-            
+
             if content != original_content:
                 file_path.write_text(content)
                 fixed_count += 1
         except Exception as e:
             print(f"⚠️  Error processing {file_path}: {e}")
-    
+
     if fixed_count > 0:
         print(f"✅ Fixed src references in {fixed_count} files")
 
@@ -181,25 +180,29 @@ def should_copy_file(file_path: Path, base_dir: Path, gitignore_patterns: list) 
     is_negated = False
 
     for pattern in gitignore_patterns:
-        if not pattern or pattern.startswith('#'):
+        if not pattern or pattern.startswith("#"):
             continue
 
         # Handle negation patterns (e.g., !.gitignore)
-        if pattern.startswith('!'):
+        if pattern.startswith("!"):
             negation_pattern = pattern[1:]
-            if fnmatch.fnmatch(path_str, negation_pattern) or fnmatch.fnmatch(file_path.name, negation_pattern):
+            if fnmatch.fnmatch(path_str, negation_pattern) or fnmatch.fnmatch(
+                file_path.name, negation_pattern
+            ):
                 is_negated = True
                 continue
 
         # Handle directory patterns (e.g., keys/)
-        if pattern.endswith('/'):
-            dir_pattern = pattern.rstrip('/')
-            if path_str.startswith(dir_pattern + '/') or path_str == dir_pattern:
+        if pattern.endswith("/"):
+            dir_pattern = pattern.rstrip("/")
+            if path_str.startswith(dir_pattern + "/") or path_str == dir_pattern:
                 is_ignored = True
                 continue
 
         # Handle wildcard patterns
-        if fnmatch.fnmatch(path_str, pattern) or fnmatch.fnmatch(file_path.name, pattern):
+        if fnmatch.fnmatch(path_str, pattern) or fnmatch.fnmatch(
+            file_path.name, pattern
+        ):
             is_ignored = True
 
     # If file is explicitly negated (e.g., !.gitignore), always copy it
@@ -208,6 +211,116 @@ def should_copy_file(file_path: Path, base_dir: Path, gitignore_patterns: list) 
 
     # Otherwise, copy only if not ignored
     return not is_ignored
+
+
+def remove_redis_dependencies(project_dir: Path):
+    """Remove Redis dependencies from pyproject.toml (comprehensive cleanup)."""
+    pyproject_path = project_dir / "pyproject.toml"
+
+    if not pyproject_path.exists():
+        print(f"⚠️  pyproject.toml not found at {pyproject_path}")
+        return
+
+    print("📝 Removing Redis dependencies from pyproject.toml...")
+
+    with open(pyproject_path) as f:
+        content = f.read()
+
+    # Remove all Redis-related dependencies
+    redis_patterns = [
+        r'\s+"redis\[hiredis\]>=[\d.]+",?\n',
+        r'\s+"fastapi-limiter>=[\d.]+",?\n',
+        r'\s+"aioredis>=[\d.]+",?\n',
+    ]
+
+    for pattern in redis_patterns:
+        content = re.sub(pattern, "", content)
+
+    with open(pyproject_path, "w") as f:
+        f.write(content)
+
+    print("✅ Redis dependencies removed from pyproject.toml")
+
+
+def update_config_yaml(project_dir: Path, answers: dict):
+    """Update config.yaml to disable Redis if not wanted."""
+
+    if not answers.get("use_redis", True):
+        print("📝 Updating config.yaml (disabling Redis)...")
+
+        # Load YAML directly without validation
+        config_dict = load_config(processed=False)
+
+        # Update the redis.enabled field
+        if "config" in config_dict and "redis" in config_dict["config"]:
+            config_dict["config"]["redis"]["enabled"] = False
+
+        # Save back to file
+        save_config(config_dict)
+        print("✅ config.yaml updated (Redis disabled)")
+
+
+def update_env_example(project_dir: Path, answers: dict):
+    """Update .env.example to remove Redis variables if not wanted."""
+    env_path = project_dir / ".env.example"
+
+    if not env_path.exists():
+        print(f"⚠️  .env.example not found at {env_path}")
+        return
+
+    if not answers.get("use_redis", True):
+        print("📝 Updating .env.example (removing Redis vars)...")
+
+        with open(env_path) as f:
+            lines = f.readlines()
+
+        # Remove Redis section and variables
+        filtered_lines = []
+        skip_redis_section = False
+
+        for line in lines:
+            # Check if we're entering Redis section
+            if "Redis Settings" in line or "Redis Configuration" in line:
+                skip_redis_section = True
+                continue
+
+            # Check if we're leaving Redis section (next ### marker)
+            if skip_redis_section and line.strip().startswith("###"):
+                skip_redis_section = False
+
+            # Skip Redis-related lines
+            if skip_redis_section or "REDIS_URL" in line or "REDIS_PASSWORD" in line:
+                continue
+
+            filtered_lines.append(line)
+
+        with open(env_path, "w") as f:
+            f.writelines(filtered_lines)
+
+        print("✅ .env.example updated (Redis variables removed)")
+
+
+def update_docker_compose(project_dir: Path, answers: dict):
+    """Update docker-compose files to remove Redis service if not wanted."""
+    if not answers.get("use_redis", True):
+        print("📝 Updating docker-compose files (removing Redis)...")
+
+        for compose_file in ["docker-compose.dev.yml", "docker-compose.prod.yml"]:
+            compose_path = project_dir / compose_file
+
+            if not compose_path.exists():
+                continue
+
+            with open(compose_path) as f:
+                content = f.read()
+
+            # Use the centralized function for Redis removal
+            content = remove_redis_from_docker_compose(content)
+
+            with open(compose_path, "w") as f:
+                f.write(content)
+
+            print(f"  ✅ {compose_file} updated")
 
 
 def copy_infra_secrets(project_dir: Path):
@@ -271,18 +384,18 @@ def main():
     with open(answers_file) as f:
         for line in f:
             line = line.strip()
-            if line and not line.startswith('#') and ': ' in line:
-                key, value = line.split(': ', 1)
+            if line and not line.startswith("#") and ": " in line:
+                key, value = line.split(": ", 1)
                 # Remove quotes if present
                 value = value.strip().strip('"').strip("'")
                 # Convert boolean strings
-                if value.lower() in ('true', 'yes'):
+                if value.lower() in ("true", "yes"):
                     value = True
-                elif value.lower() in ('false', 'no'):
+                elif value.lower() in ("false", "no"):
                     value = False
                 answers[key] = value
 
-    package_name = answers.get('package_name', 'src')
+    package_name = answers.get("package_name", "src")
 
     print(f"📝 Package name: {package_name}")
     print(f"📝 Project slug: {answers.get('project_slug', 'unknown')}")
@@ -303,6 +416,14 @@ def main():
         # 4. Update pyproject.toml
         update_pyproject_toml(project_dir, answers)
 
+        # 5. Handle optional Redis removal
+        if not answers.get("use_redis", True):
+            print("\n🔧 Removing Redis dependencies (use_redis=false)...")
+            remove_redis_dependencies(project_dir)
+            update_config_yaml(project_dir, answers)
+            update_env_example(project_dir, answers)
+            update_docker_compose(project_dir, answers)
+
         print("\n✅ Post-generation setup complete!")
         print(f"\n📁 Your project is ready at: {project_dir}")
         print("\n🚀 Next steps:")
@@ -312,16 +433,25 @@ def main():
         print("   4. Install dependencies: uv sync")
         print("   5. Generate secrets (required for production/k8s deployments):")
         print("      uv run api-forge-cli secrets generate --pki")
-        print("      (Use --pki to include TLS certificates for PostgreSQL, Redis, Temporal)")
+        print(
+            "      (Use --pki to include TLS certificates for PostgreSQL, Redis, Temporal)"
+        )
         print("   6. Deploy:")
-        print("      • Development (Docker Compose):   uv run api-forge-cli deploy up dev")
-        print("      • Production (Docker Compose):    uv run api-forge-cli deploy up prod")
-        print("      • Production (Kubernetes):        uv run api-forge-cli deploy up k8s")
+        print(
+            "      • Development (Docker Compose):   uv run api-forge-cli deploy up dev"
+        )
+        print(
+            "      • Production (Docker Compose):    uv run api-forge-cli deploy up prod"
+        )
+        print(
+            "      • Production (Kubernetes):        uv run api-forge-cli deploy up k8s"
+        )
         print("\n💡 View all CLI commands: uv run api-forge-cli --help")
 
     except Exception as e:
         print(f"\n❌ Setup error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

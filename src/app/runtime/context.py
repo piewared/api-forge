@@ -3,10 +3,11 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel
 
 from src.app.runtime.config.config_data import ConfigData
-from src.app.runtime.config.config_template import load_templated_yaml
+from src.app.runtime.config.config_loader import load_config
 
 
 @dataclass
@@ -30,7 +31,7 @@ def _get_default_config():
 
         load_dotenv()
 
-        _default_config = load_templated_yaml(Path("config.yaml"))
+        _default_config = load_config()
         _default_context = AppContext(config=_default_config)
     return _default_config
 

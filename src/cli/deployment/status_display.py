@@ -17,6 +17,7 @@ from src.dev.dev_utils import (
 )
 
 from .health_checks import HealthChecker
+from .service_config import get_production_services
 
 
 class StatusDisplay:
@@ -70,16 +71,10 @@ class StatusDisplay:
             )
         )
 
-        services = [
-            ("PostgreSQL", "api-forge-postgres"),
-            ("Redis", "api-forge-redis"),
-            ("Temporal", "api-forge-temporal"),
-            ("Temporal Web", "api-forge-temporal-web"),
-            ("Application", "api-forge-app"),
-            ("Worker", "api-forge-worker"),
-        ]
+        # Get list of active services from common config
+        services = get_production_services()
 
-        for service_name, container_name in services:
+        for container_name, service_name in services:
             is_healthy, status = self.health_checker.check_container_health(
                 container_name
             )
