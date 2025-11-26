@@ -617,7 +617,9 @@ print("✅ All imports successful")
                 assert postgres_key.exists(), (
                     f"PostgreSQL TLS key not generated: {postgres_key}"
                 )
-                print("✅ TLS/PKI certificates verified: CA bundle and PostgreSQL certs exist")
+                print(
+                    "✅ TLS/PKI certificates verified: CA bundle and PostgreSQL certs exist"
+                )
             else:
                 print("✅ Secrets already exist (from test_06)")
 
@@ -665,6 +667,42 @@ print("✅ All imports successful")
             # Wait for services to be healthy
             print("⏳ Waiting for services to become healthy...")
             time.sleep(30)
+
+            # TODO: This is for debugging; remove later
+            # Check if temporal-schema-setup completed successfully
+            print("\n🔍 Checking temporal-schema-setup status...")
+            try:
+                inspect_result = subprocess.run(
+                    [
+                        "docker",
+                        "inspect",
+                        "api-forge-temporal-schema-setup",
+                        "--format",
+                        "{{.State.ExitCode}}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    cwd=project_dir,
+                )
+                if inspect_result.returncode == 0:
+                    exit_code = inspect_result.stdout.strip()
+                    print(f"Temporal schema setup exit code: {exit_code}")
+                    if exit_code != "0":
+                        print("\n❌ Temporal schema setup failed! Capturing logs...")
+                        logs_result = subprocess.run(
+                            ["docker", "logs", "api-forge-temporal-schema-setup"],
+                            capture_output=True,
+                            text=True,
+                            cwd=project_dir,
+                        )
+                        print(f"\n📋 Temporal schema setup logs:\n{logs_result.stdout}")
+                        if logs_result.stderr:
+                            print(f"Stderr:\n{logs_result.stderr}")
+                        raise AssertionError(
+                            f"Temporal schema setup failed with exit code {exit_code}"
+                        )
+            except subprocess.CalledProcessError:
+                print("⚠️ Could not inspect temporal-schema-setup container")
 
             # Check deployment status
             result = self.run_command(
