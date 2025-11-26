@@ -3,9 +3,10 @@
 import asyncio
 import time
 import uuid
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -41,15 +42,15 @@ try:
     from fastapi_limiter import FastAPILimiter
     from redis.asyncio import Redis as AsyncRedis
 except ImportError:  # pragma: no cover - optional dependency missing
-    FastAPILimiter = None
-    redis_async = None
-    AsyncRedis = None
+    FastAPILimiter = None  # type: ignore[assignment,misc]
+    redis_async = None  # type: ignore[assignment]
+    AsyncRedis = None  # type: ignore[assignment,misc]
 
 
 # --- Security middleware ---
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        response: Response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault(
@@ -69,7 +70,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 # --- FastAPI app setup ---
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Allow FastAPI to run startup/shutdown routines once per process
 
     await startup()
@@ -109,8 +110,7 @@ app.add_middleware(
 
 # --- Request logging middleware ---
 @app.middleware("http")
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     # Correlation / tracing
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 
@@ -416,11 +416,11 @@ async def startup() -> None:
 
     # Verify JWKS endpoints so auth failures surface early
     if config.oidc.providers:
-        jwks_service: JwksService = app.state.app_dependencies.jwks_service
+        jwks_svc: JwksService = app.state.app_dependencies.jwks_service
         # issuers = list(main_config.oidc_providers.keys())
         issuers = list(config.oidc.providers.values())
         results = await asyncio.gather(
-            *(jwks_service.fetch_jwks(iss) for iss in issuers), return_exceptions=True
+            *(jwks_svc.fetch_jwks(iss) for iss in issuers), return_exceptions=True
         )
         errors = [
             (iss, str(err))
