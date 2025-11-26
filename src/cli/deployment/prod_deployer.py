@@ -41,7 +41,6 @@ class ProdDeployer(BaseDeployer):
         # Build services list dynamically based on config.yaml
         self.SERVICES = get_production_services()
 
-
     def deploy(self, **kwargs) -> None:
         """Deploy the production environment.
 

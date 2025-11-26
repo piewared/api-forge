@@ -311,4 +311,3 @@ class TestAuthenticationIntegration:
 
             # Verify different sessions were created
             assert mock_create_auth.call_count >= 1
-

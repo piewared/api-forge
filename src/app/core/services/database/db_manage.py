@@ -1,6 +1,5 @@
 """Database engine and session factory used across the application."""
 
-
 from loguru import logger
 from sqlmodel import create_engine
 

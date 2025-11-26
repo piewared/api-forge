@@ -12,12 +12,11 @@ from src.app.runtime.context import get_config
 if TYPE_CHECKING:
     from src.app.core.services.oidc_client_service import OidcClientService
 
+
 class UserSessionService:
     """Service for managing user sessions."""
 
-    def __init__(
-        self, session_storage: SessionStorage
-    ) -> None:
+    def __init__(self, session_storage: SessionStorage) -> None:
         self._storage = session_storage
 
     async def create_user_session(
@@ -158,7 +157,9 @@ class UserSessionService:
         """
         await self._storage.delete(f"user:{session_id}")
 
-    async def refresh_user_session(self, session_id: str, oidc_client: 'OidcClientService') -> str:
+    async def refresh_user_session(
+        self, session_id: str, oidc_client: "OidcClientService"
+    ) -> str:
         """Refresh user session using stored refresh token.
 
         Args:
@@ -184,7 +185,8 @@ class UserSessionService:
 
         if (
             policy.max_session_lifetime_seconds
-            and int(time.time()) - user_session.created_at > policy.max_session_lifetime_seconds
+            and int(time.time()) - user_session.created_at
+            > policy.max_session_lifetime_seconds
         ):
             raise ValueError("Refresh token lifetime exceeded")
 

@@ -10,4 +10,3 @@ class ProductTable(EntityTable, table=True):
     It's separate from the domain entity to maintain clean architecture
     while keeping related code together.
     """
-

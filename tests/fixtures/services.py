@@ -41,6 +41,7 @@ def jwks_service(jwks_cache: JWKSCache):
     # Clear cache after test
     jwks_cache.clear_jwks_cache()
 
+
 @pytest.fixture
 def jwks_service_fake(jwks_data) -> JwksService:
     """Get a fake JWKS service instance for testing."""
@@ -65,6 +66,7 @@ def jwt_generate_service() -> JwtGeneratorService:
     """Get a JWT generation service instance for testing."""
     return JwtGeneratorService()
 
+
 @pytest.fixture
 def oidc_client_service(
     jwt_verify_service: JwtVerificationService,
@@ -84,9 +86,7 @@ def user_session_service(
     session_storage: SessionStorage, oidc_client_service: OidcClientService
 ) -> UserSessionService:
     """Get a User Session service instance for testing."""
-    return UserSessionService(
-        session_storage=session_storage
-    )
+    return UserSessionService(session_storage=session_storage)
 
 
 @pytest.fixture
@@ -153,13 +153,12 @@ def mock_user_management_service() -> Mock:
 
 
 @pytest.fixture(autouse=True)
-async def reset_session_storage(session_storage: SessionStorage) -> AsyncGenerator[None]:
+async def reset_session_storage(
+    session_storage: SessionStorage,
+) -> AsyncGenerator[None]:
     """Reset session storage before each test to avoid Redis connection conflicts."""
 
     await clear_all_sessions(session_storage)
     yield
     # Reset again after test to clean up
     await clear_all_sessions(session_storage)
-
-
-

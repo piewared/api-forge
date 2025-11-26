@@ -9,6 +9,7 @@ from src.app.runtime.context import get_config
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
+
 class RedisService:
     """Service for managing Redis connection lifecycle and health checks.
 
@@ -53,12 +54,12 @@ class RedisService:
 
             retry = Retry(
                 ExponentialBackoff(base=1, cap=10),  # 1s, 2s, 4s, … up to 10s
-                retries=6,                           # try up to 6 times
+                retries=6,  # try up to 6 times
             )
 
             # Create Redis client with connection pooling
             self._client = redis_async.from_url(
-                self._connection_string,          # e.g. rediss://user:pass@host:6379/0
+                self._connection_string,  # e.g. rediss://user:pass@host:6379/0
                 encoding="utf-8",
                 decode_responses=redis_config.decode_responses,
                 encoding_errors="replace",
@@ -71,7 +72,7 @@ class RedisService:
                 retry=retry,
                 client_name="my_app_redis_client",
                 # ssl=True, ssl_cert_reqs="required",  # ← if TLS isn’t in URL
-)
+            )
 
             logger.info(
                 "Redis client initialized",
@@ -98,7 +99,7 @@ class RedisService:
             if config.app.environment == "production":
                 raise
 
-    def get_client(self) -> Optional['Redis']:
+    def get_client(self) -> Optional["Redis"]:
         """Get the Redis async client instance.
 
         Returns:

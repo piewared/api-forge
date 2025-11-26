@@ -243,14 +243,13 @@ async def handle_callback(
             user_id=user.id,
             provider=auth_session.provider,
             client_fingerprint=client_fingerprint,
-            refresh_token=
+            refresh_token=tokens.refresh_token
+            if (
                 tokens.refresh_token
-                if (
-                    tokens.refresh_token
-                    and refresh_policy.enabled
-                    and refresh_policy.persist_in_session_store
-                )
-                else None,
+                and refresh_policy.enabled
+                and refresh_policy.persist_in_session_store
+            )
+            else None,
             access_token=tokens.access_token,
             access_token_expires_at=tokens.expires_at,
         )

@@ -137,7 +137,9 @@ class TestBaseWorkflowActivityMethods:
         # All Temporal parameters should be in BaseWorkflow method
         # (BaseWorkflow may have additional ones like self)
         missing_params = temporal_params - base_params
-        assert not missing_params, f"Missing parameters from Temporal API: {missing_params}"
+        assert not missing_params, (
+            f"Missing parameters from Temporal API: {missing_params}"
+        )
 
     def test_execute_activity_signature_matches_temporal(self):
         """Test execute_activity signature matches Temporal's workflow.execute_activity."""
@@ -155,7 +157,9 @@ class TestBaseWorkflowActivityMethods:
 
         # All Temporal parameters should be in BaseWorkflow method
         missing_params = temporal_params - base_params
-        assert not missing_params, f"Missing parameters from Temporal API: {missing_params}"
+        assert not missing_params, (
+            f"Missing parameters from Temporal API: {missing_params}"
+        )
 
 
 class TestActivityTrackingDocumentation:

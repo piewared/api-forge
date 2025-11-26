@@ -112,7 +112,6 @@ class TestContextManager:
         assert after_config is original_config
 
     def test_context_isolation_in_nested_calls(self):
-
         def inner_function() -> str:
             """Function that reads config in different context."""
             return get_config().app.host
@@ -474,9 +473,7 @@ class TestContextManagerEdgeCases:
                 # Should inherit parent's non-overridden properties
                 # Note: This tests proper inheritance behavior where child contexts
                 # inherit non-overridden values from their parent context
-                assert (
-                    child_context.app.port == 8001
-                )  # Inherited from parent
+                assert child_context.app.port == 8001  # Inherited from parent
                 assert child_context.logging.level == "DEBUG"  # Inherited from parent
 
             # Back to parent context

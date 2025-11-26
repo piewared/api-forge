@@ -234,7 +234,9 @@ async def _initialize_rate_limiter() -> None:
         return None
 
     if FastAPILimiter is None or redis_async is None:
-        logger.info("FastAPILimiter or redis.asyncio not installed; using local in-memory rate limiter")
+        logger.info(
+            "FastAPILimiter or redis.asyncio not installed; using local in-memory rate limiter"
+        )
         _activate_local_rate_limiter()
         return
 
@@ -249,7 +251,8 @@ async def _initialize_rate_limiter() -> None:
         app.state.redis = client
 
         logger.info(
-            "FastAPI limiter initialized with Redis: {}", config.redis.sanitized_connection_string
+            "FastAPI limiter initialized with Redis: {}",
+            config.redis.sanitized_connection_string,
         )
         configure_rate_limiter()  # use default redis-based limiter
         app.state.local_rate_limiter = None
@@ -275,6 +278,7 @@ async def startup() -> None:
     logger.info("Initializing database schema")
     try:
         from src.app.runtime.init_db import init_db
+
         init_db()
         logger.info("Database schema initialized successfully")
     except Exception:
@@ -300,7 +304,6 @@ async def startup() -> None:
             else:
                 logger.warning("Redis service is not available")
                 redis_service = None
-
 
         logger.info("Setting up storage services")
         app_storage = get_storage(redis_service)
@@ -373,9 +376,13 @@ async def startup() -> None:
             if redis_healthy:
                 logger.info("✓ Redis is healthy")
             else:
-                logger.warning("⚠ Redis health check returned unhealthy status, will use in-memory fallback")
+                logger.warning(
+                    "⚠ Redis health check returned unhealthy status, will use in-memory fallback"
+                )
         except Exception as e:
-            logger.warning("⚠ Redis health check failed: {}, will use in-memory fallback", e)
+            logger.warning(
+                "⚠ Redis health check failed: {}, will use in-memory fallback", e
+            )
     else:
         logger.info("Redis is disabled, skipping health check")
 
@@ -402,7 +409,10 @@ async def startup() -> None:
         error_summary = "; ".join([f"{svc}: {err}" for svc, err in health_check_errors])
         raise RuntimeError(f"Critical service health checks failed: {error_summary}")
     elif health_check_errors:
-        logger.warning("Some health checks failed but continuing in non-production environment: {}", health_check_errors)
+        logger.warning(
+            "Some health checks failed but continuing in non-production environment: {}",
+            health_check_errors,
+        )
 
     # Verify JWKS endpoints so auth failures surface early
     if config.oidc.providers:

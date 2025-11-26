@@ -124,7 +124,6 @@ class TemporalClientService:
                     data_converter=pydantic_data_converter,
                 )
 
-
                 self._connection_attempts = attempt
                 logger.info(
                     "Successfully connected to Temporal",

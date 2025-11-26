@@ -383,7 +383,13 @@ class TestSessionService:
             await auth_session_service.delete_auth_session(session_id)
 
     @pytest.mark.asyncio
-    async def test_refresh_user_session_success(self, auth_test_config, provider, user_session_service: UserSessionService, oidc_client_service: OidcClientService):
+    async def test_refresh_user_session_success(
+        self,
+        auth_test_config,
+        provider,
+        user_session_service: UserSessionService,
+        oidc_client_service: OidcClientService,
+    ):
         """Test successful user session refresh."""
         user_id = "12345678-1234-5678-9abc-123456789012"
         auth_test_config.oidc.refresh_tokens.enabled = True
@@ -401,7 +407,9 @@ class TestSessionService:
             )
 
             # Mock the OIDC client service
-            with patch.object(oidc_client_service, 'refresh_access_token') as mock_refresh:
+            with patch.object(
+                oidc_client_service, "refresh_access_token"
+            ) as mock_refresh:
                 from src.app.core.services.oidc_client_service import TokenResponse
 
                 mock_refresh.return_value = TokenResponse(
@@ -412,7 +420,9 @@ class TestSessionService:
                 )
 
                 # Refresh the session
-                new_session_id = await user_session_service.refresh_user_session(session_id, oidc_client_service)
+                new_session_id = await user_session_service.refresh_user_session(
+                    session_id, oidc_client_service
+                )
 
                 # Should return new session ID
                 assert isinstance(new_session_id, str)
@@ -422,7 +432,9 @@ class TestSessionService:
                 assert await user_session_service.get_user_session(session_id) is None
 
                 # New session should exist with updated tokens
-                new_session = await user_session_service.get_user_session(new_session_id)
+                new_session = await user_session_service.get_user_session(
+                    new_session_id
+                )
                 assert new_session is not None
                 assert new_session.access_token == "new-access-token"
                 assert new_session.refresh_token == "new-refresh-token"
@@ -448,7 +460,9 @@ class TestSessionService:
             )
 
             with pytest.raises(ValueError, match="Refresh tokens are disabled"):
-                await user_session_service.refresh_user_session(session_id, oidc_client_service)
+                await user_session_service.refresh_user_session(
+                    session_id, oidc_client_service
+                )
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_lifetime_enforced(
@@ -475,12 +489,15 @@ class TestSessionService:
             assert stored_session is not None
             stored_session.created_at -= 120
             await storage.set(
-                f"user:{session_id}", stored_session, auth_test_config.app.session_max_age
+                f"user:{session_id}",
+                stored_session,
+                auth_test_config.app.session_max_age,
             )
 
             with pytest.raises(ValueError, match="Refresh token lifetime exceeded"):
-                await user_session_service.refresh_user_session(session_id, oidc_client_service)
-
+                await user_session_service.refresh_user_session(
+                    session_id, oidc_client_service
+                )
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_not_found(
@@ -493,7 +510,9 @@ class TestSessionService:
         auth_test_config.oidc.refresh_tokens.enabled = True
         with with_context(config_override=auth_test_config):
             with pytest.raises(ValueError, match="Session not found or expired"):
-                await user_session_service.refresh_user_session("nonexistent-session", oidc_client_service)
+                await user_session_service.refresh_user_session(
+                    "nonexistent-session", oidc_client_service
+                )
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_no_refresh_token(
@@ -518,7 +537,9 @@ class TestSessionService:
             )
 
             with pytest.raises(ValueError, match="No refresh token available"):
-                await user_session_service.refresh_user_session(session_id, oidc_client_service)
+                await user_session_service.refresh_user_session(
+                    session_id, oidc_client_service
+                )
 
     @pytest.mark.asyncio
     async def test_refresh_user_session_refresh_fails(
@@ -542,11 +563,15 @@ class TestSessionService:
             )
 
             # Mock refresh to fail
-            with patch.object(oidc_client_service, 'refresh_access_token') as mock_refresh:
+            with patch.object(
+                oidc_client_service, "refresh_access_token"
+            ) as mock_refresh:
                 mock_refresh.side_effect = Exception("Token refresh failed")
 
                 with pytest.raises(ValueError, match="Token refresh failed"):
-                    await user_session_service.refresh_user_session(session_id, oidc_client_service)
+                    await user_session_service.refresh_user_session(
+                        session_id, oidc_client_service
+                    )
 
                 # Session should be cleaned up on failure
                 assert await user_session_service.get_user_session(session_id) is None
@@ -668,7 +693,7 @@ class TestSessionServiceNew:
         assert isinstance(session_id, str)
         assert len(session_id) > 0
         assert len(await auth_session_service.list_auth_sessions()) == 1
-        assert(await auth_session_service.get_auth_session(session_id) is not None)
+        assert await auth_session_service.get_auth_session(session_id) is not None
 
     @pytest.mark.asyncio
     async def test_validate_auth_session(
@@ -697,8 +722,6 @@ class TestSessionServiceNew:
         assert result.client_fingerprint_hash == "test_fingerprint"
         assert result.id == session_id
 
-
-
     @pytest.mark.asyncio
     async def test_validate_auth_session_failures(
         self, test_auth_session: AuthSession, auth_session_service: AuthSessionService
@@ -708,8 +731,6 @@ class TestSessionServiceNew:
             patch.object(auth_session_service, "get_auth_session") as mock_get_auth,
             patch.object(auth_session_service, "delete_auth_session") as mock_delete,
         ):
-
-
             # Test 1: Session not found
             mock_get_auth.return_value = None
             result = await auth_session_service.validate_auth_session(
@@ -738,7 +759,6 @@ class TestSessionServiceNew:
     async def test_create_user_session(self, user_session_service: UserSessionService):
         """Test creating user session with security features."""
 
-
         assert len(await user_session_service.list_user_sessions()) == 0
         session_id = await user_session_service.create_user_session(
             user_id="user-123",
@@ -750,7 +770,7 @@ class TestSessionServiceNew:
         )
 
         assert len(await user_session_service.list_user_sessions()) == 1
-        assert(await user_session_service.get_user_session(session_id) is not None)
+        assert await user_session_service.get_user_session(session_id) is not None
         assert isinstance(session_id, str)
         assert len(session_id) > 0
 

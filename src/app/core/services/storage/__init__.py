@@ -6,4 +6,10 @@ from .memory import InMemoryStorage
 from .redis import RedisStorage
 from .session import SessionStorage
 
-__all__ = ["ApplicationStorage", "get_session_storage", "InMemoryStorage", "RedisStorage", "SessionStorage"]
+__all__ = [
+    "ApplicationStorage",
+    "get_session_storage",
+    "InMemoryStorage",
+    "RedisStorage",
+    "SessionStorage",
+]

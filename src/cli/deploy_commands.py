@@ -24,16 +24,22 @@ class Environment(str, Enum):
 
 @deploy_app.command()
 def up(
-    env: Environment = typer.Argument(..., help="Environment to deploy (dev, prod, or k8s)"),
+    env: Environment = typer.Argument(
+        ..., help="Environment to deploy (dev, prod, or k8s)"
+    ),
     force: bool = typer.Option(
         False, "--force", help="Force restart even if services are running (dev only)"
     ),
-    no_wait: bool = typer.Option(False, "--no-wait", help="Don't wait for services to be ready"),
+    no_wait: bool = typer.Option(
+        False, "--no-wait", help="Don't wait for services to be ready"
+    ),
     skip_build: bool = typer.Option(
         False, "--skip-build", help="Skip building the app image (prod only)"
     ),
     force_recreate: bool = typer.Option(
-        False, "--force-recreate", help="Force recreate containers to pick up new secrets (prod/k8s only)"
+        False,
+        "--force-recreate",
+        help="Force recreate containers to pick up new secrets (prod/k8s only)",
     ),
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
@@ -65,16 +71,22 @@ def up(
 
     elif env == Environment.PROD:
         deployer = ProdDeployer(console, project_root)
-        deployer.deploy(skip_build=skip_build, no_wait=no_wait, force_recreate=force_recreate)
+        deployer.deploy(
+            skip_build=skip_build, no_wait=no_wait, force_recreate=force_recreate
+        )
 
     elif env == Environment.K8S:
         deployer = K8sDeployer(console, project_root)
-        deployer.deploy(namespace=namespace, no_wait=no_wait, force_recreate=force_recreate)
+        deployer.deploy(
+            namespace=namespace, no_wait=no_wait, force_recreate=force_recreate
+        )
 
 
 @deploy_app.command()
 def down(
-    env: Environment = typer.Argument(..., help="Environment to stop (dev, prod, or k8s)"),
+    env: Environment = typer.Argument(
+        ..., help="Environment to stop (dev, prod, or k8s)"
+    ),
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
@@ -117,7 +129,9 @@ def down(
 
 @deploy_app.command()
 def status(
-    env: Environment = typer.Argument(..., help="Environment to check status (dev, prod, or k8s)"),
+    env: Environment = typer.Argument(
+        ..., help="Environment to check status (dev, prod, or k8s)"
+    ),
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
@@ -190,11 +204,15 @@ def rotate(
     secrets_script = project_root / "infra" / "secrets" / "generate_secrets.sh"
 
     if not secrets_script.exists():
-        console.print(f"[red]✗[/red] Secret generation script not found at {secrets_script}")
+        console.print(
+            f"[red]✗[/red] Secret generation script not found at {secrets_script}"
+        )
         raise typer.Exit(1)
 
     if env == Environment.DEV:
-        console.print("[yellow]⚠[/yellow] Secret rotation is not needed for dev environment")
+        console.print(
+            "[yellow]⚠[/yellow] Secret rotation is not needed for dev environment"
+        )
         console.print("   Dev environment uses hardcoded test credentials")
         raise typer.Exit(0)
 
@@ -223,10 +241,14 @@ def rotate(
             if result.stdout:
                 console.print(result.stdout)
         except subprocess.CalledProcessError as e:
-            console.print(f"[yellow]⚠[/yellow] Backup failed (continuing anyway): {e.stderr}")
+            console.print(
+                f"[yellow]⚠[/yellow] Backup failed (continuing anyway): {e.stderr}"
+            )
 
     # Step 2: Generate new secrets
-    console.print(f"\n[bold]Step {'2/3' if backup else '1/2'}:[/bold] Generating new secrets...")
+    console.print(
+        f"\n[bold]Step {'2/3' if backup else '1/2'}:[/bold] Generating new secrets..."
+    )
     generate_cmd = [str(secrets_script)]
     if force:
         generate_cmd.append("--force")
@@ -258,12 +280,18 @@ def rotate(
             deployer = K8sDeployer(console, project_root)
             deployer.deploy(namespace=namespace, no_wait=False, force_recreate=True)
 
-        console.print("\n[bold green]🎉 Secret rotation and redeployment complete![/bold green]")
+        console.print(
+            "\n[bold green]🎉 Secret rotation and redeployment complete![/bold green]"
+        )
     else:
-        console.print("\n[bold yellow]⚠[/bold yellow] Secrets rotated but not deployed.")
+        console.print(
+            "\n[bold yellow]⚠[/bold yellow] Secrets rotated but not deployed."
+        )
         console.print("   Run the following command to deploy with new secrets:")
         if env == Environment.PROD:
-            console.print("   [cyan]uv run api-forge-cli deploy up prod --force-recreate[/cyan]")
+            console.print(
+                "   [cyan]uv run api-forge-cli deploy up prod --force-recreate[/cyan]"
+            )
         elif env == Environment.K8S:
             console.print(
                 f"   [cyan]uv run api-forge-cli deploy up k8s --force-recreate -n {namespace}[/cyan]"

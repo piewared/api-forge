@@ -18,7 +18,10 @@ class DbSessionService:
         main_config = get_config()
         db_config = main_config.database
 
-        logger.info("Configuring database engine for environment: {}", main_config.app.environment)
+        logger.info(
+            "Configuring database engine for environment: {}",
+            main_config.app.environment,
+        )
         # Production-optimized engine configuration
         engine_kwargs = {
             # Connection pool settings
@@ -47,8 +50,14 @@ class DbSessionService:
                 }
             )
 
-        logger.info("Initializing database engine using connection string: {} and args {}", db_config.sanitized_connection_string, engine_kwargs)
-        self._engine = create_engine(main_config.database.connection_string, **engine_kwargs)
+        logger.info(
+            "Initializing database engine using connection string: {} and args {}",
+            db_config.sanitized_connection_string,
+            engine_kwargs,
+        )
+        self._engine = create_engine(
+            main_config.database.connection_string, **engine_kwargs
+        )
 
         # Log configuration for monitoring
         if main_config.app.environment == "production":

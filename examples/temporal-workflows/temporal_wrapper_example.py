@@ -169,8 +169,6 @@ class OrderProcessingWorkflow(BaseWorkflow[OrderInput, OrderOutput]):
         return self._cancelled
 
 
-
-
 # =============================================================================
 # Example 1: Blocking Workflow Execution
 # =============================================================================

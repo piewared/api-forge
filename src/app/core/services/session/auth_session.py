@@ -195,7 +195,6 @@ class AuthSessionService:
             auth_session.mark_used()
             await self._storage.set(f"auth:{auth_session.id}", auth_session, 600)
 
-
     async def purge_expired(self) -> None:
         """Cleanup expired sessions from storage."""
         await self._storage.cleanup_expired()

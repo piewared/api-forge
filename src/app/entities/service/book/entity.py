@@ -14,23 +14,20 @@ class Book(Entity):
     It inherits from Entity to get auto-generated UUID identifiers.
     """
 
-
     name: str = Field(description="Name")
-
 
     def __eq__(self, other: Any) -> bool:
         """Compare books by business attributes, ignoring timestamps."""
         if not isinstance(other, Book):
             return False
 
-        return (
-            self.id == other.id
-            and self.name == other.name
-        )
+        return self.id == other.id and self.name == other.name
 
     def __hash__(self) -> int:
         """Hash based on business attributes, ignoring timestamps."""
-        return hash((
-            self.id,
-            self.name,
-        ))
+        return hash(
+            (
+                self.id,
+                self.name,
+            )
+        )

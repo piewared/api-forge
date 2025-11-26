@@ -36,11 +36,13 @@ class User(Entity):
 
     def __hash__(self) -> int:
         """Hash based on business attributes, ignoring timestamps."""
-        return hash((
-            self.id,
-            self.first_name,
-            self.last_name,
-            self.email,
-            self.phone,
-            self.address,
-        ))
+        return hash(
+            (
+                self.id,
+                self.first_name,
+                self.last_name,
+                self.email,
+                self.phone,
+                self.address,
+            )
+        )

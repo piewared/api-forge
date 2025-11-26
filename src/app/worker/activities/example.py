@@ -21,7 +21,6 @@ class PaymentOutput(BaseModel):
     status: str
 
 
-
 @activity_defn(queue="example")
 async def process_payment(payment_input: PaymentInput) -> PaymentOutput:
     """

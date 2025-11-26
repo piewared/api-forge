@@ -30,6 +30,10 @@ jobs:
       run: |
         uv sync --dev
 
+    - name: Setup environment configuration
+      run: |
+        cp .env.example .env
+
     - name: Start dev environment services
       run: |
         # Deploy dev environment (blocks until services are ready)
@@ -43,19 +47,19 @@ jobs:
       if: failure()
       run: |
         echo "=== Docker Compose Services ==="
-        docker-compose -f docker-compose.dev.yml ps
+        docker compose -f docker-compose.dev.yml ps
         echo ""
         echo "=== PostgreSQL Logs ==="
-        docker-compose -f docker-compose.dev.yml logs postgres --tail=100
+        docker compose -f docker-compose.dev.yml logs postgres --tail=100
         echo ""
         echo "=== Redis Logs ==="
-        docker-compose -f docker-compose.dev.yml logs redis --tail=100
+        docker compose -f docker-compose.dev.yml logs redis --tail=100
         echo ""
         echo "=== Keycloak Logs ==="
-        docker-compose -f docker-compose.dev.yml logs keycloak --tail=100
+        docker compose -f docker-compose.dev.yml logs keycloak --tail=100
         echo ""
         echo "=== Temporal Logs ==="
-        docker-compose -f docker-compose.dev.yml logs temporal --tail=100
+        docker compose -f docker-compose.dev.yml logs temporal --tail=100
 
     - name: Stop dev environment
       if: always()

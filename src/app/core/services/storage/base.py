@@ -101,4 +101,3 @@ class ApplicationStorage(ABC):
             True if storage is healthy and available
         """
         pass
-

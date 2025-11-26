@@ -9,7 +9,8 @@ from src.app.core.services.storage.session import SessionStorage
 if TYPE_CHECKING:
     from src.app.core.services.redis_service import RedisService
 
-def get_storage(redis: Optional['RedisService']) -> ApplicationStorage:
+
+def get_storage(redis: Optional["RedisService"]) -> ApplicationStorage:
     """Get the configured session storage instance."""
 
     if redis and (client := redis.get_client()):
@@ -20,7 +21,7 @@ def get_storage(redis: Optional['RedisService']) -> ApplicationStorage:
     return InMemoryStorage()
 
 
-def get_session_storage(redis: Optional['RedisService']) -> SessionStorage:
+def get_session_storage(redis: Optional["RedisService"]) -> SessionStorage:
     """Get the configured session storage instance."""
 
     storage = get_storage(redis)

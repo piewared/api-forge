@@ -109,6 +109,3 @@ class InMemoryStorage(ApplicationStorage):
     def is_available(self) -> bool:
         """In-memory storage is always available."""
         return True
-
-
-

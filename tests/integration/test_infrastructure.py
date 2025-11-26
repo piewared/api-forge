@@ -60,8 +60,6 @@ class TestInfrastructureIntegration:
         assert get_db_session is not None
         assert callable(get_db_session)
 
-
-
     def test_error_handling_integration(self, auth_test_client: TestClient):
         """Test that error handling works across the system."""
         # Try to access non-existent endpoint

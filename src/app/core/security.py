@@ -231,7 +231,9 @@ def extract_client_fingerprint(request: Request) -> str:
     if not client_ip and hasattr(request, "client") and request.client:
         client_ip = request.client.host
 
-    print(f"extract_client_fingerprint called with user_agent: {user_agent}, client_ip: {client_ip}")
+    print(
+        f"extract_client_fingerprint called with user_agent: {user_agent}, client_ip: {client_ip}"
+    )
     return hash_client_fingerprint(user_agent, client_ip)
 
 

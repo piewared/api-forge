@@ -12,19 +12,13 @@ class Product(Entity):
     It inherits from Entity to get auto-generated UUID identifiers.
     """
 
-
-
     def __eq__(self, other: Any) -> bool:
         """Compare products by business attributes, ignoring timestamps."""
         if not isinstance(other, Product):
             return False
 
-        return (
-            self.id == other.id
-        )
+        return self.id == other.id
 
     def __hash__(self) -> int:
         """Hash based on business attributes, ignoring timestamps."""
-        return hash((
-            self.id,
-        ))
+        return hash((self.id,))

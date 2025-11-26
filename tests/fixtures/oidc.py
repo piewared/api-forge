@@ -32,7 +32,6 @@ def mock_oidc_provider() -> OIDCProviderConfig:
     )
 
 
-
 @pytest.fixture
 def mock_user_claims() -> dict[str, Any]:
     """Mock user claims from OIDC provider."""
@@ -182,4 +181,3 @@ def oidc_test_config():
     }
 
     return config
-

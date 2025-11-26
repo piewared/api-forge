@@ -7,6 +7,7 @@ main_config = get_config()  # Ensure config is loaded before DB init
 
 db_manage_service = DbManageService()
 
+
 def init_db() -> None:
     """Create all database tables."""
     db_manage_service.create_all()

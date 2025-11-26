@@ -12,7 +12,10 @@ from src.app.core.security import hash_client_fingerprint
 class TestAuthSession:
     """Test AuthSession model."""
 
-    def test_create_auth_session(self, test_auth_session, ):
+    def test_create_auth_session(
+        self,
+        test_auth_session,
+    ):
         """Test successful creation of an auth session."""
         session = test_auth_session
 
@@ -22,7 +25,9 @@ class TestAuthSession:
         assert session.nonce == "test-nonce-value"
         assert session.provider == "default"
         assert session.return_to == "/dashboard"
-        assert session.client_fingerprint_hash == hash_client_fingerprint('testclient', 'testclient')
+        assert session.client_fingerprint_hash == hash_client_fingerprint(
+            "testclient", "testclient"
+        )
         assert not session.used
         assert session.expires_at > session.created_at
 
@@ -38,7 +43,6 @@ class TestAuthSession:
 
         assert session.is_expired()
 
-
     def test_auth_session_mark_used(self, test_auth_session):
         """Test marking session as used."""
         session = test_auth_session
@@ -46,7 +50,6 @@ class TestAuthSession:
         assert not session.used
         session.mark_used()
         assert session.used
-
 
 
 class TestUserSession:
@@ -59,7 +62,9 @@ class TestUserSession:
         assert session.id == "user-session-456"
         assert session.user_id == test_user.id
         assert session.provider == "default"
-        assert session.client_fingerprint == hash_client_fingerprint('testclient', 'testclient')
+        assert session.client_fingerprint == hash_client_fingerprint(
+            "testclient", "testclient"
+        )
         assert session.refresh_token == "mock-refresh-token"
         assert session.access_token == "mock-access-token"
         assert session.expires_at > session.created_at
@@ -75,7 +80,6 @@ class TestUserSession:
         session.expires_at = session.created_at - 1  # Already expired
 
         assert session.is_expired()
-
 
     def test_user_session_update_access(self, test_user_session: UserSession):
         """Test updating last access time."""
@@ -98,7 +102,6 @@ class TestUserSession:
         initial_time = session.last_accessed_at
         rotation_time = initial_time + 1000
 
-
         with patch("time.time", return_value=rotation_time):
             session.rotate_session_id("new-id")
 
@@ -111,7 +114,6 @@ class TestUserSession:
         session = test_user_session
         initial_time = session.last_accessed_at
         update_time = initial_time + 1000
-
 
         with patch("time.time", return_value=update_time):
             session.update_tokens(

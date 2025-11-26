@@ -118,7 +118,6 @@ class TestJwtUtils:
         assert extract_scopes(claims) == []
         assert extract_roles(claims) == []
 
-
     def test_create_token_claims_preserves_unmapped_claims(self):
         """Should preserve unmapped claims in custom_claims without dropping standard claims."""
         # Test with a mix of mapped and unmapped claims
@@ -218,4 +217,3 @@ class TestJwtUtils:
 
         # Verify that all_claims contains the original claims unchanged
         assert token_claims.all_claims == claims
-

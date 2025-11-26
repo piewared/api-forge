@@ -13,6 +13,7 @@ _UNSET = object()
 
 def default_workflow_opts() -> dict[str, Any]:
     from src.app.runtime.context import get_config
+
     cfg = get_config().temporal
     return {
         "execution_timeout": timedelta(seconds=cfg.workflows.execution_timeout_s),
@@ -34,6 +35,7 @@ def default_workflow_opts() -> dict[str, Any]:
 # Use this INSIDE workflows when executing activities.
 def default_activity_opts() -> dict[str, Any]:
     from src.app.runtime.context import get_config
+
     cfg = get_config().temporal
     return {
         "start_to_close_timeout": timedelta(
@@ -164,6 +166,7 @@ class BaseWorkflow[TArgs, TReturn](ABC):
         # Clean up handle when done
         def cleanup(_):
             self._activity_handles.pop(activity_id, None)
+
         handle.add_done_callback(cleanup)
 
         return handle

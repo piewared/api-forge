@@ -875,10 +875,19 @@ print("✅ All imports successful")
 
                             if reason == "CrashLoopBackOff":
                                 crash_detected = True
-                                print(f"❌ Pod {pod_name} is in CrashLoopBackOff - deployment failed!")
+                                print(
+                                    f"❌ Pod {pod_name} is in CrashLoopBackOff - deployment failed!"
+                                )
                                 # Get logs immediately
                                 log_result = self.run_command(
-                                    ["kubectl", "logs", "-n", "api-forge-prod", pod_name, "--tail=100"],
+                                    [
+                                        "kubectl",
+                                        "logs",
+                                        "-n",
+                                        "api-forge-prod",
+                                        pod_name,
+                                        "--tail=100",
+                                    ],
                                     cwd=project_dir,
                                     check=False,
                                 )
@@ -920,7 +929,9 @@ print("✅ All imports successful")
                     check=False,
                 )
                 print(f"Final pod status:\n{result.stdout}")
-                raise RuntimeError(f"Timeout waiting for pods to become ready after {max_wait}s")
+                raise RuntimeError(
+                    f"Timeout waiting for pods to become ready after {max_wait}s"
+                )
 
             # Check deployment status
             result = self.run_command(

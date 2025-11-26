@@ -102,9 +102,7 @@ class TestDatabaseConfigPasswordResolution:
             password_file_path="/nonexistent/password/file",
         )
 
-        with pytest.raises(
-            FileNotFoundError
-        ):
+        with pytest.raises(FileNotFoundError):
             _ = config.password
 
     def test_production_mode_password_file_permission_error(self):
@@ -123,9 +121,7 @@ class TestDatabaseConfigPasswordResolution:
                 password_file_path=temp_file_path,
             )
 
-            with pytest.raises(
-                PermissionError
-            ):
+            with pytest.raises(PermissionError):
                 _ = config.password
         finally:
             # Restore permissions for cleanup

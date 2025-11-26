@@ -193,7 +193,9 @@ def test_user_session(test_user: User, test_client_fingerprint: str) -> UserSess
 
 # Configuration Fixtures
 @pytest.fixture
-def auth_test_config(secret_for_jwt_generation, base_oidc_provider: OIDCProviderConfig, issuer, audience) -> ConfigData:
+def auth_test_config(
+    secret_for_jwt_generation, base_oidc_provider: OIDCProviderConfig, issuer, audience
+) -> ConfigData:
     """Application configuration for authentication testing."""
     config = ConfigData()
     config.app.environment = "development"
@@ -208,7 +210,6 @@ def auth_test_config(secret_for_jwt_generation, base_oidc_provider: OIDCProvider
     config.oidc.refresh_tokens.persist_in_session_store = True
     config.oidc.refresh_tokens.max_session_lifetime_seconds = 86400
     return config
-
 
 
 # Service Mocks
@@ -243,7 +244,12 @@ def mock_oidc_client_service():
 
 # HTTP Client Fixtures
 @pytest.fixture
-def auth_test_client(auth_test_config: ConfigData, session: Session, jwks_service_fake: JwksService, test_user: User) -> Generator[TestClient]:
+def auth_test_client(
+    auth_test_config: ConfigData,
+    session: Session,
+    jwks_service_fake: JwksService,
+    test_user: User,
+) -> Generator[TestClient]:
     """Test client configured with authentication setup."""
     from src.app.runtime.context import with_context
 
@@ -253,15 +259,17 @@ def auth_test_client(auth_test_config: ConfigData, session: Session, jwks_servic
     async def _no_limit(request: Request, response: Response) -> None:
         return None
 
-
     def override_get_jwks_service():
         return jwks_service_fake
 
-
     def override_get_authenticated_user(request: Request) -> User:
-        request.state.scopes = ['test1', 'test2']
-        request.state.roles = ['admin']
-        request.state.claims = {"email": test_user.email, "sub": "dev-user", "iss": "local-dev"}
+        request.state.scopes = ["test1", "test2"]
+        request.state.roles = ["admin"]
+        request.state.claims = {
+            "email": test_user.email,
+            "sub": "dev-user",
+            "iss": "local-dev",
+        }
         return test_user
 
     configure_rate_limiter(

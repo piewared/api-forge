@@ -148,7 +148,9 @@ class OidcClientService:
             "Unable to retrieve user claims - no ID token or userinfo endpoint"
         )
 
-    async def refresh_access_token(self, refresh_token: str, provider: str) -> TokenResponse:
+    async def refresh_access_token(
+        self, refresh_token: str, provider: str
+    ) -> TokenResponse:
         """Refresh access token using refresh token.
 
         Args:

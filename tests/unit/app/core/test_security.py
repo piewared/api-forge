@@ -30,9 +30,9 @@ class TestTokenGeneration:
         assert len(token) > 0
 
         # Should be URL-safe (no padding)
-        assert '=' not in token
-        assert '+' not in token
-        assert '/' not in token
+        assert "=" not in token
+        assert "+" not in token
+        assert "/" not in token
 
     def test_generate_secure_token_custom_length(self):
         """Test token generation with custom length."""
@@ -82,16 +82,18 @@ class TestTokenGeneration:
         assert verifier != challenge
 
         # Should be URL-safe
-        assert '=' not in verifier
-        assert '=' not in challenge
+        assert "=" not in verifier
+        assert "=" not in challenge
 
         # Challenge should be SHA256 of verifier
         import base64
         import hashlib
 
-        expected_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode()).digest()
-        ).decode().rstrip('=')
+        expected_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
 
         assert challenge == expected_challenge
 
@@ -101,13 +103,13 @@ class TestCSRFTokens:
 
     def test_generate_csrf_token(self):
         """Test CSRF token generation."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret"
 
             token = generate_csrf_token("session-123")
 
             assert isinstance(token, str)
-            assert ':' in token  # Should contain timestamp
+            assert ":" in token  # Should contain timestamp
 
             # Should be deterministic for same inputs
             token2 = generate_csrf_token("session-123")
@@ -115,7 +117,7 @@ class TestCSRFTokens:
 
     def test_generate_csrf_token_custom_timestamp(self):
         """Test CSRF token with custom timestamp."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret"
 
             token1 = generate_csrf_token("session-123", 1000)
@@ -125,7 +127,7 @@ class TestCSRFTokens:
 
     def test_validate_csrf_token_success(self):
         """Test successful CSRF token validation."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret"
 
             token = generate_csrf_token("session-123")
@@ -133,7 +135,7 @@ class TestCSRFTokens:
 
     def test_validate_csrf_token_wrong_session(self):
         """Test CSRF token validation with wrong session."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret"
 
             token = generate_csrf_token("session-123")
@@ -150,7 +152,7 @@ class TestCSRFTokens:
 
     def test_validate_csrf_token_expired(self):
         """Test CSRF token validation with expired token."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret"
 
             # Generate token from 25 hours ago
@@ -161,7 +163,7 @@ class TestCSRFTokens:
 
     def test_validate_csrf_token_custom_max_age(self):
         """Test CSRF token validation with custom max age."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret"
 
             # Generate token from 2 hours ago
@@ -212,8 +214,14 @@ class TestReturnUrlSanitization:
         allowed_hosts = ["mysite.com", "api.mysite.com"]
 
         # Allowed hosts should pass
-        assert sanitize_return_url("https://mysite.com/dashboard", allowed_hosts) == "https://mysite.com/dashboard"
-        assert sanitize_return_url("http://api.mysite.com/data", allowed_hosts) == "http://api.mysite.com/data"
+        assert (
+            sanitize_return_url("https://mysite.com/dashboard", allowed_hosts)
+            == "https://mysite.com/dashboard"
+        )
+        assert (
+            sanitize_return_url("http://api.mysite.com/data", allowed_hosts)
+            == "http://api.mysite.com/data"
+        )
 
         # Non-allowed hosts should be rejected
         assert sanitize_return_url("https://evil.com/steal", allowed_hosts) == "/"
@@ -275,13 +283,22 @@ class TestClientFingerprinting:
         stored_fingerprint = hash_client_fingerprint(user_agent, client_ip)
 
         # Exact match should validate
-        assert validate_client_fingerprint(stored_fingerprint, user_agent, client_ip) is True
+        assert (
+            validate_client_fingerprint(stored_fingerprint, user_agent, client_ip)
+            is True
+        )
 
         # Different user agent should fail
-        assert validate_client_fingerprint(stored_fingerprint, "Different UA", client_ip) is False
+        assert (
+            validate_client_fingerprint(stored_fingerprint, "Different UA", client_ip)
+            is False
+        )
 
         # Different IP should fail
-        assert validate_client_fingerprint(stored_fingerprint, user_agent, "192.168.1.200") is False
+        assert (
+            validate_client_fingerprint(stored_fingerprint, user_agent, "192.168.1.200")
+            is False
+        )
 
     def test_validate_client_fingerprint_strict_mode(self):
         """Test fingerprint validation in strict mode."""
@@ -289,10 +306,18 @@ class TestClientFingerprinting:
         stored_fingerprint = hash_client_fingerprint(user_agent)
 
         # Exact match should pass
-        assert validate_client_fingerprint(stored_fingerprint, user_agent, strict=True) is True
+        assert (
+            validate_client_fingerprint(stored_fingerprint, user_agent, strict=True)
+            is True
+        )
 
         # Any difference should fail in strict mode
-        assert validate_client_fingerprint(stored_fingerprint, user_agent + " modified", strict=True) is False
+        assert (
+            validate_client_fingerprint(
+                stored_fingerprint, user_agent + " modified", strict=True
+            )
+            is False
+        )
 
     def test_validate_client_fingerprint_non_strict_mode(self):
         """Test fingerprint validation in non-strict mode."""
@@ -301,8 +326,16 @@ class TestClientFingerprinting:
 
         # For now, non-strict still requires exact match
         # This could be enhanced with fuzzy matching in the future
-        assert validate_client_fingerprint(stored_fingerprint, user_agent, strict=False) is True
-        assert validate_client_fingerprint(stored_fingerprint, user_agent + " modified", strict=False) is False
+        assert (
+            validate_client_fingerprint(stored_fingerprint, user_agent, strict=False)
+            is True
+        )
+        assert (
+            validate_client_fingerprint(
+                stored_fingerprint, user_agent + " modified", strict=False
+            )
+            is False
+        )
 
 
 class TestSecurityUtilsIntegration:
@@ -310,7 +343,7 @@ class TestSecurityUtilsIntegration:
 
     def test_full_csrf_flow(self):
         """Test complete CSRF token generation and validation flow."""
-        with patch('src.app.runtime.context.get_config') as mock_config:
+        with patch("src.app.runtime.context.get_config") as mock_config:
             mock_config.return_value.app.session_signing_secret = "test-secret-key"
 
             session_id = "user-session-abc123"
@@ -340,8 +373,14 @@ class TestSecurityUtilsIntegration:
         assert validate_client_fingerprint(fingerprint, user_agent, client_ip) is True
 
         # Simulate callback with different context (potential attack)
-        assert validate_client_fingerprint(fingerprint, "Attacker Browser", client_ip) is False
-        assert validate_client_fingerprint(fingerprint, user_agent, "192.168.1.200") is False
+        assert (
+            validate_client_fingerprint(fingerprint, "Attacker Browser", client_ip)
+            is False
+        )
+        assert (
+            validate_client_fingerprint(fingerprint, user_agent, "192.168.1.200")
+            is False
+        )
 
     def test_url_sanitization_edge_cases(self):
         """Test edge cases in URL sanitization."""

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-#from loguru import logger
+# from loguru import logger
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -32,8 +32,6 @@ class Pool:
     queue: str
     workflows: list[type[Any]] = field(default_factory=list)
     activities: list[Callable[..., Any]] = field(default_factory=list)
-
-
 
 
 class TemporalWorkerManager:
@@ -141,21 +139,21 @@ class TemporalWorkerManager:
                 )
 
         # Configure workflow sandbox to passthrough loguru (it uses datetime.now() which is restricted)
-        '''from temporalio.worker.workflow_sandbox import (
+        """from temporalio.worker.workflow_sandbox import (
             SandboxedWorkflowRunner,
             SandboxRestrictions,
         )
 
         restrictions = SandboxRestrictions.default.with_passthrough_modules("loguru")
         runner = SandboxedWorkflowRunner(restrictions=restrictions)
-        '''
+        """
 
         return Worker(
             client,
             task_queue=task_queue,
             workflows=pool.workflows,
             activities=pool.activities,
-            #workflow_runner=runner,
+            # workflow_runner=runner,
             max_concurrent_workflow_tasks=int(os.getenv("WF_TASKS", "64")),
             max_concurrent_activities=int(os.getenv("ACT_CONCURRENCY", "200")),
         )

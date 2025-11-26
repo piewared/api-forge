@@ -11,5 +11,4 @@ class BookTable(EntityTable, table=True):
     while keeping related code together.
     """
 
-
     name: str

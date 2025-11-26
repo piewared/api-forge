@@ -1,4 +1,3 @@
-
 import os
 import re
 from collections.abc import Iterable
@@ -7,7 +6,6 @@ from pathlib import Path
 from loguru import logger
 
 _SECRETS_LOADED = False
-
 
 
 def _get_project_root() -> Path:
@@ -57,18 +55,14 @@ def _load_secret_files_into_env() -> None:
                     )
                     continue
             except OSError as exc:
-                logger.warning(
-                    f"Unable to stat secret file {file_path}: {exc}"
-                )
+                logger.warning(f"Unable to stat secret file {file_path}: {exc}")
                 continue
 
             # Read and validate content
             try:
                 raw_value = file_path.read_text(encoding="utf-8")
             except OSError as exc:
-                logger.warning(
-                    f"Unable to read secret file {file_path}: {exc}"
-                )
+                logger.warning(f"Unable to read secret file {file_path}: {exc}")
                 continue
 
             # Strip whitespace and validate
@@ -119,7 +113,9 @@ def substitute_env_vars(text: str) -> str:
             var_name, error_msg = var_expr.split(":?", 1)
             value = os.getenv(var_name)
             if value is None:
-                raise ValueError(f"Required environment variable {var_name}: {error_msg}")
+                raise ValueError(
+                    f"Required environment variable {var_name}: {error_msg}"
+                )
             return value
 
         # Handle required variables: ${VAR}
@@ -131,5 +127,5 @@ def substitute_env_vars(text: str) -> str:
             return value
 
     # Match ${...} patterns
-    pattern = r'\$\{([^}]+)\}'
+    pattern = r"\$\{([^}]+)\}"
     return re.sub(pattern, replacer, text)

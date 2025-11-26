@@ -63,7 +63,6 @@ class TestBFFAuthenticationRouter:
                 "src.app.core.services.session_service.provision_user_from_claims",
                 return_value=test_user,
             ),
-
             patch("src.app.core.services.session_service.delete_auth_session"),
             patch(
                 "src.app.core.security.hash_client_fingerprint",
@@ -157,10 +156,9 @@ class TestBFFAuthenticationRouter:
         """Test callback with error parameter from OIDC provider."""
 
         with patch(
-                "src.app.core.services.session_service.get_auth_session",
-                return_value=test_auth_session
-            ):
-
+            "src.app.core.services.session_service.get_auth_session",
+            return_value=test_auth_session,
+        ):
             auth_test_client.cookies.set("auth_session_id", test_auth_session.id)
 
             response = auth_test_client.get(
@@ -304,4 +302,3 @@ class TestBFFAuthenticationRouter:
         # Should either use default provider or return error
         # This depends on implementation - adjust based on actual behavior
         assert response.status_code in [302, 400]  # Either redirect or bad request
-

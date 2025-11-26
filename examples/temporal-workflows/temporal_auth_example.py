@@ -91,8 +91,9 @@ async def start_workflow_example():
         print(f"Workflow result: {result}")
 
     finally:
-        #await client.close()
+        # await client.close()
         pass
+
 
 # Environment variables for Temporal configuration
 REQUIRED_ENV_VARS = {

@@ -61,14 +61,18 @@ class DevDeployer(BaseDeployer):
         no_wait = kwargs.get("no_wait", False)
         # Check if services are already running
         running_services = self._get_running_services()
-        all_services_running = len(running_services) == 4  # Keycloak, Postgres, Redis, Temporal
+        all_services_running = (
+            len(running_services) == 4
+        )  # Keycloak, Postgres, Redis, Temporal
 
         if all_services_running and not force:
             self.success("All services are already running and healthy!")
             self.console.print(
                 "[bold yellow]💡 Tip: Use --force to restart all services[/bold yellow]"
             )
-            self.console.print("\n[bold green]🎉 Development environment is ready![/bold green]")
+            self.console.print(
+                "\n[bold green]🎉 Development environment is ready![/bold green]"
+            )
             self.status_display.show_dev_status()
             # Continue to start dev server even if services are already running
             self._start_dev_server()
@@ -76,10 +80,14 @@ class DevDeployer(BaseDeployer):
 
         if running_services and force:
             self.warning(f"Found running services: {', '.join(running_services)}")
-            self.console.print("[yellow]🔄 Restarting all services with --force flag...[/yellow]")
+            self.console.print(
+                "[yellow]🔄 Restarting all services with --force flag...[/yellow]"
+            )
             self._stop_services()
         elif running_services:
-            self.warning(f"Some services are already running: {', '.join(running_services)}")
+            self.warning(
+                f"Some services are already running: {', '.join(running_services)}"
+            )
             self.console.print(
                 "[bold yellow]💡 To avoid conflicts, please use --force to restart all services[/bold yellow]"
             )
@@ -137,7 +145,14 @@ class DevDeployer(BaseDeployer):
         with self.create_progress() as progress:
             task = progress.add_task("Stopping existing containers...", total=1)
             self.run_command(
-                ["docker", "compose", "-f", self.COMPOSE_FILE, "down", "--remove-orphans"]
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    self.COMPOSE_FILE,
+                    "down",
+                    "--remove-orphans",
+                ]
             )
             progress.update(task, completed=1)
 
@@ -151,7 +166,15 @@ class DevDeployer(BaseDeployer):
             # Start containers
             task1 = progress.add_task("Starting Docker containers...", total=1)
             self.run_command(
-                ["docker", "compose", "-f", self.COMPOSE_FILE, "up", "-d", "--remove-orphans"]
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    self.COMPOSE_FILE,
+                    "up",
+                    "-d",
+                    "--remove-orphans",
+                ]
             )
             progress.update(task1, completed=1)
 
@@ -213,7 +236,9 @@ class DevDeployer(BaseDeployer):
 
     def _start_dev_server(self) -> None:
         """Start the FastAPI development server with hot reload."""
-        self.console.print("\n[bold green]🎉 Development environment is ready![/bold green]")
+        self.console.print(
+            "\n[bold green]🎉 Development environment is ready![/bold green]"
+        )
         self.status_display.show_dev_status()
 
         self.console.print(

@@ -145,6 +145,7 @@ class TemporalWorkflowsConfig(BaseModel):
         description="Retry policy for workflows",
     )
 
+
 class TemporalConfig(BaseModel):
     """Temporal configuration model."""
 
@@ -162,8 +163,6 @@ class TemporalConfig(BaseModel):
     workflows: TemporalWorkflowsConfig = Field(
         default_factory=TemporalWorkflowsConfig, description="Workflows configuration"
     )
-
-
 
 
 class RedisConfig(BaseModel):
@@ -198,6 +197,7 @@ class RedisConfig(BaseModel):
             parts = self.url.split("://", 1)
             if len(parts) == 2:
                 from urllib.parse import quote_plus
+
                 scheme, rest = parts
                 # URL-encode password to handle special characters like /, @, :, etc.
                 encoded_password = quote_plus(self.password)
@@ -407,7 +407,10 @@ class DatabaseConfig(BaseModel):
         elif self.environment_mode == "production":
             # In production mode, read from file or environment variable
 
-            logger.debug("Attempting to read database password for production mode from environment variable {}", self.password_env_var)
+            logger.debug(
+                "Attempting to read database password for production mode from environment variable {}",
+                self.password_env_var,
+            )
             if self.password_env_var:
                 import os
 
@@ -477,6 +480,7 @@ class DatabaseConfig(BaseModel):
 
             # URL-encode password to handle special characters
             from urllib.parse import quote_plus
+
             password_to_encode = base_url.password or ""
             encoded_password = quote_plus(password_to_encode)
 
@@ -484,7 +488,9 @@ class DatabaseConfig(BaseModel):
             conn_str = f"postgresql://{base_url.username}:{encoded_password}@{base_url.host}:{base_url.port}/{base_url.database}"
 
             # Add search_path=app ONLY for PostgreSQL in production mode
-            if self.environment_mode == "production" and base_url.drivername.startswith("postgresql"):
+            if self.environment_mode == "production" and base_url.drivername.startswith(
+                "postgresql"
+            ):
                 conn_str += "?options=-csearch_path%3Dapp"
 
             return conn_str
@@ -503,13 +509,16 @@ class DatabaseConfig(BaseModel):
 
         if resolved_password:
             from urllib.parse import quote_plus
+
             # URL-encode password to handle special characters
             encoded_password = quote_plus(resolved_password)
             # Build the connection string manually with encoded password
             conn_str = f"postgresql://{resolved_user}:{encoded_password}@{base_url.host}:{base_url.port}/{resolved_db}"
 
             # Add search_path=app ONLY for PostgreSQL in production mode
-            if self.environment_mode == "production" and base_url.drivername.startswith("postgresql"):
+            if self.environment_mode == "production" and base_url.drivername.startswith(
+                "postgresql"
+            ):
                 conn_str += "?options=-csearch_path%3Dapp"
 
             return conn_str
@@ -518,7 +527,9 @@ class DatabaseConfig(BaseModel):
             conn_str = f"postgresql://{base_url.username}@{base_url.host}:{base_url.port}/{base_url.database}"
 
             # Add search_path=app ONLY for PostgreSQL in production mode
-            if self.environment_mode == "production" and base_url.drivername.startswith("postgresql"):
+            if self.environment_mode == "production" and base_url.drivername.startswith(
+                "postgresql"
+            ):
                 conn_str += "?options=-csearch_path%3Dapp"
 
             return conn_str

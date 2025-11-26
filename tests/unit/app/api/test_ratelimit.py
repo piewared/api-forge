@@ -22,7 +22,7 @@ class TestRateLimiting:
     def test_config(self) -> ConfigData:
         """Fixture to provide a configuration context."""
         test_config = ConfigData()
-        #set_config(test_config)
+        # set_config(test_config)
         return test_config
 
     @pytest.fixture(
@@ -281,8 +281,6 @@ class TestRateLimiting:
         """Should continue blocking requests until the full window expires."""
         limiter = get_limiter(2, 5000)  # 2 requests per 5 seconds
 
-
-
         response = Mock()
 
         # Exceed the limit
@@ -305,4 +303,3 @@ class TestRateLimiting:
         # Should be blocked again after limit
         with pytest.raises(HTTPException):
             await limiter(mock_request, response)
-

@@ -107,6 +107,7 @@ class TestUserEntity:
         assert isinstance(user.id, str)
         # Should be a valid UUID string
         from uuid import UUID
+
         UUID(user.id)  # Raises ValueError if invalid
 
         # Other fields should be set
@@ -483,6 +484,7 @@ class TestUserIdentityTable:
 
         # This should raise a constraint violation
         from sqlalchemy.exc import IntegrityError
+
         with pytest.raises(IntegrityError):  # More specific database constraint error
             session.commit()
 

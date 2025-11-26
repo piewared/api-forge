@@ -192,6 +192,7 @@ def get_activities_by_queue() -> dict[str, set[Callable[..., Any]]]:
     """
     return _ACTIVITY_BY_QUEUE.copy()  # copy to prevent external mutation
 
+
 def get_workflows_by_queue() -> dict[str, set[type]]:
     """Get the registered workflows organized by task queue.
 

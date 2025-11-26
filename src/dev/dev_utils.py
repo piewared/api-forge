@@ -148,6 +148,7 @@ def run_keycloak_setup() -> bool:
         print("⚙️  Configuring Keycloak realm and client...")
         # Dynamically detect package name
         from src.utils.package_utils import get_package_module_path
+
         package_name = get_package_module_path()
         result = subprocess.run(
             ["python", "-m", f"{package_name}.dev.setup_keycloak"],

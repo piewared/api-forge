@@ -116,7 +116,9 @@ def generate(
         )
 
         if result.returncode != 0:
-            console.print(f"\n[red]❌ Secret generation failed with exit code {result.returncode}[/red]")
+            console.print(
+                f"\n[red]❌ Secret generation failed with exit code {result.returncode}[/red]"
+            )
             raise typer.Exit(1)
 
         # Display success message
@@ -261,8 +263,7 @@ def list(
 
 
 @secrets_app.command()
-def verify(
-) -> None:
+def verify() -> None:
     """
     ✅ Verify that all required secrets exist and are readable.
 

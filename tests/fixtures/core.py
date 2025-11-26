@@ -27,6 +27,7 @@ _NONCE = "test-nonce-value"
 def session_nonce() -> str:
     return _NONCE
 
+
 @pytest.fixture
 def provider() -> str:
     return _ISSUER

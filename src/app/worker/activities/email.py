@@ -10,10 +10,13 @@ from temporalio.exceptions import ApplicationError
 
 from src.app.worker.registry import activity_defn
 
-EMAIL_API_URL = os.getenv("EMAIL_API_URL")          # e.g., https://api.sendgrid.com/v3/mail/send
-EMAIL_API_KEY = os.getenv("EMAIL_API_KEY")          # provider secret
-EMAIL_FROM    = os.getenv("EMAIL_FROM", "no-reply@example.com")
-HTTP_TIMEOUT  = float(os.getenv("EMAIL_HTTP_TIMEOUT", "10.0"))
+EMAIL_API_URL = os.getenv(
+    "EMAIL_API_URL"
+)  # e.g., https://api.sendgrid.com/v3/mail/send
+EMAIL_API_KEY = os.getenv("EMAIL_API_KEY")  # provider secret
+EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@example.com")
+HTTP_TIMEOUT = float(os.getenv("EMAIL_HTTP_TIMEOUT", "10.0"))
+
 
 def _idempotency_key(to: str, subject: str, body: str) -> str:
     """Stable key so provider won’t send duplicates across retries."""
@@ -23,6 +26,7 @@ def _idempotency_key(to: str, subject: str, body: str) -> str:
     ).hexdigest()
     # Include workflow+activity identity so the same logical send is stable across attempts/runs.
     return f"email:{info.workflow_id}:{info.activity_id}:{payload_hash}"
+
 
 @activity_defn(queue="email")
 async def send_email(to: str, subject: str, body: str) -> None:
@@ -43,7 +47,7 @@ async def send_email(to: str, subject: str, body: str) -> None:
 
     # Example JSON shaped like many providers (adjust for your vendor)
     payload = {
-        "from":    {"email": EMAIL_FROM},
+        "from": {"email": EMAIL_FROM},
         "personalizations": [{"to": [{"email": to}], "subject": subject}],
         "content": [{"type": "text/plain", "value": body}],
     }

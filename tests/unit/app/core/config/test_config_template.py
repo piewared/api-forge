@@ -252,7 +252,9 @@ some_other_section:
             f.flush()
 
             try:
-                with pytest.raises(ValueError, match="Invalid YAML structure: missing 'config' key"):
+                with pytest.raises(
+                    ValueError, match="Invalid YAML structure: missing 'config' key"
+                ):
                     load_config(Path(f.name))
             finally:
                 os.unlink(f.name)

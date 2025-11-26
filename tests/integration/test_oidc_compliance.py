@@ -77,7 +77,6 @@ class TestOIDCRelyingParty:
             )
         assert response.status_code == 401
 
-
     def test_authentication_state_structure(self, auth_test_client):
         """Test that authentication state has proper structure for OIDC client."""
         response = auth_test_client.get("/auth/jit/me")
@@ -97,7 +96,9 @@ class TestOIDCRelyingParty:
         assert "iss" in claims  # Issuer
         assert "sub" in claims  # Subject
 
-    def test_authorization_dependencies_work_correctly(self, auth_test_client, test_user):
+    def test_authorization_dependencies_work_correctly(
+        self, auth_test_client, test_user
+    ):
         """Test that authorization dependencies properly extract and validate claims."""
         # Test scope requirement
         scope_response = auth_test_client.get("/auth/jit/protected-scope")
@@ -132,7 +133,9 @@ class TestOIDCRelyingParty:
             response = client.get("/auth/jit/me", headers={"Authorization": "Bearer"})
             assert response.status_code == 401
 
-    def test_endpoints_accessible_without_oidc_provider_functionality(self, auth_test_client):
+    def test_endpoints_accessible_without_oidc_provider_functionality(
+        self, auth_test_client
+    ):
         """Test that client endpoints don't expose OIDC provider functionality."""
         # These endpoints should NOT exist (were incorrectly implemented as provider endpoints)
 

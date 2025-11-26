@@ -178,7 +178,9 @@ class TestOrderProcessingWorkflow:
         )
 
         # Send cancel signal immediately
-        await handle.signal(OrderProcessingWorkflow.cancel_order, "Customer requested cancellation")
+        await handle.signal(
+            OrderProcessingWorkflow.cancel_order, "Customer requested cancellation"
+        )
 
         # Wait for workflow to complete
         result = await handle.result()
@@ -283,7 +285,9 @@ class TestOrderProcessingWorkflow:
                 order_id=f"order-{uuid.uuid4().hex[:8]}",
                 customer_email=f"customer{i}@example.com",
                 amount=100.0 + i * 10,
-                items=[{"product_id": f"prod-{i}", "quantity": 1, "price": 100.0 + i * 10}],
+                items=[
+                    {"product_id": f"prod-{i}", "quantity": 1, "price": 100.0 + i * 10}
+                ],
             )
             for i in range(3)
         ]
@@ -439,7 +443,9 @@ class TestActivityCancellation:
         await asyncio.sleep(0.5)
 
         # Send cancel signal while payment is processing
-        await handle.signal(OrderProcessingWorkflow.cancel_order, "Test cancellation during payment")
+        await handle.signal(
+            OrderProcessingWorkflow.cancel_order, "Test cancellation during payment"
+        )
 
         # Wait for workflow to complete
         result = await handle.result()
@@ -523,7 +529,9 @@ class TestActivityCancellation:
         await asyncio.sleep(0.3)
 
         # Send cancel signal
-        await handle.signal(OrderProcessingWorkflow.cancel_order, "Multi-activity cancellation test")
+        await handle.signal(
+            OrderProcessingWorkflow.cancel_order, "Multi-activity cancellation test"
+        )
 
         # Wait for completion
         result = await handle.result()

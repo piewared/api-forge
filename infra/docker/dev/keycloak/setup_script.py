@@ -11,7 +11,6 @@ from src.dev.setup_keycloak import KeycloakSetup
 sys.path.insert(0, "/app/src")
 
 try:
-
     # Use the container's internal hostname for Keycloak
     keycloak_url = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
 

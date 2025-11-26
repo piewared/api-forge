@@ -63,7 +63,9 @@ class UserSession(BaseModel):
     provider: str = Field(description="OIDC provider identifier")
     refresh_token: str | None = Field(default=None, description="OAuth refresh token")
     access_token: str | None = Field(default=None, description="OAuth access token")
-    access_token_expires_at: int | None = Field(default=None, description="Access token expiry")
+    access_token_expires_at: int | None = Field(
+        default=None, description="Access token expiry"
+    )
     client_fingerprint: str = Field(description="Client context fingerprint")
     created_at: int = Field(description="Creation timestamp")
     last_accessed_at: int = Field(description="Last access timestamp")
@@ -129,7 +131,9 @@ class TokenClaims(BaseModel):
     """Structured representation of JWT token claims."""
 
     # custom uid claim for user identification
-    uid: str | None = Field(default=None, description="UID claim for user identification")
+    uid: str | None = Field(
+        default=None, description="UID claim for user identification"
+    )
 
     # Token metadata
     raw_token: str = Field(default="", description="Original JWT token")
@@ -138,12 +142,16 @@ class TokenClaims(BaseModel):
     # Standard OIDC claims
     issuer: str = Field(description="Issuer")
     subject: str = Field(description="Subject (user ID)")
-    authorized_party: str | None = Field(default=None, description="Authorized party (azp)")
+    authorized_party: str | None = Field(
+        default=None, description="Authorized party (azp)"
+    )
     audience: str | list[str] = Field(description="Audience")
     expires_at: int = Field(description="Expiration time")
     issued_at: int = Field(description="Issued at")
     not_before: int | None = Field(default=None, description="Not before")
-    jti: str | None = Field(default=None, description="JWT ID (unique token identifier)")
+    jti: str | None = Field(
+        default=None, description="JWT ID (unique token identifier)"
+    )
     nonce: str | None = Field(default=None, description="Nonce for replay protection")
 
     # Common user claims
@@ -164,7 +172,6 @@ class TokenClaims(BaseModel):
     at_hash: str | None = Field(default=None, description="Access token hash")
     c_hash: str | None = Field(default=None, description="Code hash")
 
-
     custom_claims: dict[str, Any] = Field(
         default_factory=dict, description="Custom or additional claims"
     )
@@ -175,10 +182,7 @@ class TokenClaims(BaseModel):
 
     @classmethod
     def from_jwt_payload(
-        cls,
-        payload: dict[str, Any],
-        raw_token: str = "",
-        token_type: str = "id_token"
+        cls, payload: dict[str, Any], raw_token: str = "", token_type: str = "id_token"
     ) -> "TokenClaims":
         """Create TokenClaims from JWT payload dictionary."""
         # Map JWT claim names to model field names
@@ -201,7 +205,7 @@ class TokenClaims(BaseModel):
         extracted = {}
         extra = {}
 
-        extracted['all_claims'] = payload.copy()
+        extracted["all_claims"] = payload.copy()
 
         for key, value in payload.items():
             # Check if this is a mapped claim

@@ -15,18 +15,24 @@ CONFIG_PATH = Path("config.yaml")
 
 
 @overload
-def load_config(file_path: Path = ..., *, processed: None) -> ConfigData:
-    ...
+def load_config(file_path: Path = ..., *, processed: None) -> ConfigData: ...
+
 
 @overload
-def load_config(file_path: Path = ..., *, processed: Literal[False]) -> dict[str, Any]:
-    ...
+def load_config(
+    file_path: Path = ..., *, processed: Literal[False]
+) -> dict[str, Any]: ...
+
 
 @overload
-def load_config(file_path: Path = ..., processed: Literal[True] = ...) -> ConfigData:
-    ...
+def load_config(
+    file_path: Path = ..., processed: Literal[True] = ...
+) -> ConfigData: ...
 
-def load_config(file_path: Path = CONFIG_PATH, processed: bool | None = True) -> ConfigData | dict[str, Any]:
+
+def load_config(
+    file_path: Path = CONFIG_PATH, processed: bool | None = True
+) -> ConfigData | dict[str, Any]:
     """
     Load a YAML file with environment variable substitution.
 
@@ -76,13 +82,19 @@ def load_config(file_path: Path = CONFIG_PATH, processed: bool | None = True) ->
         logger.info(f"Loading configuration for environment: {env_mode}")
 
         # Iterate through all environment variables with the prefix matching the env_mode and return (name, value) pairs of all matching variables
-        env_variables = [(var, value) for var, value in os.environ.items() if var.startswith(f"{env_mode.upper()}_")]
+        env_variables = [
+            (var, value)
+            for var, value in os.environ.items()
+            if var.startswith(f"{env_mode.upper()}_")
+        ]
         logger.info(f"Applying {len(env_variables)} environment-specific overrides")
-        logger.debug(f"Override keys: {[var for var, _ in env_variables]}")  # Log keys only
+        logger.debug(
+            f"Override keys: {[var for var, _ in env_variables]}"
+        )  # Log keys only
 
         # Now create new environment variables from the matching variables above by removing the prefix
         for var_name, var_value in env_variables:
-            new_var_name = var_name[len(f"{env_mode.upper()}_"):]
+            new_var_name = var_name[len(f"{env_mode.upper()}_") :]
 
             os.environ[new_var_name] = var_value
             logger.debug(f"Set environment variable {new_var_name} from {var_name}")
@@ -103,9 +115,9 @@ def load_config(file_path: Path = CONFIG_PATH, processed: bool | None = True) ->
     # Validate and return as ConfigData
     try:
         # Extract the 'config' section from the YAML structure
-        if 'config' not in loaded:
+        if "config" not in loaded:
             raise ValueError("Invalid YAML structure: missing 'config' key")
-        config_data = loaded['config']
+        config_data = loaded["config"]
         config = ConfigData(**config_data)
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}") from e
@@ -115,8 +127,12 @@ def load_config(file_path: Path = CONFIG_PATH, processed: bool | None = True) ->
         enabled_providers = {}
         for name, provider in config.oidc.providers.items():
             if provider.enabled:
-                if provider.dev_only and (env_mode != "development" and env_mode != "test"):
-                    logger.info(f"Skipping OIDC provider '{name}' in non-development environment")
+                if provider.dev_only and (
+                    env_mode != "development" and env_mode != "test"
+                ):
+                    logger.info(
+                        f"Skipping OIDC provider '{name}' in non-development environment"
+                    )
                     continue
                 enabled_providers[name] = provider
             else:
@@ -124,12 +140,15 @@ def load_config(file_path: Path = CONFIG_PATH, processed: bool | None = True) ->
 
         config.oidc.providers = enabled_providers
         if not config.oidc.providers:
-            logger.warning("No OIDC providers are enabled after applying configuration filters")
-
+            logger.warning(
+                "No OIDC providers are enabled after applying configuration filters"
+            )
 
     # Clear Redis password for development environment (dev Redis has no auth)
     if env_mode == "development" and config.redis and config.redis.password:
-        logger.info("Clearing Redis password for development environment (dev Redis has no authentication)")
+        logger.info(
+            "Clearing Redis password for development environment (dev Redis has no authentication)"
+        )
         config.redis.password = ""
 
     return config
@@ -146,10 +165,10 @@ def _string_representer(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
         YAML scalar node with appropriate quoting style
     """
     # Quote strings that contain ${...} patterns or look like numbers
-    if '${' in data or data.isdigit():
-        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
+    if "${" in data or data.isdigit():
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
     # Use default representation for other strings
-    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
 
 def save_config(config: ConfigData | dict[str, Any]) -> None:
@@ -177,11 +196,12 @@ def save_config(config: ConfigData | dict[str, Any]) -> None:
             serialized = config.model_dump()
 
         yaml.dump(
-            serialized, f,
+            serialized,
+            f,
             Dumper=QuotedDumper,
             default_flow_style=False,
             sort_keys=False,
-            indent=2
+            indent=2,
         )
     temp_path.replace(CONFIG_PATH)
 

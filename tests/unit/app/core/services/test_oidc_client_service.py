@@ -38,7 +38,10 @@ class TestOIDCClientService:
 
     @pytest.mark.asyncio
     async def test_exchange_code_for_tokens_success(
-        self, oidc_client_service: OidcClientService, mock_http_response_factory, auth_test_config
+        self,
+        oidc_client_service: OidcClientService,
+        mock_http_response_factory,
+        auth_test_config,
     ):
         """Test successful token exchange."""
         mock_response_data = {
@@ -69,7 +72,10 @@ class TestOIDCClientService:
 
     @pytest.mark.asyncio
     async def test_exchange_code_for_tokens_http_error(
-        self, oidc_client_service: OidcClientService, mock_http_response_factory, auth_test_config
+        self,
+        oidc_client_service: OidcClientService,
+        mock_http_response_factory,
+        auth_test_config,
     ):
         """Test token exchange with HTTP error."""
         mock_response = mock_http_response_factory({}, status_code=400)
@@ -87,10 +93,12 @@ class TestOIDCClientService:
                         provider="default",
                     )
 
-
     @pytest.mark.asyncio
     async def test_exchange_code_for_tokens_with_client_secret(
-        self, oidc_client_service: OidcClientService, mock_http_response_factory, auth_test_config
+        self,
+        oidc_client_service: OidcClientService,
+        mock_http_response_factory,
+        auth_test_config,
     ):
         """Test token exchange with client secret authentication."""
         # Configure provider with client secret
@@ -136,18 +144,17 @@ class TestOIDCClientService:
         oidc_client_service: OidcClientService,
         jwt_verify_service: JwtVerificationService,
     ):
-
         claims = {
-            "iss": 'https://mock-provider.test',
-            "sub": 'user-12345',
+            "iss": "https://mock-provider.test",
+            "sub": "user-12345",
             "aud": "test-client-id",
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
-            "email": 'test@example.com',
+            "email": "test@example.com",
             "email_verified": True,
-            "given_name": 'Test',
-            "family_name": 'User',
-            "name": 'Test User',
+            "given_name": "Test",
+            "family_name": "User",
+            "name": "Test User",
             "picture": "https://example.com/avatar.jpg",
         }
 
@@ -169,15 +176,18 @@ class TestOIDCClientService:
                         provider="default",
                     )
 
-                    assert result.issuer == 'https://mock-provider.test'
-                    assert result.subject == 'user-12345'
+                    assert result.issuer == "https://mock-provider.test"
+                    assert result.subject == "user-12345"
                     assert result.audience == "test-client-id"
-                    assert result.email == 'test@example.com'
+                    assert result.email == "test@example.com"
                     assert result.email_verified is True
-                    assert result.given_name == 'Test'
-                    assert result.family_name == 'User'
-                    assert result.name == 'Test User'
-                    assert result.custom_claims.get("picture") == "https://example.com/avatar.jpg"
+                    assert result.given_name == "Test"
+                    assert result.family_name == "User"
+                    assert result.name == "Test User"
+                    assert (
+                        result.custom_claims.get("picture")
+                        == "https://example.com/avatar.jpg"
+                    )
 
                     # Verify userinfo endpoint was called
                     mock_client.return_value.__aenter__.return_value.get.assert_called_once()
@@ -224,7 +234,9 @@ class TestOIDCClientService:
             raw_token="mock-id-token",
         )
 
-        with patch.object(jwt_verify_service, "verify_jwt", return_value=token_claims) as mock_verify:
+        with patch.object(
+            jwt_verify_service, "verify_jwt", return_value=token_claims
+        ) as mock_verify:
             with with_context(config_override=auth_test_config):
                 result = await oidc_client_service.get_user_claims(
                     access_token="mock-access-token",
@@ -237,8 +249,14 @@ class TestOIDCClientService:
         mock_verify.assert_awaited_once()
         _, kwargs = mock_verify.call_args
         assert kwargs["expected_nonce"] == "nonce123"
-        assert kwargs["expected_audience"] == auth_test_config.oidc.providers["default"].client_id
-        assert kwargs["expected_issuer"] == auth_test_config.oidc.providers["default"].issuer
+        assert (
+            kwargs["expected_audience"]
+            == auth_test_config.oidc.providers["default"].client_id
+        )
+        assert (
+            kwargs["expected_issuer"]
+            == auth_test_config.oidc.providers["default"].issuer
+        )
 
     @pytest.mark.asyncio
     async def test_get_user_claims_no_id_token_no_userinfo(
@@ -263,7 +281,10 @@ class TestOIDCClientService:
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_success(
-        self, oidc_client_service: OidcClientService, mock_http_response_factory, auth_test_config
+        self,
+        oidc_client_service: OidcClientService,
+        mock_http_response_factory,
+        auth_test_config,
     ):
         """Test successful access token refresh."""
         auth_test_config.oidc.refresh_tokens.enabled = True
@@ -311,7 +332,10 @@ class TestOIDCClientService:
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_http_error(
-        self, oidc_client_service: OidcClientService, mock_http_response_factory, auth_test_config
+        self,
+        oidc_client_service: OidcClientService,
+        mock_http_response_factory,
+        auth_test_config,
     ):
         """Test token refresh with HTTP error."""
         mock_response = mock_http_response_factory({}, status_code=400)

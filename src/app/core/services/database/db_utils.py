@@ -1,4 +1,3 @@
-
 from loguru import logger
 from sqlalchemy.engine import make_url
 
@@ -27,6 +26,6 @@ def get_database_url(config: ConfigData) -> str:
     if resolved_password:
         url_with_password = base_url.set(password=resolved_password)
         # Build the connection string manually to avoid SQLAlchemy's password masking
-        return f'postgresql://{url_with_password.username}:{url_with_password.password}@{url_with_password.host}:{url_with_password.port}/{url_with_password.database}'
+        return f"postgresql://{url_with_password.username}:{url_with_password.password}@{url_with_password.host}:{url_with_password.port}/{url_with_password.database}"
     else:
         return str(base_url)  # No password available; return URL as-is

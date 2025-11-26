@@ -1,4 +1,3 @@
-
 from typing import TYPE_CHECKING, Any, override
 
 from pydantic import BaseModel
@@ -8,10 +7,11 @@ from src.app.core.services.storage.base import ApplicationStorage, T
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
+
 class RedisStorage(ApplicationStorage):
     """Redis-based session storage with serialization."""
 
-    def __init__(self, redis_client: 'Redis') -> None:
+    def __init__(self, redis_client: "Redis") -> None:
         self._redis = redis_client
         self._available = True
 
@@ -92,8 +92,6 @@ class RedisStorage(ApplicationStorage):
             self._available = False
             raise RuntimeError(f"Redis scan failed: {e}") from e
 
-
-
     @override
     def is_available(self) -> bool:
         """Check if Redis connection is healthy."""
@@ -108,4 +106,3 @@ class RedisStorage(ApplicationStorage):
         except Exception:
             self._available = False
             return False
-

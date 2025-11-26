@@ -50,4 +50,3 @@ class TestConfigurationManagement:
 
             # Should revert to first override
             assert get_config().app.environment == "test"
-
