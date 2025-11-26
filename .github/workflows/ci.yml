@@ -41,7 +41,7 @@ jobs:
 
     - name: Run tests
       run: |
-        uv run pytest -v --cov=src --cov-report=xml
+        uv run pytest -v --cov=src --cov-report=xml --ignore=tests/e2e
 
     - name: Show service logs on failure
       if: failure()

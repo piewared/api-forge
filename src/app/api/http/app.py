@@ -303,7 +303,7 @@ async def startup() -> None:
         if config.redis.enabled:
             logger.info("Creating Redis service")
             redis_service = RedisService()
-            if redis_service.health_check():
+            if await redis_service.health_check():
                 logger.info("Redis service is available")
             else:
                 logger.warning("Redis service is not available")
