@@ -60,6 +60,12 @@ jobs:
         echo ""
         echo "=== Temporal Logs ==="
         docker compose -f docker-compose.dev.yml logs temporal --tail=100
+        echo ""
+        echo "=== Keycloak Setup Logs ==="
+        docker compose -f docker-compose.dev.yml logs keycloak-setup --tail=100
+        echo ""
+        echo "=== Worker Logs ==="
+        docker compose -f docker-compose.dev.yml logs worker --tail=100
 
     - name: Stop dev environment
       if: always()

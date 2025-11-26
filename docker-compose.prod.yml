@@ -137,9 +137,9 @@ services:
       TEMPORAL_DB_USER: ${TEMPORAL_DB_USER:-temporaluser}
       PW_FILE: /run/secrets/postgres_temporal_pw
 
-      # TLS settings - adjust as needed
-      TLS_ENABLE: "true"
-      SSL_MODE: verify-ca                # or 'require' / 'verify-full'
+      # TLS settings - adjust as needed (can be overridden via .env)
+      TLS_ENABLE: ${TEMPORAL_TLS_ENABLE:-true}
+      SSL_MODE: ${TEMPORAL_SSL_MODE:-verify-ca}                # or 'require' / 'verify-full'
       TLS_CA_FILE: /run/secrets/postgres_server_ca
       
       # Optional overrides:

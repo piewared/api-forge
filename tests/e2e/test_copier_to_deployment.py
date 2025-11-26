@@ -600,6 +600,24 @@ print("✅ All imports successful")
                         f"This means the secret came from environment variables instead of CLI flags."
                     )
                 print("✅ OIDC secrets verified: Correct values (from CLI, not env)")
+
+                # Verify TLS/PKI certificates were generated
+                certs_dir = secrets_base / "certs"
+                ca_bundle_file = certs_dir / "ca-bundle.crt"
+                postgres_cert = certs_dir / "postgres" / "server.crt"
+                postgres_key = certs_dir / "postgres" / "server.key"
+
+                assert ca_bundle_file.exists(), (
+                    f"CA bundle not generated: {ca_bundle_file}\n"
+                    f"Temporal schema setup requires this file."
+                )
+                assert postgres_cert.exists(), (
+                    f"PostgreSQL TLS cert not generated: {postgres_cert}"
+                )
+                assert postgres_key.exists(), (
+                    f"PostgreSQL TLS key not generated: {postgres_key}"
+                )
+                print("✅ TLS/PKI certificates verified: CA bundle and PostgreSQL certs exist")
             else:
                 print("✅ Secrets already exist (from test_06)")
 

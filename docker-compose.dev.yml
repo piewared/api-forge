@@ -61,6 +61,12 @@ services:
       - dev-network
     ports:
       - 7234:7233
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   temporal-web:
     container_name: api-forge-temporal-ui-dev
@@ -82,9 +88,12 @@ services:
       dockerfile: Dockerfile
     image: api-forge-app:latest
     depends_on:
-      - postgres
-      - redis
-      - temporal
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
     env_file:
       - .env
     environment:

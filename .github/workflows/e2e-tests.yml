@@ -79,6 +79,42 @@ jobs:
         run: |
           uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_07_docker_compose_prod_deployment -v -s --tb=short
       
+      - name: Show Docker Compose logs on failure
+        if: failure()
+        run: |
+          echo "=== Finding generated project directory ==="
+          PROJECT_DIR=$(find /tmp -maxdepth 1 -name "e2e_test_*" -type d | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Could not find E2E test project directory"
+            exit 0
+          fi
+          echo "Found project at: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          
+          echo ""
+          echo "=== Docker Compose Services Status ==="
+          docker compose -f docker-compose.prod.yml ps || true
+          
+          echo ""
+          echo "=== Temporal Schema Setup Logs ==="
+          docker compose -f docker-compose.prod.yml logs temporal-schema-setup || true
+          
+          echo ""
+          echo "=== PostgreSQL Logs ==="
+          docker compose -f docker-compose.prod.yml logs postgres --tail=100 || true
+          
+          echo ""
+          echo "=== Temporal Server Logs ==="
+          docker compose -f docker-compose.prod.yml logs temporal --tail=100 || true
+          
+          echo ""
+          echo "=== Worker Logs ==="
+          docker compose -f docker-compose.prod.yml logs worker --tail=100 || true
+          
+          echo ""
+          echo "=== App Logs ==="
+          docker compose -f docker-compose.prod.yml logs app --tail=100 || true
+      
       - name: Cleanup Docker resources
         if: always()
         run: |

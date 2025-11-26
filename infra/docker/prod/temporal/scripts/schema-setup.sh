@@ -14,8 +14,14 @@ PG_PORT="${PG_PORT:-5432}"
 PLUGIN="${PLUGIN:-postgres12}"    # postgres12 for PG >= 12, use postgres for older
 
 # Read password securely from Docker secret
+echo "Reading password from $PW_FILE..."
+if [ ! -f "$PW_FILE" ]; then
+    echo "ERROR: Password file $PW_FILE does not exist!"
+    exit 1
+fi
 PGPASSWORD="$(cat "$PW_FILE")"
 export PGPASSWORD
+echo "Password loaded successfully."
 
 
 # TLS (defaults; override via env if needed)
@@ -26,15 +32,41 @@ TLS_SERVER_NAME="${TLS_SERVER_NAME:-postgres}"  # MUST match a SAN in the server
 
 export PGSSLMODE="${SSL_MODE:-verify-ca}"
 
+# Verify TLS CA file exists if TLS is enabled
+if [ "$TLS_ENABLE" = "true" ]; then
+    echo "TLS enabled with mode: $SSL_MODE"
+    echo "Checking TLS CA file: $TLS_CA_FILE"
+    if [ ! -f "$TLS_CA_FILE" ]; then
+        echo "ERROR: TLS CA file $TLS_CA_FILE does not exist!"
+        echo "Either provide the CA file or set TLS_ENABLE=false"
+        exit 1
+    fi
+    echo "TLS CA file found."
+else
+    echo "TLS disabled (TLS_ENABLE=$TLS_ENABLE)"
+fi
+
 # Helper wrapper
 run_sql_tool () {
   local DB="$1"   # temporal | temporal_visibility
   local action="$2"          # setup-schema ... | update-schema ...
 
-  echo "Running temporal-sql-tool on DB '$1' with action '$2' with user '$TEMPORAL_DB_USER'"
-  echo "DB=$DB host=$EP port=$PG_PORT user=$TEMPORAL_DB_USER"
+  echo "==========================================="
+  echo "Running temporal-sql-tool:"
+  echo "  DB: $DB"
+  echo "  Action: $action"
+  echo "  Host: $EP:$PG_PORT"
+  echo "  User: $TEMPORAL_DB_USER"
+  echo "  Plugin: $PLUGIN"
+  echo "  TLS: $TLS_ENABLE"
+  if [ "$TLS_ENABLE" = "true" ]; then
+    echo "  TLS CA: $TLS_CA_FILE"
+    echo "  TLS Server Name: $TLS_SERVER_NAME"
+    echo "  SSL Mode: $SSL_MODE"
+  fi
+  echo "==========================================="
 
-  temporal-sql-tool \
+  if ! temporal-sql-tool \
     --plugin "$PLUGIN" \
     --ep "$EP" -p "$PG_PORT" \
     -u "$TEMPORAL_DB_USER" -pw "$PGPASSWORD" \
@@ -42,7 +74,13 @@ run_sql_tool () {
     --tls="$TLS_ENABLE" \
     --tls-ca-file "$TLS_CA_FILE" \
     --tls-server-name "$TLS_SERVER_NAME" \
-    $action
+    $action; then
+    echo "ERROR: temporal-sql-tool failed for database '$DB' with action '$action'"
+    echo "Check the error message above for details."
+    return 1
+  fi
+  
+  echo "SUCCESS: temporal-sql-tool completed for $DB"
 }
 echo "== Temporal schema setup =="
 echo "Main schema=$TEMPORAL_DB, Visibility schema=$TEMPORAL_VIS_DB"
