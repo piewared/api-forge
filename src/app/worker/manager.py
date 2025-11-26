@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 # from loguru import logger
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowHandle
 from temporalio.worker import Worker
 
 from src.app.worker.registry import (
@@ -75,7 +75,7 @@ class TemporalWorkerManager:
         autodiscover_modules(packages)
         self._pools = self._build_pools()
 
-    def refresh(self):
+    def refresh(self) -> None:
         """
         Rebuild the internal pools from the current registry state.
 
@@ -254,8 +254,8 @@ class TemporalWorkerManager:
         workflow_type: type[BaseWorkflow[TInput, TReturn]],
         input: TInput,
         id: str,
-        **temporal_kwargs,
-    ):
+        **temporal_kwargs: Any,
+    ) -> WorkflowHandle[BaseWorkflow[TInput, TReturn], TReturn]:
         """
         Start a workflow execution with type safety.
 

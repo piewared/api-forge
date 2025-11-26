@@ -65,6 +65,7 @@ def up(
     )
 
     # Create appropriate deployer and execute deployment
+    deployer: DevDeployer | ProdDeployer | K8sDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
         deployer.deploy(force=force, no_wait=no_wait)
@@ -114,6 +115,7 @@ def down(
     )
 
     # Create appropriate deployer and execute teardown
+    deployer: DevDeployer | ProdDeployer | K8sDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
         deployer.teardown(volumes=volumes)
@@ -147,6 +149,7 @@ def status(
     project_root = Path(get_project_root())
 
     # Create appropriate deployer and show status
+    deployer: DevDeployer | ProdDeployer | K8sDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
         deployer.show_status()
@@ -272,6 +275,7 @@ def rotate(
             f"\n[bold]Step {'3/3' if backup else '2/2'}:[/bold] Redeploying with new secrets..."
         )
 
+        deployer: DevDeployer | ProdDeployer | K8sDeployer
         if env == Environment.PROD:
             deployer = ProdDeployer(console, project_root)
             deployer.deploy(skip_build=False, no_wait=False, force_recreate=True)

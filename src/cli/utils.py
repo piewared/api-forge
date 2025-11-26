@@ -2,6 +2,7 @@
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -38,7 +39,7 @@ def run_command(
     cwd: Path | None = None,
     check: bool = True,
     capture_output: bool = False,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[Any]:
     """Run a shell command with proper error handling."""
     try:
         result = subprocess.run(

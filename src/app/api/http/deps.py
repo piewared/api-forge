@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
 from functools import lru_cache
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request
@@ -170,7 +172,7 @@ async def get_current_user(
         user = created_user
     else:
         # Load existing user
-        user = user_repo.get(identity.user_id)
+        user = user_repo.get(identity.user_id) # type: ignore
         if user is None:
             raise HTTPException(
                 status_code=500, detail="User identity exists but user not found"
@@ -183,7 +185,7 @@ async def get_current_user(
     return user
 
 
-def require_scope(required_scope: str):
+def require_scope(required_scope: str) -> Callable[[Request], Coroutine[Any, Any, None]]:
     """Create a dependency that requires a specific scope for the authenticated user."""
 
     async def dep(request: Request) -> None:
@@ -196,7 +198,7 @@ def require_scope(required_scope: str):
     return dep
 
 
-def require_role(required_role: str):
+def require_role(required_role: str) -> Callable[[Request], Coroutine[Any, Any, None]]:
     """Create a dependency that requires a specific role for the authenticated user."""
 
     async def dep(request: Request) -> None:

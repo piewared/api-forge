@@ -1,6 +1,9 @@
 """Service configuration utilities for deployments."""
 
 
+from typing import cast
+
+
 def is_redis_enabled() -> bool:
     """Check if Redis is enabled in config.yaml.
 
@@ -19,7 +22,7 @@ def is_redis_enabled() -> bool:
         # Navigate to config.redis.enabled in the YAML structure
         config_section = config_data.get("config", {})
         redis_config = config_section.get("redis", {})
-        return redis_config.get("enabled", True)  # Default to True if not specified
+        return cast(bool, redis_config.get("enabled", True))  # Default to True if not specified
 
     except Exception:
         # If we can't load config, assume Redis is enabled for backward compatibility

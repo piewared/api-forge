@@ -1,6 +1,7 @@
 """Production environment deployer."""
 
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -41,7 +42,7 @@ class ProdDeployer(BaseDeployer):
         # Build services list dynamically based on config.yaml
         self.SERVICES = get_production_services()
 
-    def deploy(self, **kwargs) -> None:
+    def deploy(self, **kwargs: Any) -> None:
         """Deploy the production environment.
 
         Args:
@@ -86,7 +87,7 @@ class ProdDeployer(BaseDeployer):
         data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
         self.info(f"Ensured data directories exist under {data_root}")
 
-    def teardown(self, **kwargs) -> None:
+    def teardown(self, **kwargs: Any) -> None:
         """Stop the production environment.
 
         Args:

@@ -3,7 +3,7 @@
 import os
 import subprocess
 
-import requests
+import requests  # type: ignore
 from dotenv.main import load_dotenv
 from rich.console import Console
 from rich.panel import Panel

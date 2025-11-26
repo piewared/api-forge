@@ -1,6 +1,8 @@
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -16,11 +18,11 @@ class AppContext:
 
 
 # Global configuration instance
-_default_config = None
-_default_context = None
+_default_config: ConfigData | None = None
+_default_context: AppContext | None = None
 
 
-def _get_default_config():
+def _get_default_config() -> ConfigData:
     """Lazily load the default configuration."""
     global _default_config, _default_context
     if _default_config is None:
@@ -74,7 +76,7 @@ def set_context(context: AppContext) -> Token[AppContext]:
     return _app_context.set(context)
 
 
-def _recursive_model_dump_exclude_unset(model: BaseModel) -> dict:
+def _recursive_model_dump_exclude_unset(model: BaseModel) -> dict[str, Any]:
     """Recursively dump a Pydantic model with exclude_unset=True for all nested models.
 
     This function works from the deepest levels up, so that if any nested field
@@ -128,7 +130,7 @@ def _recursive_model_dump_exclude_unset(model: BaseModel) -> dict:
     return result
 
 
-def _recursive_dict_merge(base_dict: dict, override_dict: dict) -> dict:
+def _recursive_dict_merge(base_dict: dict[str, Any], override_dict: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge two dictionaries from deepest levels up.
 
     Args:
@@ -171,7 +173,7 @@ def _merge_configs(base_config: ConfigData, override_config: ConfigData) -> Conf
 
 
 @contextmanager
-def with_context(config_override: ConfigData | None = None):
+def with_context(config_override: ConfigData | None = None) -> Generator[None]:
     """Context manager for temporarily overriding the application context.
 
     This function merges the override configuration with the current context,

@@ -1,9 +1,9 @@
 """Keycloak Admin REST API client."""
 
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 
 class KeycloakClient:
@@ -86,7 +86,7 @@ class KeycloakClient:
             return None
 
         response.raise_for_status()
-        return response.json()
+        return cast(dict[str, Any], response.json())
 
     def create_realm(self, realm_config: dict[str, Any]) -> bool:
         """Create a new realm.
@@ -103,7 +103,7 @@ class KeycloakClient:
             url, json=realm_config, headers=self._get_headers(), timeout=self.timeout
         )
 
-        return response.status_code == 201
+        return bool(response.status_code == 201)
 
     # Client Management
     def get_clients(
@@ -129,7 +129,7 @@ class KeycloakClient:
         )
         response.raise_for_status()
 
-        return response.json()
+        return cast(list[dict[str, Any]], response.json())
 
     def create_client(self, realm_name: str, client_config: dict[str, Any]) -> bool:
         """Create a new client in a realm.
@@ -147,7 +147,7 @@ class KeycloakClient:
             url, json=client_config, headers=self._get_headers(), timeout=self.timeout
         )
 
-        return response.status_code == 201
+        return bool(response.status_code == 201)
 
     def update_client(
         self, realm_name: str, client_uuid: str, client_config: dict[str, Any]
@@ -170,7 +170,7 @@ class KeycloakClient:
             url, json=client_config, headers=self._get_headers(), timeout=self.timeout
         )
 
-        return response.status_code == 204
+        return bool(response.status_code == 204)
 
     # User Management
     def get_users(
@@ -198,7 +198,7 @@ class KeycloakClient:
         )
         response.raise_for_status()
 
-        return response.json()
+        return cast(list[dict[str, Any]], response.json())
 
     def create_user(self, realm_name: str, user_data: dict[str, Any]) -> bool:
         """Create a new user in a realm.
@@ -216,7 +216,7 @@ class KeycloakClient:
             url, json=user_data, headers=self._get_headers(), timeout=self.timeout
         )
 
-        return response.status_code == 201
+        return bool(response.status_code == 201)
 
     def delete_user(self, realm_name: str, user_id: str) -> bool:
         """Delete a user from a realm.
@@ -234,7 +234,7 @@ class KeycloakClient:
             url, headers=self._get_headers(), timeout=self.timeout
         )
 
-        return response.status_code == 204
+        return bool(response.status_code == 204)
 
     def reset_user_password(
         self, realm_name: str, user_id: str, new_password: str, temporary: bool = False
@@ -264,7 +264,7 @@ class KeycloakClient:
             url, json=password_data, headers=self._get_headers(), timeout=self.timeout
         )
 
-        return response.status_code == 204
+        return bool(response.status_code == 204)
 
     # Convenience Methods
     def get_client_by_id(

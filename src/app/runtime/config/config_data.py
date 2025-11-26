@@ -186,7 +186,7 @@ class RedisConfig(BaseModel):
         default=5, description="Socket connect timeout in seconds for Redis"
     )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def connection_string(self) -> str:
         """Construct the Redis connection string with password if provided."""
@@ -204,7 +204,7 @@ class RedisConfig(BaseModel):
                 return f"{scheme}://:{encoded_password}@{rest}"
         return self.url
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sanitized_connection_string(self) -> str:
         """Get connection string with password masked for safe logging."""
@@ -386,7 +386,7 @@ class DatabaseConfig(BaseModel):
         description="Path to file containing database password",
     )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def password(self) -> str | None:
         """
@@ -443,7 +443,7 @@ class DatabaseConfig(BaseModel):
             )
         return password
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def connection_string(self) -> str:
         """Construct the database connection string with password if provided."""
@@ -534,7 +534,7 @@ class DatabaseConfig(BaseModel):
 
             return conn_str
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sanitized_connection_string(self) -> str:
         """Get connection string with password masked for safe logging."""

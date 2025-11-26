@@ -8,7 +8,7 @@ from sqlmodel import Field
 from src.app.entities.core._base import EntityTable
 
 
-def utc_now():
+def utc_now() -> datetime:
     """Return current UTC datetime."""
     return datetime.now(UTC)
 

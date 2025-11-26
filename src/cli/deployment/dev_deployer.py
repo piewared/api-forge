@@ -1,9 +1,11 @@
 """Development environment deployer."""
 
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
+from rich.progress import Progress
 
 from src.dev.dev_utils import (
     check_container_running,
@@ -45,7 +47,7 @@ class DevDeployer(BaseDeployer):
         self.status_display = StatusDisplay(console)
         self.health_checker = HealthChecker()
 
-    def deploy(self, **kwargs) -> None:
+    def deploy(self, **kwargs: Any) -> None:
         """Deploy the development environment.
 
         Args:
@@ -103,7 +105,7 @@ class DevDeployer(BaseDeployer):
         data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
         self.info(f"Ensured data directories exist under {data_root}")
 
-    def teardown(self, **kwargs) -> None:
+    def teardown(self, **kwargs: Any) -> None:
         """Stop the development environment.
 
         Args:
@@ -181,7 +183,7 @@ class DevDeployer(BaseDeployer):
             if not no_wait:
                 self._wait_for_services(progress)
 
-    def _wait_for_services(self, progress) -> None:
+    def _wait_for_services(self, progress: Progress) -> None:
         """Wait for all services to be ready.
 
         Args:

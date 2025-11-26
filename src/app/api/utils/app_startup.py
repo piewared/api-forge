@@ -1,13 +1,13 @@
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
-from src.app.runtime.context import get_config
 
-
-def configure_logging():
+def configure_logging() -> None:
+    from src.app.runtime.context import get_config
     main_config = get_config()
     cfg = main_config.logging
     env = main_config.app.environment
@@ -17,7 +17,7 @@ def configure_logging():
     logger.configure(extra={"request_id": "-"})
 
     # Ensure {extra[request_id]} always exists
-    def _ensure_request_id(record):
+    def _ensure_request_id(record: Any) -> None:
         record["extra"].setdefault("request_id", "-")
 
     log = logger.patch(_ensure_request_id)
@@ -84,7 +84,7 @@ def configure_logging():
             try:
                 level = logger.level(record.levelname).name
             except Exception:
-                level = record.levelno  # fallback to numeric
+                level = str(record.levelno) # fallback to numeric
 
             # Make Loguru show the original caller (not this handler)
             # depth=2 is usually correct from stdlib -> our handler -> user code

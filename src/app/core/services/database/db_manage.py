@@ -9,7 +9,7 @@ main_config = get_config()
 
 
 class DbManageService:
-    def __init__(self):
+    def __init__(self) -> None:
         self._engine = create_engine(main_config.database.connection_string, echo=False)
 
     # Build the database URL with the resolved password

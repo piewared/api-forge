@@ -71,11 +71,11 @@ class BaseWorkflow[TArgs, TReturn](ABC):
     async def run(self, input: TArgs) -> TReturn: ...
 
     @workflow.query
-    def state(self) -> dict:
+    def state(self) -> dict[str, Any]:
         return self._state
 
     @workflow.signal
-    def cancel(self):
+    def cancel(self) -> None:
         """Cancel signal that marks workflow as cancelled and cancels all in-flight activities."""
         self._state["cancelled"] = True
         # Cancel all tracked activity handles
@@ -164,7 +164,7 @@ class BaseWorkflow[TArgs, TReturn](ABC):
         self._activity_handles[activity_id] = handle
 
         # Clean up handle when done
-        def cleanup(_):
+        def cleanup(_: Any) -> None:
             self._activity_handles.pop(activity_id, None)
 
         handle.add_done_callback(cleanup)
@@ -241,7 +241,7 @@ class BaseWorkflow[TArgs, TReturn](ABC):
         client: Client,
         input: TArgs,
         id: str,
-        **workflow_kwargs,
+        **workflow_kwargs: Any,
     ) -> WorkflowHandle[Self, TReturn]:
         """
         Start a workflow execution asynchronously and return its handle. Handle can be used
@@ -285,7 +285,7 @@ class BaseWorkflow[TArgs, TReturn](ABC):
             **merged,
         )
 
-        return handle
+        return handle  # type: ignore[return-value]
 
     @classmethod
     async def execute_workflow(
@@ -293,7 +293,7 @@ class BaseWorkflow[TArgs, TReturn](ABC):
         client: Client,
         input: TArgs,
         id: str,
-        **workflow_kwargs,
+        **workflow_kwargs: Any,
     ) -> TReturn:
         """
         Execute a workflow synchronously, blocking until it completes and returning the result.
@@ -349,7 +349,7 @@ class BaseWorkflow[TArgs, TReturn](ABC):
         input: TArgs,
         id: str,
         start_delay: timedelta,
-        **workflow_kwargs,
+        **workflow_kwargs: Any,
     ) -> WorkflowHandle[Self, TReturn]:
         """
         Schedule a workflow to start at a future time.
@@ -403,4 +403,4 @@ class BaseWorkflow[TArgs, TReturn](ABC):
             **merged,
         )
 
-        return handle
+        return handle  # type: ignore[return-value]

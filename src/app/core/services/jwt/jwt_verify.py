@@ -2,7 +2,7 @@
 
 import time
 
-from authlib.jose import JoseError, JsonWebKey, jwt
+from authlib.jose import JoseError, JsonWebKey, KeySet, jwt
 from fastapi import HTTPException
 from loguru import logger
 
@@ -18,7 +18,7 @@ from src.app.runtime.context import get_config
 
 
 # ---------------------------- helpers ---------------------------------
-def _as_list(v):
+def _as_list(v: str | list[str] | None) -> list[str]:
     return [v] if isinstance(v, str) else list(v or ())
 
 
@@ -38,6 +38,9 @@ class JwtVerificationService:
     ) -> TokenClaims:
         cfg = get_config()
         pv = preview or preview_jwt(token)
+
+        # Type for verification key can be string (internal) or KeySet (OIDC)
+        verification_key: str | KeySet
 
         # alg allowlist
         if pv.alg not in cfg.jwt.allowed_algorithms:
@@ -67,11 +70,12 @@ class JwtVerificationService:
                 raise HTTPException(status_code=401, detail="Missing iss claim")
 
         if internal:
-            verification_key = key or cfg.app.session_signing_secret
-            if not verification_key:
+            temp_key = key or cfg.app.session_signing_secret
+            if not temp_key:
                 raise HTTPException(
                     status_code=500, detail="JWT signing secret not configured"
                 )
+            verification_key = temp_key  # Now guaranteed to be str
             claims_options = None
             provider_cfg = None
         else:
@@ -117,11 +121,14 @@ class JwtVerificationService:
         # verify signature + registered claims
         try:
             if claims_options:
-                issuer_values = claims_options["iss"].get("values", [])
+                iss_values = claims_options["iss"].get("values", [])
+                issuer_values: list[str] = iss_values if isinstance(iss_values, list) else []
+                aud_values_obj = claims_options["aud"].get("values", [])
+                aud_count = len(aud_values_obj) if isinstance(aud_values_obj, list) else 0
                 logger.debug(
                     "Verifying JWT from issuer=%s with %d expected audiences",
                     issuer_values[0] if issuer_values else "unknown",
-                    len(claims_options["aud"].get("values", [])),
+                    aud_count,
                 )
             else:
                 logger.debug("Verifying internal JWT without issuer/audience checks")

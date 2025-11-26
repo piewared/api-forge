@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import Any
 
 import typer
 from jinja2 import Environment, FileSystemLoader
@@ -22,7 +23,7 @@ def get_template_env() -> Environment:
 
 
 def render_template_to_file(
-    template_name: str, output_path: Path, context: dict
+    template_name: str, output_path: Path, context: dict[str, Any]
 ) -> None:
     """Render a Jinja2 template to a file."""
     env = get_template_env()
@@ -46,9 +47,9 @@ def sanitize_field_name(name: str) -> str:
     return "_".join(word.lower() for word in words)
 
 
-def prompt_for_fields() -> list[dict[str, str]]:
+def prompt_for_fields() -> list[dict[str, str | bool]]:
     """Prompt user for entity fields."""
-    fields = []
+    fields: list[dict[str, str | bool]] = []
     console.print(
         "\n[blue]Define entity fields (press Enter without a name to finish):[/blue]"
     )
@@ -93,7 +94,7 @@ def prompt_for_fields() -> list[dict[str, str]]:
 
 
 def create_entity_files(
-    entity_name: str, fields: list[dict[str, str]], package_path: Path
+    entity_name: str, fields: list[dict[str, str | bool]], package_path: Path
 ) -> None:
     """Create all entity files using Jinja2 templates."""
     context = {"entity_name": entity_name, "fields": fields}
@@ -105,7 +106,7 @@ def create_entity_files(
     render_template_to_file("__init__.py.j2", package_path / "__init__.py", context)
 
 
-def create_crud_router(entity_name: str, fields: list[dict[str, str]]) -> None:
+def create_crud_router(entity_name: str, fields: list[dict[str, str | bool]]) -> None:
     """Create a CRUD router for the entity using templates."""
     router_dir = (
         get_project_root() / "src" / "app" / "api" / "http" / "routers" / "service"

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal, overload
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from loguru import logger
 from pydantic_core import ValidationError
 

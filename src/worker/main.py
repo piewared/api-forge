@@ -21,9 +21,9 @@ from temporalio.worker import Worker
 
 try:
     # Only needed if you actually use TLS
-    from temporalio.service import TLSConfig  # type: ignore
+    from temporalio.service import TLSConfig
 except Exception:  # pragma: no cover
-    TLSConfig = None  # fallback if package location changes / TLS unused
+    TLSConfig = None  # type: ignore[assignment, misc]
 
 from src.app.runtime.config.config_data import ConfigData
 from src.app.runtime.context import get_config
@@ -99,7 +99,7 @@ def serve(
         case_sensitive=False,
         help="Logging level (TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL).",
     ),
-):
+) -> None:
     """
     Start a Temporal worker process.
     """
@@ -179,7 +179,7 @@ def serve(
     raise typer.Exit(code=asyncio.run(_amain()))
 
 
-def main():
+def main() -> None:
     app()
 
 

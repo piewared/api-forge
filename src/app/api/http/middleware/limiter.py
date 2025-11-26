@@ -147,13 +147,13 @@ def configure_rate_limiter(
 
     if limiter_factory:
         _rate_limiter_factory = limiter_factory
-    elif RateLimiter:
+    elif RateLimiter is not None:
         logger.info("Using Redis-backed rate limiter from fastapi-limiter package")
 
         def redis_rate_limiter_factory(
             times: int, milliseconds: int, per_endpoint: bool, per_method: bool
         ) -> RateLimiterType:
-            if not RateLimiter:
+            if RateLimiter is None:
                 raise RuntimeError("RateLimiter not available")
             # fastapi-limiter expects 'times' and 'seconds', not milliseconds
             return RateLimiter(times=times, milliseconds=milliseconds)
@@ -247,14 +247,14 @@ async def close_rate_limiter() -> None:
             _local_limiters.clear()
 
         # For fastapi-limiter, we need to close the FastAPILimiter
-        if _has_external and RateLimiter:
+        if _has_external and RateLimiter is not None:
             try:
                 # Import FastAPILimiter for cleanup
                 from fastapi_limiter import FastAPILimiter
 
                 if hasattr(FastAPILimiter, "aclose"):
                     # Use the new aclose() method (fastapi-limiter >= 5.0.1)
-                    await FastAPILimiter.aclose()  # type: ignore[attr-defined]
+                    await FastAPILimiter.aclose()  # type: ignore[attr-defined,unused-ignore]
                     logger.info("Closed FastAPILimiter Redis connections")
                 elif hasattr(FastAPILimiter, "close"):
                     # Fallback to deprecated close() method

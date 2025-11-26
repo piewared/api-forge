@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -12,7 +14,7 @@ class JwtClaims(BaseModel):
     scope: str | None = None
     scp: list[str] | None = None
     roles: list[str] | None = None
-    realm_access: dict | None = None
+    realm_access: dict[str, Any] | None = None
 
     def scopes(self) -> set[str]:
         scopes: set[str] = set()

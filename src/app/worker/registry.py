@@ -103,7 +103,7 @@ def activity_defn(
         # Attach metadata / register (your registries etc.)
         wrapped.__temporal_registered__ = True
         wrapped.__activity_queue__ = queue
-        _ACTIVITY_BY_QUEUE.setdefault(queue, set()).add(wrapped)  # type: ignore[arg-type]
+        _ACTIVITY_BY_QUEUE.setdefault(queue, set()).add(wrapped)
         # logger.debug(f"Registering activity {wrapped.__name__} to queue '{queue}'")
         # Tell the checker: same signature as input
         return cast(Callable[P, R], wrapped)
@@ -152,7 +152,7 @@ def workflow_defn(
         wrapped_cls.__temporal_registered__ = True
         wrapped_cls.__workflow_queue__ = queue
         # logger.debug(f"Registering workflow {wrapped_cls.__name__} to queue '{queue}'")
-        _WORKFLOW_BY_QUEUE.setdefault(queue, set()).add(wrapped_cls)  # type: ignore[arg-type]
+        _WORKFLOW_BY_QUEUE.setdefault(queue, set()).add(wrapped_cls)
         # Tell the checker: this decorator preserves the original class type
         return cast(WFClass, wrapped_cls)
 

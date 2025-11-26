@@ -42,7 +42,7 @@ async def readiness(request: Request) -> dict[str, Any] | JSONResponse:
     app_deps: ApplicationDependencies = request.app.state.app_dependencies
     config = get_config()
 
-    checks = {}
+    checks: dict[str, Any] = {}
     all_healthy = True
 
     # Database health check
@@ -63,9 +63,13 @@ async def readiness(request: Request) -> dict[str, Any] | JSONResponse:
 
     # Redis health check
     try:
-        redis_healthy = await app_deps.redis_service.health_check()
+        if app_deps.redis_service:
+            redis_healthy = await app_deps.redis_service.health_check()
+        else:
+            redis_healthy = False # Redis service not configured
+
         checks["redis"] = {
-            "status": "healthy" if redis_healthy else "unhealthy",
+            "status": "healthy" if redis_healthy else "unhealthy" if config.redis.enabled else "degraded",
             "type": "redis" if config.redis.enabled else "in-memory",
         }
         # Redis failure is not critical - we fall back to in-memory
@@ -75,7 +79,7 @@ async def readiness(request: Request) -> dict[str, Any] | JSONResponse:
             "status": "degraded",
             "type": "in-memory",
             "note": "Using in-memory storage",
-            "error": str(e) if config.redis.enabled else None,
+            "error": str(e) if config.redis.enabled else "Redis not configured",
         }
         # Redis failure is not critical - we fall back to in-memory
 
@@ -189,10 +193,13 @@ async def health_redis(request: Request) -> dict[str, Any] | JSONResponse:
 
     try:
         # Use the health_check method from RedisService
-        healthy = await app_deps.redis_service.health_check()
-
-        # Optionally get more detailed info
-        info = await app_deps.redis_service.get_info()
+        if app_deps.redis_service:
+            healthy = await app_deps.redis_service.health_check()
+            # Optionally get more detailed info
+            info = await app_deps.redis_service.get_info()
+        else:
+            healthy = False # Redis service not configured
+            info = None
 
         result: dict[str, Any] = {
             "status": "healthy" if healthy else "unhealthy",

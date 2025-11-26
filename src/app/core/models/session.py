@@ -202,7 +202,7 @@ class TokenClaims(BaseModel):
             if name not in {"extra_claims", "custom_claims", "raw_token", "token_type"}
         }
 
-        extracted = {}
+        extracted: dict[str, Any] = {}
         extra = {}
 
         extracted["all_claims"] = payload.copy()

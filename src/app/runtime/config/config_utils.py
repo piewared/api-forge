@@ -100,7 +100,7 @@ def substitute_env_vars(text: str) -> str:
 
     _load_secret_files_into_env()
 
-    def replacer(match):
+    def replacer(match: re.Match[str]) -> str:
         var_expr = match.group(1)
 
         # Handle default values: ${VAR:-default}

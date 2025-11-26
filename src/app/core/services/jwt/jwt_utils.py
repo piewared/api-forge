@@ -1,10 +1,11 @@
 import base64
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, cast
 
-from cachetools.func import lru_cache
+from cachetools.func import lru_cache  # type: ignore[import-untyped]
 from fastapi import HTTPException
 from loguru import logger
 
@@ -122,7 +123,9 @@ def extract_uid(claims: dict[str, Any]) -> str:
     main_config = get_config()
     uid_claim = main_config.jwt.claims.user_id
     if uid_claim and uid_claim in claims:
-        return claims[uid_claim]
+        if not isinstance(claims[uid_claim], str):
+            raise HTTPException(status_code=401, detail="Invalid UID claim type")
+        return cast(str, claims[uid_claim])
     return f"{claims.get('iss')}|{claims.get('sub')}"
 
 
@@ -136,7 +139,7 @@ def extract_scopes(claims: dict[str, Any]) -> list[str]:
     scopes = []
 
     # Helper to add scopes while preserving order and deduplication
-    def add_scope_items(items):
+    def add_scope_items(items: Iterable[str]) -> None:
         for item in items:
             if item not in seen:
                 seen.add(item)

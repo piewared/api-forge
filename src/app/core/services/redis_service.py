@@ -18,14 +18,14 @@ class RedisService:
     Follows the same pattern as DbSessionService for consistency.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the Redis service with connection pooling."""
         logger.info("Setting up Redis service")
         config = get_config()
         redis_config = config.redis
 
         self._enabled = redis_config.enabled
-        self._client = None
+        self._client: Redis | None = None
         self._url = redis_config.url
         self._connection_string = redis_config.connection_string
 
@@ -198,7 +198,7 @@ class RedisService:
             # Clean up
             await self._client.delete(test_key)
 
-            return result == test_value
+            return bool(result == test_value)
         except Exception as e:
             logger.error(
                 "Redis test operation failed",

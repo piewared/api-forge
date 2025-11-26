@@ -2,16 +2,18 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session, create_engine
 
+from src.app.runtime.config.config_data import ConfigData
 from src.app.runtime.context import get_config
 
 
 class DbSessionService:
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the shared database engine and session factory."""
 
         logger.info("Setting up database engine and session factory")
@@ -71,7 +73,7 @@ class DbSessionService:
                 },
             )
 
-    def _get_connect_args(self, config) -> dict:
+    def _get_connect_args(self, config: ConfigData) -> dict[str, Any]:
         """Get database-specific connection arguments for optimization."""
         connect_args = {}
 
@@ -154,7 +156,7 @@ class DbSessionService:
             )
             return False
 
-    def get_pool_status(self) -> dict:
+    def get_pool_status(self) -> dict[str, int]:
         """Get current connection pool status for monitoring."""
         pool = self._engine.pool
         return {

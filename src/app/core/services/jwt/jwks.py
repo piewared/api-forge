@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, cast
 
-from cachetools import TTLCache
+from cachetools import TTLCache  # type: ignore[import-untyped]
 from fastapi import HTTPException
 from loguru import logger
 
@@ -53,7 +53,8 @@ class JWKSCacheInMemory(JWKSCache):
         Returns:
             JWKS dictionary
         """
-        return self._cache.get(issuer_url, {})
+        result = self._cache.get(issuer_url, {})
+        return cast(dict[str, Any], result)
 
     def set_jwks(self, issuer_url: str, jwks: dict[str, Any]) -> None:
         """Set JWKS for the given issuer URL in the cache.
@@ -95,7 +96,7 @@ class JwksService:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(jwks_url)
                 resp.raise_for_status()
-                jwks = resp.json()
+                jwks = cast(dict[str, Any], resp.json())
                 self._cache.set_jwks(jwks_url, jwks)
                 return jwks
         except Exception as exc:

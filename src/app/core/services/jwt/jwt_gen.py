@@ -141,7 +141,7 @@ class JwtGeneratorService:
         include_jti: bool = True,
         secret: str | None = None,
         kid: str | None = None,
-        **extra_claims,
+        **extra_claims: Any,
     ) -> str:
         """Generate an access token JWT for API authentication.
 
@@ -173,7 +173,7 @@ class JwtGeneratorService:
                 email="user@example.com"
             )
         """
-        claims = {}
+        claims: dict[str, str | list[str]] = {}
 
         if scopes:
             claims["scope"] = " ".join(scopes)
@@ -212,7 +212,7 @@ class JwtGeneratorService:
         include_jti: bool = True,
         secret: str | None = None,
         kid: str | None = None,
-        **extra_claims,
+        **extra_claims: Any,
     ) -> str:
         """Generate an ID token JWT for user identification.
 
@@ -247,7 +247,7 @@ class JwtGeneratorService:
                 kid="key-1"
             )
         """
-        claims = {}
+        claims: dict[str, str | bool] = {}
 
         if email:
             claims["email"] = email
@@ -291,7 +291,7 @@ class JwtGeneratorService:
         include_jti: bool = True,
         secret: str | None = None,
         kid: str | None = None,
-        **extra_claims,
+        **extra_claims: Any,
     ) -> str:
         """Generate a refresh token JWT for token renewal.
 

@@ -3,8 +3,9 @@
 
 import sys
 import time
+from typing import Any, cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from .keycloak_client import KeycloakClient
 
@@ -170,7 +171,7 @@ class KeycloakSetup:
         ]
 
         for user in test_users:
-            username = user["username"]
+            username: str = cast(str, user["username"])
 
             if self.client.user_exists(realm_name, username):
                 print(f"✅ User '{username}' already exists")
@@ -263,7 +264,7 @@ class KeycloakSetup:
     # Delegate user management methods to the client for backward compatibility
     def list_users(
         self, realm_name: str = "test-realm", limit: int = 100
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """List users in a realm.
 
         Args:
@@ -275,7 +276,7 @@ class KeycloakSetup:
         """
         return self.client.get_users(realm_name, limit=limit)
 
-    def get_user_by_username(self, realm_name: str, username: str) -> dict | None:
+    def get_user_by_username(self, realm_name: str, username: str) -> dict[str, Any] | None:
         """Get a user by username.
 
         Args:
@@ -287,7 +288,7 @@ class KeycloakSetup:
         """
         return self.client.get_user_by_username(realm_name, username)
 
-    def create_user(self, realm_name: str, user_data: dict) -> bool:
+    def create_user(self, realm_name: str, user_data: dict[str, Any]) -> bool:
         """Create a new user in a realm.
 
         Args:

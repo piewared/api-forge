@@ -1,5 +1,6 @@
 # api/routes/workflows.py
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -12,8 +13,8 @@ router = APIRouter(prefix="/workflows")
 
 class StartRequest(BaseModel):
     workflow: str  # e.g., "OrderWorkflow"
-    args: list = []
-    kwargs: dict = {}
+    args: list[Any] = []
+    kwargs: dict[str, Any] = {}
     id: str | None = None
     task_queue: str = "app"
 
@@ -22,7 +23,7 @@ class StartRequest(BaseModel):
 async def start(
     req: StartRequest,
     client_service: TemporalClientService = Depends(get_temporal_service),
-):
+) -> dict[str, str | None]:
     wf = getattr(
         __import__("worker.workflows", fromlist=[req.workflow]), req.workflow, None
     )
@@ -44,9 +45,9 @@ async def start(
 async def signal(
     workflow_id: str,
     signal_name: str,
-    payload: dict,
+    payload: dict[str, Any],
     client_service: TemporalClientService = Depends(get_temporal_service),
-):
+) -> dict[str, bool]:
     client = await client_service.get_client()
     h = client.get_workflow_handle(workflow_id)
     await h.signal(signal_name, **payload)
@@ -57,7 +58,7 @@ async def signal(
 async def read(
     workflow_id: str,
     client_service: TemporalClientService = Depends(get_temporal_service),
-):
+) -> Any:
     client = await client_service.get_client()
     h = client.get_workflow_handle(workflow_id)
     return await h.query("state")

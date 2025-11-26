@@ -34,6 +34,9 @@ async def main() -> int:
         "DEVELOPMENT_TEMPORAL_URL", "temporal:7233"
     )
     namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
+    if not temporal_url:
+        print("Temporal URL not configured", file=sys.stderr)
+        return 1
 
     healthy = await check_temporal_health(temporal_url, namespace)
     return 0 if healthy else 1

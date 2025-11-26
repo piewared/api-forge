@@ -1,6 +1,7 @@
 """Kubernetes environment deployer."""
 
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 
@@ -26,7 +27,7 @@ class K8sDeployer(BaseDeployer):
         self.health_checker = HealthChecker()
         self.k8s_scripts = project_root / "k8s" / "scripts"
 
-    def deploy(self, **kwargs) -> None:
+    def deploy(self, **kwargs: Any) -> None:
         """Deploy to Kubernetes cluster.
 
         Args:
@@ -83,7 +84,7 @@ class K8sDeployer(BaseDeployer):
         )
         self.status_display.show_k8s_status(namespace)
 
-    def teardown(self, **kwargs) -> None:
+    def teardown(self, **kwargs: Any) -> None:
         """Remove Kubernetes deployment.
 
         Args:

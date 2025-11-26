@@ -5,8 +5,9 @@ import argparse
 import json
 import subprocess
 import sys
+from typing import cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 
 def check_docker_running() -> bool:
@@ -186,7 +187,7 @@ def wait_for_keycloak(timeout: int = 120) -> bool:
     return False
 
 
-def check_keycloak_status():
+def check_keycloak_status() -> bool:
     """Check if Keycloak is running and configured."""
     try:
         # Check if Keycloak is running - use realms/master endpoint
@@ -229,14 +230,14 @@ def get_access_token(
         response.raise_for_status()
 
         tokens = response.json()
-        return tokens["access_token"]
+        return cast(str, tokens["access_token"])
 
     except requests.exceptions.RequestException as e:
         print(f"❌ Failed to get access token: {e}")
         return None
 
 
-def decode_token(token: str):
+def decode_token(token: str) -> None:
     """Decode and display JWT token (unsafe - for development only)."""
     import base64
 
@@ -267,7 +268,7 @@ def decode_token(token: str):
         print(f"❌ Failed to decode token: {e}")
 
 
-def test_userinfo(token: str, realm: str = "test-realm"):
+def test_userinfo(token: str, realm: str = "test-realm") -> None:
     """Test userinfo endpoint with access token."""
     userinfo_url = (
         f"http://localhost:8080/realms/{realm}/protocol/openid-connect/userinfo"
@@ -287,7 +288,7 @@ def test_userinfo(token: str, realm: str = "test-realm"):
         print(f"❌ Failed to get user info: {e}")
 
 
-def run_integration_tests():
+def run_integration_tests() -> bool:
     """Run integration tests with Keycloak."""
     if not check_keycloak_status():
         print("❌ Keycloak is not properly configured. Run ./dev/setup_dev.sh first")
@@ -306,7 +307,7 @@ def run_integration_tests():
         return False
 
 
-def main():
+def main() -> None:
     """Main CLI interface."""
     parser = argparse.ArgumentParser(description="OIDC Development Utilities")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
