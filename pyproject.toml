@@ -46,6 +46,7 @@ dev = [
     "mypy>=1.0.0",
     "types-authlib>=1.6.2.20250914",
     "copier>=9.0.0",
+    "pre-commit>=4.5.0",
 ]
 
 [project.scripts]
