@@ -30,9 +30,37 @@ jobs:
       run: |
         uv sync --dev
 
+    - name: Start dev environment services
+      run: |
+        # Deploy dev environment (blocks until services are ready)
+        uv run api-forge-cli deploy up dev
+
     - name: Run tests
       run: |
         uv run pytest -v --cov=src --cov-report=xml
+
+    - name: Show service logs on failure
+      if: failure()
+      run: |
+        echo "=== Docker Compose Services ==="
+        docker-compose -f docker-compose.dev.yml ps
+        echo ""
+        echo "=== PostgreSQL Logs ==="
+        docker-compose -f docker-compose.dev.yml logs postgres --tail=100
+        echo ""
+        echo "=== Redis Logs ==="
+        docker-compose -f docker-compose.dev.yml logs redis --tail=100
+        echo ""
+        echo "=== Keycloak Logs ==="
+        docker-compose -f docker-compose.dev.yml logs keycloak --tail=100
+        echo ""
+        echo "=== Temporal Logs ==="
+        docker-compose -f docker-compose.dev.yml logs temporal --tail=100
+
+    - name: Stop dev environment
+      if: always()
+      run: |
+        uv run api-forge-cli deploy down dev
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
