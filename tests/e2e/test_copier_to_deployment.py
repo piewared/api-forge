@@ -634,7 +634,7 @@ print("✅ All imports successful")
                 print(f"\nOutput:\n{e.stdout}")
                 if e.stderr:
                     print(f"\nError output:\n{e.stderr}")
-                
+
                 # Try to get container logs for debugging
                 print("\n🔍 Checking Docker container status...")
                 try:
@@ -645,7 +645,7 @@ print("✅ All imports successful")
                         cwd=project_dir,
                     )
                     print(f"Containers:\n{ps_result.stdout}")
-                    
+
                     # Get logs from temporal-schema-setup if it exists
                     logs_result = subprocess.run(
                         ["docker", "logs", "api-forge-temporal-schema-setup"],
@@ -659,7 +659,7 @@ print("✅ All imports successful")
                             print(f"Errors:\n{logs_result.stderr}")
                 except Exception as log_err:
                     print(f"Could not get container logs: {log_err}")
-                
+
                 raise  # Re-raise the original exception
 
             # Wait for services to be healthy

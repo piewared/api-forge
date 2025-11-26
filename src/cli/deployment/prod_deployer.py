@@ -274,6 +274,7 @@ class ProdDeployer(BaseDeployer):
                 self.COMPOSE_FILE,
                 "up",
                 "-d",
+                "--build",  # Build images if they don't exist or Dockerfile changed
                 "--remove-orphans",
             ]
             if force_recreate:
