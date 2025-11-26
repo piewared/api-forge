@@ -12,7 +12,7 @@ console = Console()
 
 def get_project_root() -> Path:
     """Get the project root directory.
-    
+
     Walks up from the module location to find the project root,
     identified by the presence of pyproject.toml.
     """

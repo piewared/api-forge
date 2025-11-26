@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from src.app.api.http.deps import get_session
+from src.app.api.http.deps import get_db_session
 from src.app.entities.service.product import Product, ProductRepository
 
 router = APIRouter()
@@ -12,7 +12,7 @@ router = APIRouter()
 @router.post("/", response_model=Product)
 def create_product(
     product: Product,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_db_session),
 ) -> Product:
     """Create a new product."""
     repository = ProductRepository(session)
@@ -24,7 +24,7 @@ def create_product(
 @router.get("/{item_id}", response_model=Product)
 def get_product(
     item_id: str,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_db_session),
 ) -> Product:
     """Get a product by ID."""
     repository = ProductRepository(session)
@@ -38,7 +38,7 @@ def get_product(
 def update_product(
     item_id: str,
     product_update: Product,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_db_session),
 ) -> Product:
     """Update a product."""
     repository = ProductRepository(session)
@@ -51,13 +51,13 @@ def update_product(
         session.commit()
         return updated_product
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.delete("/{item_id}")
 def delete_product(
     item_id: str,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_db_session),
 ) -> dict[str, str]:
     """Delete a product."""
     repository = ProductRepository(session)
@@ -70,7 +70,7 @@ def delete_product(
 
 @router.get("/", response_model=list[Product])
 def list_products(
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_db_session),
 ) -> list[Product]:
     """List all products."""
     repository = ProductRepository(session)

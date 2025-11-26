@@ -75,7 +75,7 @@ def get_temporal_service(request: Request) -> TemporalClientService:
     return app_deps.temporal_service
 
 
-def get_redis_service(request: Request) -> RedisService:
+def get_redis_service(request: Request) -> RedisService | None:
     """Get the Redis service instance."""
     app_deps: ApplicationDependencies = request.app.state.app_dependencies
     return app_deps.redis_service

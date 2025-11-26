@@ -158,7 +158,7 @@ class OrderProcessingWorkflow:
             self._status = "payment_completed"
 
             # Send notification
-            notification_sent = await workflow.execute_activity(
+            await workflow.execute_activity(
                 send_notification,
                 args=[
                     order.customer_email,

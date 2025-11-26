@@ -3,7 +3,7 @@
 This module organizes entities by business concept rather than technical layer.
 Each entity has its own package containing:
 - entity.py: Domain model with business logic
-- table.py: Database persistence model  
+- table.py: Database persistence model
 - repository.py: Data access layer
 
 This approach provides:

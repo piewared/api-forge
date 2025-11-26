@@ -2,7 +2,7 @@
 
 This module contains all User-related classes organized by responsibility:
 - User: Domain entity with business logic
-- UserTable: Database persistence model  
+- UserTable: Database persistence model
 - UserRepository: Data access layer
 
 This structure keeps all User-related code together while maintaining

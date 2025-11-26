@@ -5,10 +5,10 @@ from pathlib import Path
 
 def get_package_root() -> Path:
     """Get the absolute path to the package root directory.
-    
+
     Returns the directory containing the app/ module, which is the package root.
     This works both in infrastructure development (src/) and generated projects (any name).
-    
+
     Returns:
         Path: Absolute path to the package root directory
     """
@@ -30,10 +30,10 @@ def get_package_root() -> Path:
 
 def get_package_name() -> str:
     """Get the name of the current package.
-    
+
     Returns the directory name of the package root.
     Works for both 'src' (infrastructure) and custom package names (generated projects).
-    
+
     Returns:
         str: Package name (e.g., 'src', 'my_api_project', etc.)
     """
@@ -42,7 +42,7 @@ def get_package_name() -> str:
 
 def get_package_module_path() -> str:
     """Get the Python module path for the package.
-    
+
     Returns:
         str: Module path (e.g., 'src', 'my_api_project')
     """
