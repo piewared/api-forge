@@ -79,6 +79,20 @@ jobs:
         run: |
           uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_07_docker_compose_prod_deployment -v -s --tb=short
       
+      - name: Show test artifacts on failure
+        if: failure()
+        run: |
+          echo "=== Checking for E2E test temp directories ==="
+          ls -la /tmp/e2e_test_* 2>/dev/null || echo "No e2e_test_* directories found in /tmp"
+          
+          echo ""
+          echo "=== Checking for pytest temp directories ==="
+          find /tmp -maxdepth 2 -name "e2e_test_*" -type d 2>/dev/null || echo "No directories found"
+          
+          echo ""
+          echo "=== Recent pytest cache ==="
+          ls -la .pytest_cache/ 2>/dev/null || echo "No pytest cache"
+      
       - name: Show Docker Compose logs on failure
         if: failure()
         run: |

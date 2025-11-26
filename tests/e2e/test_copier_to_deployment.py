@@ -622,11 +622,45 @@ print("✅ All imports successful")
                 print("✅ Secrets already exist (from test_06)")
 
             # Start production deployment
-            result = self.run_command(
-                ["uv", "run", "api-forge-cli", "deploy", "up", "prod"],
-                cwd=project_dir,
-                timeout=300,
-            )
+            try:
+                result = self.run_command(
+                    ["uv", "run", "api-forge-cli", "deploy", "up", "prod"],
+                    cwd=project_dir,
+                    timeout=300,
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"\n❌ Deployment failed with exit code {e.returncode}")
+                print(f"Command: {' '.join(e.cmd)}")
+                print(f"\nOutput:\n{e.stdout}")
+                if e.stderr:
+                    print(f"\nError output:\n{e.stderr}")
+                
+                # Try to get container logs for debugging
+                print("\n🔍 Checking Docker container status...")
+                try:
+                    ps_result = subprocess.run(
+                        ["docker", "ps", "-a", "--filter", "name=api-forge"],
+                        capture_output=True,
+                        text=True,
+                        cwd=project_dir,
+                    )
+                    print(f"Containers:\n{ps_result.stdout}")
+                    
+                    # Get logs from temporal-schema-setup if it exists
+                    logs_result = subprocess.run(
+                        ["docker", "logs", "api-forge-temporal-schema-setup"],
+                        capture_output=True,
+                        text=True,
+                        cwd=project_dir,
+                    )
+                    if logs_result.returncode == 0:
+                        print(f"\n📋 Temporal schema setup logs:\n{logs_result.stdout}")
+                        if logs_result.stderr:
+                            print(f"Errors:\n{logs_result.stderr}")
+                except Exception as log_err:
+                    print(f"Could not get container logs: {log_err}")
+                
+                raise  # Re-raise the original exception
 
             # Wait for services to be healthy
             print("⏳ Waiting for services to become healthy...")
