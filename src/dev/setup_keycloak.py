@@ -276,7 +276,9 @@ class KeycloakSetup:
         """
         return self.client.get_users(realm_name, limit=limit)
 
-    def get_user_by_username(self, realm_name: str, username: str) -> dict[str, Any] | None:
+    def get_user_by_username(
+        self, realm_name: str, username: str
+    ) -> dict[str, Any] | None:
         """Get a user by username.
 
         Args:

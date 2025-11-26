@@ -8,6 +8,7 @@ from loguru import logger
 
 def configure_logging() -> None:
     from src.app.runtime.context import get_config
+
     main_config = get_config()
     cfg = main_config.logging
     env = main_config.app.environment
@@ -84,7 +85,7 @@ def configure_logging() -> None:
             try:
                 level = logger.level(record.levelname).name
             except Exception:
-                level = str(record.levelno) # fallback to numeric
+                level = str(record.levelno)  # fallback to numeric
 
             # Make Loguru show the original caller (not this handler)
             # depth=2 is usually correct from stdlib -> our handler -> user code

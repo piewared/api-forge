@@ -34,7 +34,9 @@ def up(
         False, "--no-wait", help="Don't wait for services to be ready"
     ),
     start_server: bool = typer.Option(
-        True, "--start-server/--no-start-server", help="Start FastAPI dev server after deploying services (dev only)"
+        True,
+        "--start-server/--no-start-server",
+        help="Start FastAPI dev server after deploying services (dev only)",
     ),
     skip_build: bool = typer.Option(
         False, "--skip-build", help="Skip building the app image (prod only)"

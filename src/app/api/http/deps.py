@@ -172,7 +172,7 @@ async def get_current_user(
         user = created_user
     else:
         # Load existing user
-        user = user_repo.get(identity.user_id) # type: ignore
+        user = user_repo.get(identity.user_id)  # type: ignore
         if user is None:
             raise HTTPException(
                 status_code=500, detail="User identity exists but user not found"
@@ -185,7 +185,9 @@ async def get_current_user(
     return user
 
 
-def require_scope(required_scope: str) -> Callable[[Request], Coroutine[Any, Any, None]]:
+def require_scope(
+    required_scope: str,
+) -> Callable[[Request], Coroutine[Any, Any, None]]:
     """Create a dependency that requires a specific scope for the authenticated user."""
 
     async def dep(request: Request) -> None:

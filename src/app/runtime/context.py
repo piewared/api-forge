@@ -130,7 +130,9 @@ def _recursive_model_dump_exclude_unset(model: BaseModel) -> dict[str, Any]:
     return result
 
 
-def _recursive_dict_merge(base_dict: dict[str, Any], override_dict: dict[str, Any]) -> dict[str, Any]:
+def _recursive_dict_merge(
+    base_dict: dict[str, Any], override_dict: dict[str, Any]
+) -> dict[str, Any]:
     """Recursively merge two dictionaries from deepest levels up.
 
     Args:

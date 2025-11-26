@@ -122,9 +122,13 @@ class JwtVerificationService:
         try:
             if claims_options:
                 iss_values = claims_options["iss"].get("values", [])
-                issuer_values: list[str] = iss_values if isinstance(iss_values, list) else []
+                issuer_values: list[str] = (
+                    iss_values if isinstance(iss_values, list) else []
+                )
                 aud_values_obj = claims_options["aud"].get("values", [])
-                aud_count = len(aud_values_obj) if isinstance(aud_values_obj, list) else 0
+                aud_count = (
+                    len(aud_values_obj) if isinstance(aud_values_obj, list) else 0
+                )
                 logger.debug(
                     "Verifying JWT from issuer=%s with %d expected audiences",
                     issuer_values[0] if issuer_values else "unknown",

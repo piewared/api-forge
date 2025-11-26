@@ -49,7 +49,9 @@ except ImportError:  # pragma: no cover - optional dependency missing
 
 # --- Security middleware ---
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         response: Response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
@@ -110,7 +112,9 @@ app.add_middleware(
 
 # --- Request logging middleware ---
 @app.middleware("http")
-async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+async def log_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     # Correlation / tracing
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 

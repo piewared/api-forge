@@ -66,10 +66,14 @@ async def readiness(request: Request) -> dict[str, Any] | JSONResponse:
         if app_deps.redis_service:
             redis_healthy = await app_deps.redis_service.health_check()
         else:
-            redis_healthy = False # Redis service not configured
+            redis_healthy = False  # Redis service not configured
 
         checks["redis"] = {
-            "status": "healthy" if redis_healthy else "unhealthy" if config.redis.enabled else "degraded",
+            "status": "healthy"
+            if redis_healthy
+            else "unhealthy"
+            if config.redis.enabled
+            else "degraded",
             "type": "redis" if config.redis.enabled else "in-memory",
         }
         # Redis failure is not critical - we fall back to in-memory
@@ -198,7 +202,7 @@ async def health_redis(request: Request) -> dict[str, Any] | JSONResponse:
             # Optionally get more detailed info
             info = await app_deps.redis_service.get_info()
         else:
-            healthy = False # Redis service not configured
+            healthy = False  # Redis service not configured
             info = None
 
         result: dict[str, Any] = {
