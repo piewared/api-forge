@@ -82,38 +82,34 @@ jobs:
       - name: Show Docker Compose logs on failure
         if: failure()
         run: |
-          echo "=== Finding generated project directory ==="
-          PROJECT_DIR=$(find /tmp -maxdepth 1 -name "e2e_test_*" -type d | head -n 1)
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Could not find E2E test project directory"
-            exit 0
-          fi
-          echo "Found project at: $PROJECT_DIR"
-          cd "$PROJECT_DIR"
-          
+          echo "=== Showing Docker Compose logs for all api-forge containers ==="
           echo ""
-          echo "=== Docker Compose Services Status ==="
-          docker compose -f docker-compose.prod.yml ps || true
+          echo "=== All api-forge Containers Status ==="
+          docker ps -a --filter "name=api-forge" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
           
           echo ""
           echo "=== Temporal Schema Setup Logs ==="
-          docker compose -f docker-compose.prod.yml logs temporal-schema-setup || true
+          docker logs api-forge-temporal-schema-setup 2>&1 || echo "Container not found or no logs"
           
           echo ""
           echo "=== PostgreSQL Logs ==="
-          docker compose -f docker-compose.prod.yml logs postgres --tail=100 || true
+          docker logs api-forge-postgres --tail=100 2>&1 || echo "Container not found or no logs"
           
           echo ""
           echo "=== Temporal Server Logs ==="
-          docker compose -f docker-compose.prod.yml logs temporal --tail=100 || true
+          docker logs api-forge-temporal --tail=100 2>&1 || echo "Container not found or no logs"
           
           echo ""
           echo "=== Worker Logs ==="
-          docker compose -f docker-compose.prod.yml logs worker --tail=100 || true
+          docker logs api-forge-worker --tail=100 2>&1 || echo "Container not found or no logs"
           
           echo ""
           echo "=== App Logs ==="
-          docker compose -f docker-compose.prod.yml logs app --tail=100 || true
+          docker logs api-forge-app --tail=100 2>&1 || echo "Container not found or no logs"
+          
+          echo ""
+          echo "=== Redis Logs ==="
+          docker logs api-forge-redis --tail=50 2>&1 || echo "Container not found or no logs"
       
       - name: Cleanup Docker resources
         if: always()
