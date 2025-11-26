@@ -139,35 +139,78 @@ def check_temporal_status() -> bool:
         return False
 
 
-def run_keycloak_setup() -> bool:
-    """Run Keycloak setup script after Keycloak is ready."""
-    if not check_keycloak_status():
-        print("❌ Keycloak is not ready for configuration")
-        return False
+def run_keycloak_setup(max_retries: int = 3, retry_delay: int = 5) -> bool:
+    """Run Keycloak setup script after Keycloak is ready.
 
+    Args:
+        max_retries: Maximum number of retry attempts
+        retry_delay: Delay in seconds between retries
+    """
+    import time
+
+    # First check if Keycloak is at least running
     try:
-        print("⚙️  Configuring Keycloak realm and client...")
-        # Dynamically detect package name
-        from src.utils.package_utils import get_package_module_path
-
-        package_name = get_package_module_path()
-        result = subprocess.run(
-            ["python", "-m", f"{package_name}.dev.setup_keycloak"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            print("✅ Keycloak configuration completed successfully")
-            return True
-        else:
-            print(f"❌ Keycloak configuration failed: {result.stderr}")
+        response = requests.get("http://localhost:8080/realms/master", timeout=5)
+        if response.status_code != 200:
+            print("❌ Keycloak is not responding")
             return False
-
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"❌ Failed to run Keycloak setup: {e}")
+    except requests.exceptions.RequestException:
+        print("❌ Keycloak is not running")
         return False
+
+    # Try to configure Keycloak with retries
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                print(
+                    f"⚙️  Retry {attempt}/{max_retries - 1}: Configuring Keycloak realm and client..."
+                )
+                time.sleep(retry_delay)
+            else:
+                print("⚙️  Configuring Keycloak realm and client...")
+
+            # Dynamically detect package name
+            from src.utils.package_utils import get_package_module_path
+
+            package_name = get_package_module_path()
+            result = subprocess.run(
+                ["python", "-m", f"{package_name}.dev.setup_keycloak"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0:
+                print("✅ Keycloak configuration completed successfully")
+                # Verify the realm was actually created
+                time.sleep(2)  # Give it a moment to propagate
+                if check_keycloak_status():
+                    return True
+                elif attempt < max_retries - 1:
+                    print("⚠️  Realm not yet available, retrying...")
+                    continue
+                else:
+                    print("⚠️  Realm configuration may not be complete")
+                    return False
+            else:
+                if attempt < max_retries - 1:
+                    print("⚠️  Configuration attempt failed, retrying...")
+                else:
+                    print(
+                        f"❌ Keycloak configuration failed after {max_retries} attempts: {result.stderr}"
+                    )
+                    return False
+
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            if attempt < max_retries - 1:
+                print(f"⚠️  Setup error: {e}, retrying...")
+            else:
+                print(
+                    f"❌ Failed to run Keycloak setup after {max_retries} attempts: {e}"
+                )
+                return False
+
+    return False
 
 
 def wait_for_keycloak(timeout: int = 120) -> bool:
