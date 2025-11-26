@@ -25,9 +25,15 @@ def _get_default_config():
     global _default_config, _default_context
     if _default_config is None:
         # Load environment variables before config parsing
+        # Load order: .env.dev first (if development), then .env
+        # This gives precedence: shell vars > .env.dev > .env
+        import os
+
         from dotenv import load_dotenv
 
-        load_dotenv()
+        if os.environ.get("APP_ENVIRONMENT") == "development":
+            load_dotenv(".env.dev")
+        load_dotenv()  # Base .env loaded last (lowest priority)
 
         _default_config = load_config()
         _default_context = AppContext(config=_default_config)
