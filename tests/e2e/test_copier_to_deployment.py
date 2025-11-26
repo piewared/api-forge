@@ -630,12 +630,8 @@ print("✅ All imports successful")
                     cwd=project_dir,
                     timeout=300,
                 )
-            except subprocess.CalledProcessError as e:
-                print(f"\n❌ Deployment failed with exit code {e.returncode}")
-                print(f"Command: {' '.join(e.cmd)}")
-                print(f"\nOutput:\n{e.stdout}")
-                if e.stderr:
-                    print(f"\nError output:\n{e.stderr}")
+            except RuntimeError as e:
+                print(f"\n❌ Deployment failed: {e}")
 
                 # Try to get container logs for debugging
                 print("\n🔍 Checking Docker container status...")
