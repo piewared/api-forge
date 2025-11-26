@@ -33,6 +33,9 @@ def up(
     no_wait: bool = typer.Option(
         False, "--no-wait", help="Don't wait for services to be ready"
     ),
+    start_server: bool = typer.Option(
+        True, "--start-server/--no-start-server", help="Start FastAPI dev server after deploying services (dev only)"
+    ),
     skip_build: bool = typer.Option(
         False, "--skip-build", help="Skip building the app image (prod only)"
     ),
@@ -68,7 +71,7 @@ def up(
     deployer: DevDeployer | ProdDeployer | K8sDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
-        deployer.deploy(force=force, no_wait=no_wait)
+        deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
 
     elif env == Environment.PROD:
         deployer = ProdDeployer(console, project_root)

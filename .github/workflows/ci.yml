@@ -37,7 +37,7 @@ jobs:
     - name: Start dev environment services
       run: |
         # Deploy dev environment (blocks until services are ready)
-        uv run api-forge-cli deploy up dev
+        uv run api-forge-cli deploy up --no-start-server dev
 
     - name: Run tests
       run: |

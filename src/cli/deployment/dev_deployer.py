@@ -51,7 +51,7 @@ class DevDeployer(BaseDeployer):
         """Deploy the development environment.
 
         Args:
-            **kwargs: Deployment options (force, no_wait)
+            **kwargs: Deployment options (force, no_wait, start_server)
         """
         # Check for .env file first
         if not self.check_env_file():
@@ -61,6 +61,7 @@ class DevDeployer(BaseDeployer):
 
         force = kwargs.get("force", False)
         no_wait = kwargs.get("no_wait", False)
+        start_server = kwargs.get("start_server", True)
         # Check if services are already running
         running_services = self._get_running_services()
         all_services_running = (
@@ -77,7 +78,8 @@ class DevDeployer(BaseDeployer):
             )
             self.status_display.show_dev_status()
             # Continue to start dev server even if services are already running
-            self._start_dev_server()
+            if start_server:
+                self._start_dev_server()
             return
 
         if running_services and force:
@@ -99,7 +101,8 @@ class DevDeployer(BaseDeployer):
         self._start_services(no_wait)
 
         # Start the development server
-        self._start_dev_server()
+        if start_server:
+            self._start_dev_server()
 
     def _ensure_required_directories(self) -> None:
         data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
