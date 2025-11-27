@@ -32,12 +32,24 @@ spec:
         - name: temporal
           image: my-temporal-server:1.29.0
           imagePullPolicy: IfNotPresent
-          command: ["/opt/entry/scripts/entrypoint.sh"]
+          command: ["/universal-entrypoint.sh"]
+          args: ["/opt/entry/scripts/entrypoint.sh"]
           # Load all app environment variables from ConfigMap
           envFrom:
             - configMapRef:
                 name: app-env
           env:
+            # Universal entrypoint config
+            - name: SKIP_USER_SWITCH
+              value: "true"
+            - name: CREATE_ENV_VARS
+              value: "true"
+            - name: SECRETS_SOURCE_DIR
+              value: /run/secrets
+            - name: KEYS_TARGET_DIR
+              value: /tmp/secrets
+            - name: CERTS_TARGET_DIR
+              value: /tmp/certs
             # Override/add specific values
             - name: TZ
               value: UTC
@@ -60,7 +72,7 @@ spec:
             - name: SQL_TLS_ENABLED
               value: "true"
             - name: SQL_CA
-              value: /run/secrets/root-ca.crt
+              value: /tmp/certs/ca-bundle.crt
             - name: SQL_HOST_VERIFICATION
               value: "true"
             - name: SQL_HOST_NAME
@@ -119,6 +131,10 @@ spec:
               cpu: 2000m
               memory: 1Gi
           volumeMounts:
+            - name: universal-entrypoint
+              mountPath: /universal-entrypoint.sh
+              subPath: universal-entrypoint.sh
+              readOnly: true
             - name: postgres-temporal-pw
               mountPath: /run/secrets/postgres_temporal_pw
               subPath: postgres_temporal_pw
@@ -137,6 +153,10 @@ spec:
               mountPath: /opt/entry/scripts
               readOnly: true
       volumes:
+        - name: universal-entrypoint
+          configMap:
+            name: universal-entrypoint
+            defaultMode: 0755
         - name: postgres-temporal-pw
           secret:
             secretName: postgres-secrets

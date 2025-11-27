@@ -154,6 +154,18 @@ else
   echo -e "${YELLOW}⚠ Warning: verify-init.sh not found, skipping${NC}"
 fi
 
+# Universal entrypoint script
+UNIVERSAL_ENTRYPOINT="$PROJECT_ROOT/infra/docker/prod/scripts/universal-entrypoint.sh"
+
+if [[ -f "$UNIVERSAL_ENTRYPOINT" ]]; then
+  echo -n "  universal-entrypoint.sh → .k8s-sources/universal-entrypoint.sh.k8s... "
+  cp "$UNIVERSAL_ENTRYPOINT" "$K8S_SOURCES/universal-entrypoint.sh.k8s"
+  echo -e "${GREEN}✓${NC}"
+else
+  echo -e "${RED}✗ Error: universal-entrypoint.sh not found${NC}"
+  exit 1
+fi
+
 # Temporal scripts
 TEMPORAL_DIR="$PROJECT_ROOT/infra/docker/prod/temporal/scripts"
 

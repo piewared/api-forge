@@ -131,27 +131,37 @@ services:
     restart: "no"
     networks: [backend]
     environment:
+      # Universal entrypoint config
+      SKIP_USER_SWITCH: "true"  # Run as root to access temporal-sql-tool
+      CREATE_ENV_VARS: "true"
+      SECRETS_SOURCE_DIR: /run/secrets
+      KEYS_TARGET_DIR: /tmp/secrets
+      CERTS_TARGET_DIR: /tmp/certs
+      
+      # Temporal schema setup config
       TEMPORAL_DB: ${TEMPORAL_DB:-temporal}
       TEMPORAL_VIS_DB: ${TEMPORAL_VIS_DB:-temporal_visibility}
       EP: postgres
       TEMPORAL_DB_USER: ${TEMPORAL_DB_USER:-temporaluser}
-      PW_FILE: /run/secrets/postgres_temporal_pw
+      PW_FILE: /tmp/secrets/postgres_temporal_pw  # Points to copied secret
 
       # TLS settings - adjust as needed (can be overridden via .env)
       TLS_ENABLE: ${TEMPORAL_TLS_ENABLE:-true}
       SSL_MODE: ${TEMPORAL_SSL_MODE:-verify-ca}                # or 'require' / 'verify-full'
-      TLS_CA_FILE: /run/secrets/postgres_server_ca
+      TLS_CA_FILE: /tmp/certs/ca-bundle.crt  # Points to copied cert
       
       # Optional overrides:
       # PG_PORT: "5432"
       # PLUGIN: postgres12
     secrets:
       - postgres_temporal_pw
-      - postgres_server_ca
+      - source: postgres_server_ca
+        target: ca-bundle.crt
     volumes:
       - ./infra/docker/prod/temporal/scripts/schema-setup.sh:/schema-setup.sh:ro
-    entrypoint: ["/bin/sh","-lc"]
-    command: "/schema-setup.sh"
+      - ./infra/docker/prod/scripts/universal-entrypoint.sh:/universal-entrypoint.sh:ro
+    entrypoint: ["/universal-entrypoint.sh"]
+    command: ["/bin/sh", "/schema-setup.sh"]
 
 
   temporal-admin-tools:
@@ -205,13 +215,22 @@ services:
       temporal-schema-setup:
         condition: service_completed_successfully
     environment:
+      # Universal entrypoint config
+      SKIP_USER_SWITCH: "true"  # Temporal needs root for its own entrypoint
+      CREATE_ENV_VARS: "true"
+      SECRETS_SOURCE_DIR: /run/secrets
+      KEYS_TARGET_DIR: /tmp/secrets
+      CERTS_TARGET_DIR: /tmp/certs
+      
+      # Temporal server config
       SERVICES: "history,matching,worker,frontend"
       DB: 'postgres12'
       POSTGRES_SEEDS: postgres
       POSTGRES_USER: ${TEMPORAL_DB_USER:-temporaluser}
       POSTGRES_DB: ${TEMPORAL_DB:-temporal}
+      # POSTGRES_PWD will be set by wrapper script from POSTGRES_TEMPORAL_PW
       SQL_TLS_ENABLED: "true"
-      SQL_CA: /run/secrets/ca-bundle.crt
+      SQL_CA: /tmp/certs/ca-bundle.crt  # Points to copied cert
       SQL_HOST_VERIFICATION: "true"
       SQL_HOST_NAME: postgres
       BIND_ON_IP: "0.0.0.0"
@@ -234,16 +253,17 @@ services:
     volumes:
       - temporal_certs:/etc/temporal/certs
       - /etc/localtime:/etc/localtime:ro
-      - ./infra/docker/prod/temporal/scripts:/opt/entry/scripts:ro
+      - ./infra/docker/prod/scripts/universal-entrypoint.sh:/universal-entrypoint.sh:ro
+      - ./infra/docker/prod/temporal/scripts/entrypoint.sh:/temporal-entrypoint.sh:ro
       #- ./infra/docker/temporal/new/config:/etc/temporal/config
     secrets:
       - postgres_temporal_pw
       - source: postgres_server_ca
         target: ca-bundle.crt
-        mode: 0400
     ports:
       - 127.0.0.1:7233:7233
-    entrypoint: ["/opt/entry/scripts/entrypoint.sh"]
+    entrypoint: ["/universal-entrypoint.sh"]
+    command: ["/temporal-entrypoint.sh"]
     networks:
       - backend
     # Remove the secrets section since we're using volume mounts + tmpfs

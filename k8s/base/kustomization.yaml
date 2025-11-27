@@ -40,6 +40,13 @@ configMapGenerator:
     options:
       disableNameSuffixHash: true
   
+  # Universal entrypoint script
+  - name: universal-entrypoint
+    files:
+      - universal-entrypoint.sh=.k8s-sources/universal-entrypoint.sh.k8s
+    options:
+      disableNameSuffixHash: true
+  
   # Temporal scripts
   - name: temporal-config
     files:
