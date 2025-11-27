@@ -628,7 +628,7 @@ print("✅ All imports successful")
                 result = self.run_command(
                     ["uv", "run", "api-forge-cli", "deploy", "up", "prod"],
                     cwd=project_dir,
-                    timeout=300,
+                    timeout=600,  # 10 minutes for building images in CI
                 )
             except RuntimeError as e:
                 print(f"\n❌ Deployment failed: {e}")
