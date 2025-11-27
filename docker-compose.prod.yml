@@ -125,6 +125,7 @@ services:
   temporal-schema-setup:
     container_name: api-forge-temporal-schema-setup
     image: temporalio/admin-tools:1.29.0-tctl-1.18.4-cli-1.4.2
+    user: "0:0"  # Run as root to read Docker secrets and copy them
     depends_on:
       postgres:
         condition: service_healthy
@@ -132,7 +133,7 @@ services:
     networks: [backend]
     environment:
       # Universal entrypoint config
-      SKIP_USER_SWITCH: "true"  # Run as root to access temporal-sql-tool
+      SKIP_USER_SWITCH: "true"  # Stay as root (don't switch to non-root user)
       CREATE_ENV_VARS: "true"
       SECRETS_SOURCE_DIR: /run/secrets
       KEYS_TARGET_DIR: /tmp/secrets
