@@ -206,6 +206,7 @@ services:
   # Temporal Workflow Engine
   temporal:
     container_name: api-forge-temporal
+    user: "0:0"  # Start as root to read Docker secrets
     build:
       context: .
       dockerfile: ./infra/docker/prod/temporal/Dockerfile
@@ -217,7 +218,9 @@ services:
         condition: service_completed_successfully
     environment:
       # Universal entrypoint config
-      SKIP_USER_SWITCH: "true"  # Temporal needs root for its own entrypoint
+      SKIP_USER_SWITCH: "false"  # Switch to temporal user after copying secrets
+      CONTAINER_USER_UID: "1000"  # Temporal user UID
+      CONTAINER_USER_GID: "1000"  # Temporal user GID
       CREATE_ENV_VARS: "true"
       SECRETS_SOURCE_DIR: /run/secrets
       KEYS_TARGET_DIR: /tmp/secrets
