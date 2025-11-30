@@ -1,6 +1,5 @@
 """Kubernetes environment deployer."""
 
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -26,21 +25,10 @@ class K8sDeployer(BaseDeployer):
         super().__init__(console, project_root)
         self.status_display = StatusDisplay(console)
         self.health_checker = HealthChecker()
-        self.helm_chart = project_root / "helm" / "api-forge"
-        self.helm_scripts = self.helm_chart / "scripts"
-        self.helm_files = self.helm_chart / "files"
         self.k8s_scripts = project_root / "k8s" / "scripts"
 
     def deploy(self, **kwargs: Any) -> None:
         """Deploy to Kubernetes cluster.
-
-        Deployment workflow:
-        1. Build Docker images
-        2. Load images into Minikube
-        3. Deploy secrets (from infra/secrets)
-        4. Copy config files to helm/api-forge/files/
-        5. Create ConfigMaps from config files
-        6. Deploy resources via Helm
 
         Args:
             **kwargs: Additional deployment options (namespace, no_wait, force_recreate)
@@ -52,22 +40,43 @@ class K8sDeployer(BaseDeployer):
         namespace = kwargs.get("namespace", self.DEFAULT_NAMESPACE)
         force_recreate = kwargs.get("force_recreate", False)
 
-        # Step 1: Build images (force rebuild for secret rotation)
+        # Build images (force rebuild for secret rotation)
         self._build_images(force=force_recreate)
 
-        # Step 2: Load images to Minikube (handled in _build_images)
+        # Create secrets
+        self._create_secrets(namespace)
 
-        # Step 3: Deploy secrets
-        self._deploy_secrets(namespace)
+        # For secret rotation, restart postgres deployment to pick up new secrets
+        # Note: Password sync happens automatically via pg-password-sync-wrapper.sh on container startup
+        if force_recreate:
+            self.info(
+                "Force recreate enabled - restarting postgres deployment for secret rotation..."
+            )
+            self.run_command(
+                [
+                    "kubectl",
+                    "rollout",
+                    "restart",
+                    "deployment/postgres",
+                    "-n",
+                    namespace,
+                ]
+            )
+            # Wait for rollout to complete
+            self.run_command(
+                [
+                    "kubectl",
+                    "rollout",
+                    "status",
+                    "deployment/postgres",
+                    "-n",
+                    namespace,
+                    "--timeout=300s",
+                ]
+            )
 
-        # Step 4: Copy config files to helm staging area
-        self._copy_config_files()
-
-        # Step 5: ConfigMaps are now handled by Helm via files/ directory
-        # (no separate step needed - Helm will create them during install)
-
-        # Step 6: Deploy resources via Helm
-        self._deploy_resources(namespace, force_recreate)
+        # Deploy resources (includes waiting for pods)
+        self._deploy_resources(namespace)
 
         # Display status
         self.console.print(
@@ -82,14 +91,52 @@ class K8sDeployer(BaseDeployer):
             **kwargs: Additional teardown options (volumes, namespace)
         """
         namespace = kwargs.get("namespace", self.DEFAULT_NAMESPACE)
+        volumes = kwargs.get("volumes", False)
 
-        self.console.print(
-            f"[bold red]Uninstalling Helm release from {namespace}...[/bold red]"
-        )
+        if volumes:
+            # First delete deployments/statefulsets to release PVC locks
+            self.info("Scaling down deployments to release volume locks...")
+            self.run_command(
+                [
+                    "kubectl",
+                    "delete",
+                    "deployments,statefulsets",
+                    "--all",
+                    "-n",
+                    namespace,
+                    "--wait=true",
+                    "--timeout=60s",
+                ],
+                check=False,
+            )
 
-        self.run_command(
-            ["helm", "uninstall", "api-forge", "-n", namespace, "--wait"], check=False
-        )
+            # Now delete PVCs
+            self.info("Deleting PersistentVolumeClaims...")
+            result = self.run_command(
+                ["kubectl", "get", "pvc", "-n", namespace, "-o", "name"],
+                capture_output=True,
+                check=False,
+            )
+            if result and result.returncode == 0 and result.stdout:
+                pvc_names = [
+                    name.strip()
+                    for name in result.stdout.strip().split("\n")
+                    if name.strip()
+                ]
+                if pvc_names:
+                    self.console.print(
+                        f"[yellow]Found {len(pvc_names)} PVC(s) to delete[/yellow]"
+                    )
+                    # Delete all PVCs at once without waiting per-PVC
+                    self.run_command(
+                        ["kubectl", "delete"]
+                        + pvc_names
+                        + ["-n", namespace, "--wait=false"],
+                        check=False,
+                    )
+                    self.success("PersistentVolumeClaim deletion initiated")
+                else:
+                    self.console.print("[dim]No PVCs found in namespace[/dim]")
 
         with self.console.status(f"[bold red]Deleting namespace {namespace}..."):
             self.run_command(
@@ -100,11 +147,15 @@ class K8sDeployer(BaseDeployer):
                     namespace,
                     "--wait=true",
                     "--timeout=120s",
-                ],
-                check=False,
+                ]
             )
 
-        self.success(f"Teardown complete for {namespace}")
+        if volumes:
+            self.success(f"Namespace {namespace} and volumes deleted")
+        else:
+            self.success(
+                f"Namespace {namespace} deleted (volumes may be retained by storage class policy)"
+            )
 
     def show_status(self, namespace: str | None = None) -> None:
         """Display the current status of the Kubernetes deployment.
@@ -143,36 +194,13 @@ class K8sDeployer(BaseDeployer):
                 progress.update(task, completed=1)
             self.success("Postgres image rebuilt")
 
-        script_path = self.helm_scripts / "build-images.sh"
+        script_path = self.k8s_scripts / "build-images.sh"
         with self.create_progress() as progress:
             task = progress.add_task("Building images...", total=1)
             self.run_command(["bash", str(script_path)])
             progress.update(task, completed=1)
 
         self.success("Docker images built")
-
-        # Load images into Minikube
-        self._load_images_to_minikube()
-
-    def _load_images_to_minikube(self) -> None:
-        """Load Docker images into Minikube for local Kubernetes deployment."""
-        self.console.print("[bold cyan]📦 Loading images into Minikube...[/bold cyan]")
-
-        # All images use 'latest' tag for consistency
-        images = [
-            "api-forge-app:latest",
-            "app_data_postgres_image:latest",
-            "app_data_redis_image:latest",
-            "my-temporal-server:latest",
-        ]
-
-        with self.create_progress() as progress:
-            task = progress.add_task("Loading images...", total=len(images))
-            for image in images:
-                self.run_command(["minikube", "image", "load", image], check=False)
-                progress.update(task, advance=1)
-
-        self.success("Images loaded into Minikube")
 
     def _generate_secrets_if_needed(self) -> None:
         """Generate secrets if they don't exist."""
@@ -215,290 +243,38 @@ class K8sDeployer(BaseDeployer):
         else:
             self.console.print("[dim]✓ Secrets already exist[/dim]")
 
-    def _deploy_secrets(self, namespace: str) -> None:
-        """Deploy Kubernetes secrets using k8s/scripts/apply-secrets.sh.
-
-        This assumes secrets have already been generated in infra/secrets/.
-        If not found, it will attempt to generate them.
+    def _create_secrets(self, namespace: str) -> None:
+        """Create Kubernetes secrets.
 
         Args:
             namespace: Target namespace
         """
-        # Generate secrets if needed (first-time setup)
+        # Generate secrets if needed
         self._generate_secrets_if_needed()
 
-        self.console.print("[bold cyan]🔐 Deploying Kubernetes secrets...[/bold cyan]")
+        self.console.print("[bold cyan]🔐 Applying Kubernetes secrets...[/bold cyan]")
 
-        # Use the existing apply-secrets.sh script from k8s/scripts
         script_path = self.k8s_scripts / "apply-secrets.sh"
-
-        if not script_path.exists():
-            self.error(f"Secret deployment script not found: {script_path}")
-            raise RuntimeError("Cannot deploy secrets - script missing")
-
         with self.create_progress() as progress:
-            task = progress.add_task("Deploying secrets...", total=1)
+            task = progress.add_task("Applying secrets...", total=1)
             self.run_command(["bash", str(script_path), namespace])
             progress.update(task, completed=1)
 
-        self.success(f"Secrets deployed to namespace {namespace}")
+        self.success(f"Secrets applied in namespace {namespace}")
 
-    def _copy_config_files(self) -> None:
-        """Copy configuration files from project root to helm/api-forge/files/.
+    def _deploy_resources(self, namespace: str) -> None:
+        """Deploy Kubernetes resources.
 
-        This copies:
-        - .env → files/.env
-        - config.yaml → files/config.yaml
-        - PostgreSQL configs (postgresql.conf, pg_hba.conf, init scripts)
-        - Temporal scripts
-        - Universal entrypoint script
+        Args:
+            namespace: Target namespace
         """
-        self.console.print(
-            "[bold cyan]📋 Copying config files to Helm staging area...[/bold cyan]"
-        )
+        self.console.print("[bold cyan]🚀 Deploying resources...[/bold cyan]")
 
-        # Ensure files directory exists
-        self.helm_files.mkdir(parents=True, exist_ok=True)
-
-        # Track files to copy: (source_path, dest_name, description)
-        files_to_copy = []
-
-        # 1. .env file
-        env_file = self.project_root / ".env"
-        if env_file.exists():
-            files_to_copy.append((env_file, ".env", "Environment variables"))
-
-        # 2. config.yaml
-        config_file = self.project_root / "config.yaml"
-        if config_file.exists():
-            files_to_copy.append((config_file, "config.yaml", "Application config"))
-
-        # 3. PostgreSQL configs
-        pg_dir = self.project_root / "infra" / "docker" / "prod" / "postgres"
-        pg_files = [
-            (pg_dir / "postgresql.conf", "postgresql.conf", "PostgreSQL config"),
-            (pg_dir / "pg_hba.conf", "pg_hba.conf", "PostgreSQL HBA config"),
-            (
-                pg_dir / "verify-init.sh",
-                "verify-init.sh",
-                "PostgreSQL verifier script",
-            ),
-        ]
-        files_to_copy.extend(pg_files)
-
-        # 4. PostgreSQL init scripts
-        pg_init_dir = pg_dir / "init-scripts"
-        if (pg_init_dir / "01-init-app.sh").exists():
-            files_to_copy.append(
-                (
-                    pg_init_dir / "01-init-app.sh",
-                    "01-init-app.sh",
-                    "PostgreSQL init script",
-                )
-            )
-
-        # 5. Universal entrypoint
-        universal_entrypoint = (
-            self.project_root
-            / "infra"
-            / "docker"
-            / "prod"
-            / "scripts"
-            / "universal-entrypoint.sh"
-        )
-        if universal_entrypoint.exists():
-            files_to_copy.append(
-                (
-                    universal_entrypoint,
-                    "universal-entrypoint.sh",
-                    "Universal entrypoint",
-                )
-            )
-
-        # 6. Temporal scripts
-        temporal_dir = (
-            self.project_root / "infra" / "docker" / "prod" / "temporal" / "scripts"
-        )
-        temporal_files_dir = self.helm_files / "temporal"
-        temporal_files_dir.mkdir(exist_ok=True)
-
-        temporal_scripts = [
-            (
-                temporal_dir / "schema-setup.sh",
-                "temporal/schema-setup.sh",
-                "Temporal schema setup",
-            ),
-            (
-                temporal_dir / "entrypoint.sh",
-                "temporal/entrypoint.sh",
-                "Temporal entrypoint",
-            ),
-            (
-                temporal_dir / "namespace-init.sh",
-                "temporal/namespace-init.sh",
-                "Temporal namespace init",
-            ),
-        ]
-        files_to_copy.extend(temporal_scripts)
-
-        # Copy all files
+        script_path = self.k8s_scripts / "deploy-resources.sh"
         with self.create_progress() as progress:
-            task = progress.add_task("Copying files...", total=len(files_to_copy))
-
-            for source, dest_name, description in files_to_copy:
-                if source.exists():
-                    dest_path = self.helm_files / dest_name
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source, dest_path)
-                    self.console.print(f"  [dim]✓ {description}[/dim]")
-                else:
-                    self.console.print(
-                        f"  [yellow]⚠ Skipped {description} (not found)[/yellow]"
-                    )
-                progress.update(task, advance=1)
-
-        self.success(
-            f"Config files copied to {self.helm_files.relative_to(self.project_root)}"
-        )
-
-    def _cleanup_stuck_release(self, release_name: str, namespace: str) -> bool:
-        """Clean up Helm release stuck in problematic states.
-
-        Args:
-            release_name: Name of the Helm release
-            namespace: Target namespace
-
-        Returns:
-            True if cleanup was performed, False if no cleanup needed
-        """
-        # Check release status
-        result = self.run_command(
-            [
-                "helm",
-                "list",
-                "-n",
-                namespace,
-                "--uninstalling",
-                "--pending",
-                "--failed",
-                "-o",
-                "json",
-            ],
-            capture_output=True,
-        )
-
-        if result.returncode != 0:
-            return False
-
-        # Parse JSON output to check for our release
-        import json
-
-        try:
-            releases = json.loads(result.stdout)
-            stuck_release = None
-
-            for release in releases:
-                if release.get("name") == release_name:
-                    stuck_release = release
-                    break
-
-            if not stuck_release:
-                return False
-
-            status = stuck_release.get("status", "")
-            self.warning(
-                f"Found release '{release_name}' in '{status}' state. Cleaning up..."
-            )
-
-            # Try to uninstall the stuck release
-            uninstall_result = self.run_command(
-                ["helm", "uninstall", release_name, "-n", namespace, "--wait"],
-                capture_output=True,
-            )
-
-            if uninstall_result.returncode == 0:
-                self.success(f"Successfully cleaned up stuck release '{release_name}'")
-                return True
-            else:
-                # If uninstall fails, try force delete
-                self.warning("Normal uninstall failed. Attempting force cleanup...")
-
-                # Delete all resources with the release label
-                self.run_command(
-                    [
-                        "kubectl",
-                        "delete",
-                        "all,configmap,secret,pvc",
-                        "-n",
-                        namespace,
-                        "-l",
-                        f"app.kubernetes.io/instance={release_name}",
-                        "--force",
-                        "--grace-period=0",
-                    ],
-                    capture_output=True,
-                )
-
-                # Remove Helm release metadata
-                self.run_command(
-                    [
-                        "kubectl",
-                        "delete",
-                        "secret",
-                        "-n",
-                        namespace,
-                        "-l",
-                        f"name={release_name},owner=helm",
-                    ],
-                    capture_output=True,
-                )
-
-                self.success(f"Force cleaned up release '{release_name}'")
-                return True
-
-        except (json.JSONDecodeError, KeyError) as e:
-            self.warning(f"Could not parse release status: {e}")
-            return False
-
-    def _deploy_resources(self, namespace: str, force_recreate: bool = False) -> None:
-        """Deploy Kubernetes resources via Helm.
-
-        Args:
-            namespace: Target namespace
-            force_recreate: Whether to force recreate pods
-        """
-        # Check for and clean up any stuck releases
-        self._cleanup_stuck_release("api-forge", namespace)
-
-        self.console.print("[bold cyan]🚀 Deploying resources via Helm...[/bold cyan]")
-
-        cmd = [
-            "helm",
-            "upgrade",
-            "--install",
-            "api-forge",
-            str(self.helm_chart),
-            "--namespace",
-            namespace,
-            "--create-namespace",
-            "--rollback-on-failure",
-            "--wait",
-            "--wait-for-jobs",
-            "--timeout",
-            "10m",
-        ]
-
-        self.console.print("[bold cyan]🚀 Deploying resources via Helm...[/bold cyan]")
-        self.console.print(f"[dim]Running command: {' '.join(cmd)}[/dim]")
-
-        # Run without progress bar to show Helm output
-        self.run_command(cmd, check=True)
-
-        if force_recreate:
-            self.info("Force recreating pods...")
-            self.run_command(
-                ["kubectl", "rollout", "restart", "deployment", "-n", namespace]
-            )
+            task = progress.add_task("Deploying resources...", total=1)
+            self.run_command(["bash", str(script_path), namespace])
+            progress.update(task, completed=1)
 
         self.success(f"Resources deployed to namespace {namespace}")
 
