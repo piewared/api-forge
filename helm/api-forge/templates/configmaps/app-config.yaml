@@ -1,0 +1,12 @@
+{{- if .Values.app.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-app-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-forge.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- .Files.Get "files/config.yaml" | nindent 4 }}
+{{- end }}

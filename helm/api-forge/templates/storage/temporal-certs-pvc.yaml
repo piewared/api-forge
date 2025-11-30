@@ -1,0 +1,20 @@
+{{- if .Values.temporal.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: temporal-certs
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/part-of: api-forge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.temporal.persistence.certs.size | default "1Gi" }}
+  {{- if .Values.temporal.persistence.certs.storageClass }}
+  storageClassName: {{ .Values.temporal.persistence.certs.storageClass }}
+  {{- end }}
+{{- end }}

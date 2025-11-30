@@ -1,0 +1,21 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: api-forge
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: postgres
+  sessionAffinity: None
+{{- end }}

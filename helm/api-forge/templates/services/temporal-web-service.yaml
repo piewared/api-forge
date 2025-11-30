@@ -1,0 +1,21 @@
+{{- if .Values.temporal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-web
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: temporal-web
+    app.kubernetes.io/component: workflow-ui
+    app.kubernetes.io/part-of: api-forge
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: temporal-web
+  sessionAffinity: None
+{{- end }}

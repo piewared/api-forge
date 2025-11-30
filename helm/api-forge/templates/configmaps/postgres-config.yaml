@@ -1,0 +1,23 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-postgres-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-forge.labels" . | nindent 4 }}
+data:
+  postgresql.conf: |
+    {{- .Files.Get "files/postgresql.conf" | nindent 4 }}
+
+  pg_hba.conf: |
+    {{- .Files.Get "files/pg_hba.conf" 
+        | regexReplaceAll "0\\.0\\.0\\.0/0" "0.0.0.0/0"
+        | nindent 4 }}
+
+  01-init-app.sh: |
+    {{- .Files.Get "files/01-init-app.sh" | nindent 4 }}
+
+  verify-init.sh: |
+    {{- .Files.Get "files/verify-init.sh" | nindent 4 }}
+{{- end }}

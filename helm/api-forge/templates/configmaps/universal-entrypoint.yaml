@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-universal-entrypoint
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-forge.labels" . | nindent 4 }}
+data:
+  universal-entrypoint.sh: |
+    {{- .Files.Get "files/universal-entrypoint.sh" | nindent 4 }}

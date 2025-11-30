@@ -1,8 +1,9 @@
+{{- if .Values.temporal.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: temporal
-  namespace: api-forge-prod
+  namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: temporal
     app.kubernetes.io/component: workflow-engine
@@ -30,14 +31,14 @@ spec:
           type: RuntimeDefault
       containers:
         - name: temporal
-          image: my-temporal-server:latest
-          imagePullPolicy: IfNotPresent
+          image: {{ .Values.temporal.image | default "my-temporal-server:latest" }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           command: ["/universal-entrypoint.sh"]
           args: ["/opt/entry/scripts/entrypoint.sh"]
           # Load all app environment variables from ConfigMap
           envFrom:
             - configMapRef:
-                name: app-env
+                name: {{ .Values.global.namePrefix }}-app-env
           env:
             # Universal entrypoint config
             - name: SKIP_USER_SWITCH
@@ -62,12 +63,12 @@ spec:
             - name: POSTGRES_USER
               valueFrom:
                 configMapKeyRef:
-                  name: app-env
+                  name: {{ .Values.global.namePrefix }}-app-env
                   key: TEMPORAL_DB_USER
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef:
-                  name: app-env
+                  name: {{ .Values.global.namePrefix }}-app-env
                   key: TEMPORAL_DB
             - name: SQL_TLS_ENABLED
               value: "true"
@@ -84,12 +85,12 @@ spec:
             - name: DBNAME
               valueFrom:
                 configMapKeyRef:
-                  name: app-env
+                  name: {{ .Values.global.namePrefix }}-app-env
                   key: TEMPORAL_DB
             - name: VISIBILITY_DBNAME
               valueFrom:
                 configMapKeyRef:
-                  name: app-env
+                  name: {{ .Values.global.namePrefix }}-app-env
                   key: TEMPORAL_VIS_DB
             - name: DB_PORT
               value: "5432"
@@ -155,7 +156,7 @@ spec:
       volumes:
         - name: universal-entrypoint
           configMap:
-            name: universal-entrypoint
+            name: {{ .Values.global.namePrefix }}-universal-entrypoint
             defaultMode: 0755
         - name: postgres-temporal-pw
           secret:
@@ -178,6 +179,7 @@ spec:
             claimName: temporal-certs
         - name: temporal-scripts
           configMap:
-            name: temporal-config
+            name: {{ .Values.global.namePrefix }}-temporal-config
             defaultMode: 0755
       restartPolicy: Always
+{{- end }}

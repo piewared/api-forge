@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-netpol
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: application
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {} # Allow all inbound traffic
+  egress:
+    - {} # Allow all outbound traffic (DNS, postgres, redis, temporal)

@@ -1,0 +1,21 @@
+{{- if .Values.app.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: app
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: api-forge
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: app
+  sessionAffinity: None
+{{- end }}

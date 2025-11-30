@@ -1,0 +1,22 @@
+# Ignore all files copied during deployment
+# These are dynamically copied from project root by k8s_deployer.py
+
+# Config files
+.env
+config.yaml
+
+# PostgreSQL configs
+postgresql.conf
+pg_hba.conf
+01-init-app.sh
+verify-init.sh
+
+# Scripts
+universal-entrypoint.sh
+
+# Temporal scripts
+temporal/
+
+# Keep the .gitignore and .gitkeep files themselves
+!.gitignore
+!.gitkeep

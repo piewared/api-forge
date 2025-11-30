@@ -1,0 +1,15 @@
+{{- if .Values.temporal.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-temporal-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-forge.labels" . | nindent 4 }}
+data:
+  schema-setup.sh: |
+    {{- .Files.Get "files/temporal/schema-setup.sh" | nindent 4 }}
+
+  entrypoint.sh: |
+    {{- .Files.Get "files/temporal/entrypoint.sh" | nindent 4 }}
+{{- end }}

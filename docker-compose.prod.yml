@@ -210,7 +210,7 @@ services:
     build:
       context: .
       dockerfile: ./infra/docker/prod/temporal/Dockerfile
-    image: my-temporal-server:1.29.0
+    image: my-temporal-server:latest
     depends_on:
       postgres:
         condition: service_healthy

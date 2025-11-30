@@ -1,0 +1,29 @@
+{{- if .Values.app.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.namePrefix }}-app-env
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-forge.labels" . | nindent 4 }}
+data:
+  {{- /* Read environment variables from copied .env file */ -}}
+  {{- $envContent := .Files.Get "files/.env" }}
+  {{- if not $envContent }}
+  {{- fail "ERROR: files/.env not found. Run deployment to copy config files first." }}
+  {{- end }}
+
+  {{- /* Load all variables from .env, except APP_ENVIRONMENT which we override */ -}}
+  {{- range $line := splitList "\n" $envContent -}}
+    {{- if and (ne (trim $line) "") (not (hasPrefix "#" (trim $line))) -}}
+      {{- $parts := splitList "=" $line -}}
+      {{- if eq (len $parts) 2 -}}
+        {{- $key := index $parts 0 | trim -}}
+        {{- if ne $key "APP_ENVIRONMENT" }}
+  {{ $key }}: {{ index $parts 1 | trim | quote }}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end }}
+  APP_ENVIRONMENT: "production"
+{{- end }}

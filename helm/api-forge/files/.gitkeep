@@ -1,0 +1,12 @@
+# This file ensures the helm/api-forge/files/ directory is tracked by git
+# even when empty. The directory is required for the Helm deployment process.
+#
+# During deployment, config files are copied here from the project root:
+# - .env
+# - config.yaml
+# - PostgreSQL configs (postgresql.conf, pg_hba.conf, init scripts)
+# - Universal entrypoint script
+# - Temporal scripts
+#
+# These files are gitignored (see .gitignore) since they're dynamically
+# generated/copied and should not be committed to version control.

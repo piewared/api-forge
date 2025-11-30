@@ -1,0 +1,16 @@
+apiVersion: v2
+name: api-forge
+description: Production-ready FastAPI application with PostgreSQL, Redis, Temporal, and supporting jobs.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - fastapi
+  - postgresql
+  - redis
+  - temporal
+  - python
+maintainers:
+  - name: API Forge Team
+    email: team@api-forge.io
+dependencies: []
