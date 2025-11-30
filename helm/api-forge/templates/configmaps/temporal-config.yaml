@@ -12,4 +12,7 @@ data:
 
   entrypoint.sh: |
     {{- .Files.Get "files/temporal/entrypoint.sh" | nindent 4 }}
+
+  namespace-init.sh: |
+    {{- .Files.Get "files/temporal/namespace-init.sh" | nindent 4 }}
 {{- end }}

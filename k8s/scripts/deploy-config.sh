@@ -182,6 +182,10 @@ echo -n "  entrypoint.sh → .k8s-sources/temporal-entrypoint.sh.k8s... "
 cp "$TEMPORAL_DIR/entrypoint.sh" "$K8S_SOURCES/temporal-entrypoint.sh.k8s"
 echo -e "${GREEN}✓${NC}"
 
+echo -n "  namespace-init.sh → .k8s-sources/temporal-namespace-init.sh.k8s... "
+cp "$TEMPORAL_DIR/namespace-init.sh" "$K8S_SOURCES/temporal-namespace-init.sh.k8s"
+echo -e "${GREEN}✓${NC}"
+
 echo ""
 echo -e "${GREEN}✓ All config files copied${NC}"
 

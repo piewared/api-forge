@@ -52,6 +52,7 @@ configMapGenerator:
     files:
       - schema-setup.sh=.k8s-sources/temporal-schema-setup.sh.k8s
       - entrypoint.sh=.k8s-sources/temporal-entrypoint.sh.k8s
+      - namespace-init.sh=.k8s-sources/temporal-namespace-init.sh.k8s
     options:
       disableNameSuffixHash: true
 

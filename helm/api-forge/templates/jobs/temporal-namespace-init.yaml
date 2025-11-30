@@ -54,27 +54,16 @@ spec:
         - name: namespace-init
           image: temporalio/admin-tools:1.29.0-tctl-1.18.4-cli-1.4.2
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
-          command: ["sh", "-lc"]
-          args:
-            - |
-              set -e
-              echo "[init] waiting for cluster health...";
-              for i in $(seq 1 60); do
-                temporal --command-timeout 2s operator cluster health && break || sleep 2
-              done
-              echo "[init] describing namespace...";
-              if temporal operator namespace describe -n default >/dev/null 2>&1; then
-                echo "[init] namespace already exists";
-              else
-                echo "[init] creating namespace...";
-                temporal operator namespace create -n default --retention 7d
-                echo "[init] created";
-              fi
+          command: ["/scripts/namespace-init.sh"]
           env:
             - name: TZ
               value: UTC
             - name: TEMPORAL_ADDRESS
               value: temporal:7233
+          volumeMounts:
+            - name: temporal-scripts
+              mountPath: /scripts
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -88,4 +77,9 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: temporal-scripts
+          configMap:
+            name: {{ .Values.global.namePrefix }}-temporal-config
+            defaultMode: 0555
 {{- end }}

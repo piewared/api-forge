@@ -263,7 +263,6 @@ main() {
     
     echo ""
     log_info "✓ Secret application completed successfully!"
-    log_info "You can now deploy the application using: kubectl apply -k k8s/base/"
 }
 
 # Run main function
