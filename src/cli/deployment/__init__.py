@@ -2,7 +2,6 @@
 
 from .dev_deployer import DevDeployer
 from .helm_deployer import HelmDeployer
-from .k8s_deployer import K8sDeployer
 from .prod_deployer import ProdDeployer
 
-__all__ = ["DevDeployer", "ProdDeployer", "K8sDeployer", "HelmDeployer"]
+__all__ = ["DevDeployer", "ProdDeployer", "HelmDeployer"]

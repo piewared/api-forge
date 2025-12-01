@@ -29,7 +29,6 @@ class HelmDeployer(BaseDeployer):
         self.helm_chart = project_root / "helm" / "api-forge"
         self.helm_scripts = self.helm_chart / "scripts"
         self.helm_files = self.helm_chart / "files"
-        self.k8s_scripts = project_root / "k8s" / "scripts"
 
     def deploy(self, **kwargs: Any) -> None:
         """Deploy to Kubernetes cluster.
@@ -216,7 +215,7 @@ class HelmDeployer(BaseDeployer):
             self.console.print("[dim]✓ Secrets already exist[/dim]")
 
     def _deploy_secrets(self, namespace: str) -> None:
-        """Deploy Kubernetes secrets using k8s/scripts/apply-secrets.sh.
+        """Deploy Kubernetes secrets using helm/scripts/apply-secrets.sh.
 
         This assumes secrets have already been generated in infra/secrets/.
         If not found, it will attempt to generate them.
@@ -229,8 +228,8 @@ class HelmDeployer(BaseDeployer):
 
         self.console.print("[bold cyan]🔐 Deploying Kubernetes secrets...[/bold cyan]")
 
-        # Use the existing apply-secrets.sh script from k8s/scripts
-        script_path = self.k8s_scripts / "apply-secrets.sh"
+        # Use the apply-secrets.sh script from helm/scripts
+        script_path = self.helm_scripts / "apply-secrets.sh"
 
         if not script_path.exists():
             self.error(f"Secret deployment script not found: {script_path}")
