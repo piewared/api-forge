@@ -6,13 +6,12 @@ This script runs after the template has been copied to customize files
 that can't contain Jinja2 templates (like pyproject.toml).
 """
 
+import importlib
 import re
 import sys
 from pathlib import Path
 
 from docker_compose_utils import remove_redis_from_docker_compose
-
-from src.app.runtime.config.config_loader import load_config, save_config
 
 
 def update_pyproject_toml(project_dir: Path, answers: dict):
@@ -247,15 +246,21 @@ def update_config_yaml(project_dir: Path, answers: dict):
     if not answers.get("use_redis", True):
         print("📝 Updating config.yaml (disabling Redis)...")
 
+        # Dynamic import based on package name
+        package_name = answers.get("package_name", "src")
+        config_loader = importlib.import_module(
+            f"{package_name}.app.runtime.config.config_loader"
+        )
+
         # Load YAML directly without validation
-        config_dict = load_config(processed=False)
+        config_dict = config_loader.load_config(processed=False)
 
         # Update the redis.enabled field
         if "config" in config_dict and "redis" in config_dict["config"]:
             config_dict["config"]["redis"]["enabled"] = False
 
         # Save back to file
-        save_config(config_dict)
+        config_loader.save_config(config_dict)
         print("✅ config.yaml updated (Redis disabled)")
 
 
