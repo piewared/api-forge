@@ -98,7 +98,7 @@ It may not be ideal if:
 
 **Optional**
 
-- **kubectl** and a cluster (or minikube) for the `k8s` target
+- **Helm** v3.0+ and **kubectl** with a cluster (or minikube) for Kubernetes deployments
 
 ---
 

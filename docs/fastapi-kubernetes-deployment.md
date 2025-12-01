@@ -1,21 +1,21 @@
-# FastAPI Kubernetes Deployment
+# FastAPI Kubernetes Deployment with Helm
 
-Deploy your FastAPI application to Kubernetes with this comprehensive guide for API Forge. Learn how to use the included Kubernetes manifests to deploy PostgreSQL, Redis, Temporal, and your FastAPI app to production Kubernetes clusters with proper secrets management, TLS encryption, and health checks.
+Deploy your FastAPI application to Kubernetes with this comprehensive guide for API Forge. Learn how to use the included Helm chart to deploy PostgreSQL, Redis, Temporal, and your FastAPI app to production Kubernetes clusters with proper secrets management, TLS encryption, and health checks.
 
 ## Overview
 
-API Forge provides production-ready Kubernetes manifests for deploying your complete FastAPI stack to Kubernetes. This FastAPI Kubernetes deployment includes:
+API Forge provides a production-ready Helm chart for deploying your complete FastAPI stack to Kubernetes. This FastAPI Kubernetes deployment includes:
 
 - **FastAPI Application** - Containerized app with health checks and auto-scaling
 - **Temporal Worker** - Distributed workflow processing
 - **PostgreSQL** - Production database with TLS and mTLS
-- **Redis** - Caching and session storage with TLS
-- **Temporal Server** - Workflow orchestration
+- **Redis** - Caching and session storage with TLS (optional via config.yaml)
+- **Temporal Server** - Workflow orchestration (optional via config.yaml)
 - **Kubernetes Secrets** - Secure credential management
 - **NetworkPolicies** - Service-to-service security
 - **ConfigMaps** - Environment-specific configuration
 
-All manifests follow Kubernetes best practices with proper resource limits, health checks, and security contexts.
+The Helm chart automatically synchronizes with your `config.yaml` to enable/disable services (Redis, Temporal) and provides a single-command deployment experience.
 
 ## Prerequisites
 
@@ -23,16 +23,16 @@ Before deploying to Kubernetes, ensure you have:
 
 - **Kubernetes Cluster** - v1.24+ (Minikube, GKE, EKS, AKS, or on-prem)
 - **kubectl** - Configured and connected to your cluster
+- **Helm** - v3.0+ (required for deployment)
 - **Docker** - For building images
-- **Image Registry** - Docker Hub, GCR, ECR, or private registry
-- **Helm** (optional) - For certain dependencies
+- **Image Registry** - Docker Hub, GCR, ECR, or private registry (Minikube can use local images)
 
 ## Quick Start
 
 Deploy the entire stack with the CLI (recommended):
 
 ```bash
-# Deploy to Kubernetes
+# Deploy to Kubernetes using Helm
 uv run api-forge-cli deploy up k8s
 
 # Check deployment status
@@ -49,99 +49,119 @@ open http://localhost:8000/docs
 ```
 
 **What the CLI does automatically:**
-1. Checks Docker images (prompts to build if needed)
-2. Generates secrets and certificates (if not already created)
-3. Creates namespace
-4. Creates Kubernetes secrets from generated files
-5. Deploys configuration files (config.yaml, .env) as ConfigMaps
-6. Applies all Kubernetes resources (PVCs, Services, Deployments, NetworkPolicies)
-7. Runs initialization jobs (database setup, schema verification)
-8. Waits for services to be ready and validates deployment
+1. Synchronizes `config.yaml` settings (redis.enabled, temporal.enabled) to Helm `values.yaml`
+2. Builds Docker images if needed (or uses existing Minikube images)
+3. Generates secrets and certificates (if not already created)
+4. Creates namespace via Helm
+5. Creates Kubernetes secrets from generated files using `infra/helm/api-forge/scripts/apply-secrets.sh`
+6. Packages and deploys the Helm chart with all resources
+7. Runs initialization jobs (postgres-verifier, temporal schema setup)
+8. Forces pod recreation via timestamp annotations to ensure latest code
+9. Waits for services to be ready and validates deployment
 
-For manual deployment or customization using scripts or kubectl, see the detailed sections below.
+For manual deployment or customization using Helm commands directly, see the detailed sections below.
 
 ## Project Structure
 
-Kubernetes manifests are organized under `k8s/`:
+Kubernetes deployment is managed with Helm under `infra/helm/`:
 
 ```
-k8s/
-├── base/                        # Base Kustomize configuration
-│   ├── kustomization.yaml       # Kustomize entry point
-│   ├── namespace.yaml           # Namespace definition
-│   ├── configmaps/              # Configuration files
-│   │   ├── app-config.yaml
-│   │   ├── postgres-config.yaml
-│   │   └── redis-config.yaml
-│   ├── deployments/             # Deployment manifests
-│   │   ├── app.yaml             # FastAPI application
-│   │   ├── worker.yaml          # Temporal worker
-│   │   ├── postgres.yaml        # PostgreSQL database
-│   │   ├── redis.yaml           # Redis cache
-│   │   └── temporal.yaml        # Temporal server
-│   ├── services/                # Service definitions
+infra/helm/api-forge/
+├── Chart.yaml                    # Helm chart metadata
+├── values.yaml                   # Default configuration values
+├── templates/                    # Kubernetes resource templates
+│   ├── namespace.yaml            # Namespace definition
+│   ├── configmaps/               # Configuration templates
+│   │   ├── app-env.yaml          # App environment ConfigMap
+│   │   ├── postgres-config.yaml  # PostgreSQL configuration
+│   │   ├── redis-config.yaml     # Redis configuration
+│   │   ├── temporal-config.yaml  # Temporal configuration
+│   │   └── universal-entrypoint.yaml  # Entrypoint script
+│   ├── deployments/              # Deployment templates
+│   │   ├── app.yaml              # FastAPI application
+│   │   ├── worker.yaml           # Temporal worker
+│   │   ├── postgres.yaml         # PostgreSQL database
+│   │   ├── redis.yaml            # Redis cache (conditional)
+│   │   └── temporal.yaml         # Temporal server (conditional)
+│   ├── services/                 # Service templates
 │   │   ├── app.yaml
 │   │   ├── postgres.yaml
 │   │   ├── redis.yaml
 │   │   └── temporal.yaml
-│   ├── jobs/                    # Initialization jobs
+│   ├── jobs/                     # Initialization job templates
 │   │   ├── postgres-verifier.yaml
+│   │   ├── temporal-namespace-init.yaml
 │   │   └── temporal-schema-setup.yaml
-│   ├── persistentvolumeclaims/  # Storage
+│   ├── persistentvolumeclaims/   # Storage templates
 │   │   ├── postgres-data.yaml
 │   │   └── redis-data.yaml
-│   └── networkpolicies/         # Security policies
-│       ├── app-netpol.yaml
-│       └── postgres-netpol.yaml
-├── overlays/                    # Environment overlays
-│   ├── development/
-│   ├── staging/
-│   └── production/
-└── scripts/                     # Deployment scripts
-    ├── build-images.sh
-    ├── deploy.sh
-    └── cleanup.sh
+│   ├── networkpolicies/          # Security policy templates
+│   │   ├── app-netpol.yaml
+│   │   └── postgres-netpol.yaml
+│   └── _helpers.tpl              # Template helpers
+└── scripts/                      # Deployment scripts
+    ├── apply-secrets.sh          # Deploy secrets to K8s
+    └── build-images.sh           # Build Docker images
 ```
+
+**Key Features:**
+- **Conditional Resources**: Redis and Temporal are deployed only if enabled in `config.yaml`
+- **Dynamic Configuration**: ConfigMaps generated from your project's `config.yaml` and `.env`
+- **Automatic Sync**: CLI synchronizes settings before each deployment
+- **Timestamp Annotations**: Forces pod recreation to ensure latest Docker images
 
 ## Deployment Steps
 
-### Step 1: Build and Push Docker Images
+### Step 1: Build Docker Images
 
-**Using the CLI** (included in `deploy up k8s` if images don't exist):
+**Using the CLI** (included in `deploy up k8s`):
 
-The CLI checks for images and prompts you to build if needed.
+The CLI automatically handles image building and checks for existing images.
 
-**Using the script:**
+**Using the Helm script:**
 
 ```bash
-# Build all images with the provided script
-./k8s/scripts/build-images.sh
+# Build all images with the Helm build script
+./infra/helm/api-forge/scripts/build-images.sh
 ```
 
-**Manual alternative:**
+This builds:
+- `api-forge-app:latest` - FastAPI application
+- `api-forge-postgres:latest` - PostgreSQL with custom config
+- `api-forge-redis:latest` - Redis with TLS support
+- `api-forge-temporal:latest` - Temporal server
+
+**For Minikube** (local development):
 
 ```bash
-# Build FastAPI application
-docker build -t my-project-app:latest -f Dockerfile .
+# Use Minikube's Docker daemon (no registry push needed)
+eval $(minikube docker-env)
+./infra/helm/api-forge/scripts/build-images.sh
+```
 
-# Build PostgreSQL
-docker build -t my-project-postgres:latest -f docker/prod/postgres/Dockerfile .
+**For production clusters** (requires registry):
 
-# Build Redis  
-docker build -t my-project-redis:latest -f docker/prod/redis/Dockerfile .
+```bash
+# Build images
+./infra/helm/api-forge/scripts/build-images.sh
 
-# Build Temporal
-docker build -t my-project-temporal:latest -f docker/prod/temporal/Dockerfile .
-
-# Tag images for your registry
-docker tag my-project-app:latest your-registry/my-project-app:v1.0.0
-docker tag my-project-postgres:latest your-registry/my-project-postgres:v1.0.0
+# Tag for your registry
+docker tag api-forge-app:latest your-registry/api-forge-app:v1.0.0
+docker tag api-forge-postgres:latest your-registry/api-forge-postgres:v1.0.0
+docker tag api-forge-redis:latest your-registry/api-forge-redis:v1.0.0
+docker tag api-forge-temporal:latest your-registry/api-forge-temporal:v1.0.0
 
 # Push to registry
-docker push your-registry/my-project-app:v1.0.0
-docker push your-registry/my-project-postgres:v1.0.0
+docker push your-registry/api-forge-app:v1.0.0
+docker push your-registry/api-forge-postgres:v1.0.0
+docker push your-registry/api-forge-redis:v1.0.0
+docker push your-registry/api-forge-temporal:v1.0.0
 
-# Update image references in k8s/base/deployments/*.yaml
+# Update values.yaml with registry paths
+# Edit infra/helm/api-forge/values.yaml:
+# image:
+#   app: your-registry/api-forge-app:v1.0.0
+#   postgres: your-registry/api-forge-postgres:v1.0.0
 ```
 
 ### Step 2: Generate Secrets and Certificates
@@ -153,44 +173,49 @@ docker push your-registry/my-project-postgres:v1.0.0
 uv run api-forge-cli deploy up k8s
 ```
 
-**Using the script:**
+**Using the script manually:**
 
 ```bash
 # Generate all secrets and certificates
 ./infra/secrets/generate_secrets.sh
 ```
 
-**Manual alternative:**
+This creates in `infra/secrets/`:
+- `keys/postgres_password.txt` - PostgreSQL superuser password
+- `keys/postgres_app_user_pw.txt` - Application database user password
+- `keys/postgres_app_ro_pw.txt` - Read-only user password
+- `keys/postgres_app_owner_pw.txt` - Schema owner password
+- `keys/postgres_temporal_pw.txt` - Temporal database user password
+- `keys/redis_password.txt` - Redis authentication password
+- `keys/session_signing_secret.txt` - Session JWT signing key
+- `keys/csrf_signing_secret.txt` - CSRF token signing key
+- `keys/oidc_google_client_secret.txt` - Google OAuth client secret
+- `keys/oidc_microsoft_client_secret.txt` - Microsoft OAuth client secret
+- `keys/oidc_keycloak_client_secret.txt` - Keycloak OAuth client secret
+- `certs/ca.crt`, `certs/ca.key` - Certificate Authority for mTLS
+- `certs/postgres.crt`, `certs/postgres.key` - PostgreSQL TLS certificate
+- `certs/redis.crt`, `certs/redis.key` - Redis TLS certificate
 
-```bash
-# Generate secrets (first time only)
-cd infra/secrets
-./generate_secrets.sh
-```
-
-This creates:
-- Database passwords (postgres_password.txt, postgres_app_user_pw.txt, etc.)
-- Redis password (redis_password.txt)
-- Session signing secrets (session_signing_secret.txt)
-- CSRF signing secrets (csrf_signing_secret.txt)
-- TLS certificates and keys (postgres.crt, postgres.key, redis.crt, redis.key)
-- CA certificates for mTLS (ca.crt, ca.key)
-- Deterministic OIDC client secrets captured during the script run (prompts, CLI flags, or
-  `--user-secrets-file`) and written to `infra/secrets/keys/oidc_*_client_secret.txt` for reuse.
+**Note**: The script is idempotent and will not overwrite existing secrets.
 
 ### Step 3: Create Namespace
 
 **Using the CLI:**
 
 ```bash
-# The CLI creates the namespace automatically
+# The CLI creates the namespace automatically via Helm
 uv run api-forge-cli deploy up k8s
 ```
 
-**Manual alternative:**
+**Manual alternative with Helm:**
 
 ```bash
-kubectl create namespace my-project-prod
+# The namespace is created by the Helm chart
+# Configured in infra/helm/api-forge/values.yaml:
+#   namespace: api-forge-prod
+
+# Or create manually if needed
+kubectl create namespace api-forge-prod
 ```
 
 ### Step 4: Create Kubernetes Secrets
@@ -198,73 +223,83 @@ kubectl create namespace my-project-prod
 **Using the CLI:**
 
 ```bash
-# The CLI creates all secrets from generated files
+# The CLI creates all secrets from generated files automatically
 uv run api-forge-cli deploy up k8s
 ```
 
-**Using the script:**
+**Using the Helm script:**
 
 ```bash
-# After running generate_secrets.sh (interactive prompts or --user-secrets-file),
-# apply all generated secrets to your namespace
-./k8s/scripts/apply-secrets.sh my-project-prod
+# Deploy all secrets to your namespace
+./infra/helm/api-forge/scripts/apply-secrets.sh
 ```
 
-This script reads every secret under `infra/secrets/keys/` (including the
-deterministic OIDC client secret files) plus TLS assets under `infra/secrets/certs/`, then
-creates/updates all Kubernetes secrets (`postgres-secrets`, `postgres-tls`, `postgres-ca`,
-`redis-secrets`, and `app-secrets`) in the selected namespace.
+This script reads all secret files from `infra/secrets/keys/` and `infra/secrets/certs/`, then creates or updates the following Kubernetes secrets in the `api-forge-prod` namespace:
+
+- `postgres-secrets` - Database passwords for all users
+- `postgres-tls` - PostgreSQL TLS certificate and key
+- `postgres-ca` - Certificate Authority for client verification
+- `redis-secrets` - Redis authentication password
+- `redis-tls` - Redis TLS certificate and key
+- `app-secrets` - Session/CSRF signing keys and OIDC client secrets
 
 **Manual alternative:**
 
 ```bash
-# Create secrets from generated files
+# Set namespace
+NAMESPACE=api-forge-prod
+
+# PostgreSQL secrets
 kubectl create secret generic postgres-secrets \
   --from-file=postgres_password=infra/secrets/keys/postgres_password.txt \
   --from-file=postgres_app_user_pw=infra/secrets/keys/postgres_app_user_pw.txt \
   --from-file=postgres_app_ro_pw=infra/secrets/keys/postgres_app_ro_pw.txt \
   --from-file=postgres_app_owner_pw=infra/secrets/keys/postgres_app_owner_pw.txt \
   --from-file=postgres_temporal_pw=infra/secrets/keys/postgres_temporal_pw.txt \
-  -n my-project-prod
+  -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
+# PostgreSQL TLS
+kubectl create secret tls postgres-tls \
+  --cert=infra/secrets/certs/postgres.crt \
+  --key=infra/secrets/certs/postgres.key \
+  -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+# PostgreSQL CA
+kubectl create secret generic postgres-ca \
+  --from-file=ca.crt=infra/secrets/certs/ca.crt \
+  -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+# Redis secrets
 kubectl create secret generic redis-secrets \
   --from-file=redis_password=infra/secrets/keys/redis_password.txt \
-  -n my-project-prod
+  -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
+# Redis TLS
+kubectl create secret tls redis-tls \
+  --cert=infra/secrets/certs/redis.crt \
+  --key=infra/secrets/certs/redis.key \
+  -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+# Application secrets
 kubectl create secret generic app-secrets \
   --from-file=session_signing_secret=infra/secrets/keys/session_signing_secret.txt \
   --from-file=csrf_signing_secret=infra/secrets/keys/csrf_signing_secret.txt \
   --from-file=oidc_google_client_secret=infra/secrets/keys/oidc_google_client_secret.txt \
   --from-file=oidc_microsoft_client_secret=infra/secrets/keys/oidc_microsoft_client_secret.txt \
   --from-file=oidc_keycloak_client_secret=infra/secrets/keys/oidc_keycloak_client_secret.txt \
-  -n my-project-prod
-
-# Create TLS secrets
-kubectl create secret tls postgres-tls \
-  --cert=infra/secrets/certs/postgres.crt \
-  --key=infra/secrets/certs/postgres.key \
-  -n my-project-prod
-
-kubectl create secret generic postgres-ca \
-  --from-file=ca.crt=infra/secrets/certs/ca.crt \
-  -n my-project-prod
-
-kubectl create secret tls redis-tls \
-  --cert=infra/secrets/certs/redis.crt \
-  --key=infra/secrets/certs/redis.key \
-  -n my-project-prod
+  -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 **Using External Secrets Operator** (production recommendation):
 
-For production, use [External Secrets Operator](https://external-secrets.io/) to sync secrets from AWS Secrets Manager, Google Secret Manager, or HashiCorp Vault:
+For production, use [External Secrets Operator](https://external-secrets.io/) to sync secrets from cloud providers:
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: app-secrets
-  namespace: my-project-prod
+  namespace: api-forge-prod
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -275,268 +310,347 @@ spec:
   data:
     - secretKey: session_signing_secret
       remoteRef:
-        key: my-project/session-secret
+        key: api-forge/session-secret
     - secretKey: csrf_signing_secret
       remoteRef:
-        key: my-project/csrf-secret
+        key: api-forge/csrf-secret
+    - secretKey: oidc_google_client_secret
+      remoteRef:
+        key: api-forge/google-client-secret
 ```
 
-### Step 5: Deploy Configuration as ConfigMaps
+### Step 5: Deploy with Helm
 
-**Using the CLI:**
-
-```bash
-# The CLI automatically deploys config.yaml and .env as ConfigMaps
-uv run api-forge-cli deploy up k8s
-```
-
-**Using the script:**
+**Using the CLI (recommended):**
 
 ```bash
-# Deploy config.yaml, .env, and other configs as ConfigMaps
-./k8s/scripts/deploy-config.sh
-```
-
-**Manual alternative:**
-
-```bash
-# Create ConfigMap from config.yaml
-kubectl create configmap app-config \
-  --from-file=config.yaml=config.yaml \
-  -n my-project-prod
-
-# Create ConfigMap from .env file
-kubectl create configmap env-config \
-  --from-env-file=.env \
-  -n my-project-prod
-
-# Create ConfigMaps for PostgreSQL configuration
-kubectl create configmap postgres-config \
-  --from-file=postgresql.conf=docker/prod/postgres/postgresql.conf \
-  --from-file=pg_hba.conf=docker/prod/postgres/pg_hba.conf \
-  -n my-project-prod
-```
-
-**Note**: ConfigMaps are created dynamically from your project's configuration files, not from static manifests.
-
-### Step 6: Apply Kubernetes Resources
-
-**Using the CLI:**
-
-```bash
-# Deploy all manifests using Kustomize
+# Deploy everything with one command
 uv run api-forge-cli deploy up k8s
 
-# Check deployment status
-uv run api-forge-cli deploy status k8s
+# The CLI performs these steps:
+# 1. Syncs config.yaml → values.yaml (redis.enabled, temporal.enabled)
+# 2. Builds/checks Docker images
+# 3. Generates secrets if needed
+# 4. Applies secrets via script
+# 5. Packages Helm chart
+# 6. Installs/upgrades Helm release
+# 7. Monitors deployment status
 ```
 
-**Using the script:**
+**Manual Helm deployment:**
 
 ```bash
-# Deploy all Kubernetes resources (PVCs, Services, Deployments, Jobs, NetworkPolicies)
-./k8s/scripts/deploy-resources.sh
+# Navigate to Helm chart directory
+cd infra/helm/api-forge
+
+# Package the chart
+helm package .
+
+# Install the chart
+helm install api-forge ./api-forge-0.1.0.tgz \
+  --namespace api-forge-prod \
+  --create-namespace
+
+# Or upgrade if already installed
+helm upgrade api-forge ./api-forge-0.1.0.tgz \
+  --namespace api-forge-prod \
+  --install
+
+# Check release status
+helm list -n api-forge-prod
+helm status api-forge -n api-forge-prod
 ```
 
-**Manual alternative using Kustomize:**
+**Customizing with values.yaml:**
 
 ```bash
-# Deploy everything with base configuration
-kubectl apply -k k8s/base
+# Create custom values file
+cat > custom-values.yaml <<EOF
+redis:
+  enabled: false  # Disable Redis deployment
 
-# Or deploy with production overlay (recommended)
-kubectl apply -k k8s/overlays/production
+app:
+  replicaCount: 3  # Scale to 3 replicas
 
-# Verify deployment
-kubectl get all -n my-project-prod
+image:
+  pullPolicy: Always  # Always pull latest images
+EOF
+
+# Deploy with custom values
+helm install api-forge ./infra/helm/api-forge \
+  --namespace api-forge-prod \
+  --create-namespace \
+  --values custom-values.yaml
+
+# Or override specific values via CLI
+helm install api-forge ./infra/helm/api-forge \
+  --namespace api-forge-prod \
+  --set redis.enabled=false \
+  --set app.replicaCount=3
 ```
 
-**Manual alternative using kubectl directly:**
+### Step 6: Verify Deployment
+
+**Check Helm release:**
 
 ```bash
-# Deploy in correct order
-kubectl apply -f k8s/base/namespace.yaml
-kubectl apply -f k8s/base/persistentvolumeclaims/
-kubectl apply -f k8s/base/services/
-kubectl apply -f k8s/base/deployments/
-kubectl apply -f k8s/base/jobs/
-kubectl apply -f k8s/base/networkpolicies/
+# List Helm releases
+helm list -n api-forge-prod
+
+# Get release status
+helm status api-forge -n api-forge-prod
+
+# View deployed resources
+helm get manifest api-forge -n api-forge-prod
+
+# View release history
+helm history api-forge -n api-forge-prod
 ```
 
-**Note**: Manual kubectl requires careful ordering to avoid dependency issues.
-
-### Step 7: Run Initialization Jobs
-
-**Using the CLI:**
+**Check Kubernetes resources:**
 
 ```bash
-# The CLI automatically waits for and monitors initialization jobs
-uv run api-forge-cli deploy up k8s
+# Get all resources in namespace
+kubectl get all -n api-forge-prod
+
+# Check specific resource types
+kubectl get pods -n api-forge-prod
+kubectl get services -n api-forge-prod
+kubectl get deployments -n api-forge-prod
+kubectl get jobs -n api-forge-prod
+kubectl get pvc -n api-forge-prod
+
+# Check resource details
+kubectl describe deployment app -n api-forge-prod
+kubectl describe service app -n api-forge-prod
 ```
 
-**Using the script:**
+### Step 7: Monitor Initialization Jobs
+
+**Check job status:**
 
 ```bash
-# The deploy-resources.sh script includes job deployment
-# Jobs run automatically after resource deployment
-./k8s/scripts/deploy-resources.sh
+# List all jobs
+kubectl get jobs -n api-forge-prod
 
-# Monitor job status
-kubectl get jobs -n my-project-prod
-```
-
-**Manual alternative:**
-
-```bash
-# Wait for PostgreSQL to be ready
-kubectl wait --for=condition=ready pod -l app=postgres -n my-project-prod --timeout=300s
-
-# Run PostgreSQL verifier job
-kubectl apply -f k8s/base/jobs/postgres-verifier.yaml
+# Check specific jobs
+kubectl get job postgres-verifier -n api-forge-prod
+kubectl get job temporal-namespace-init -n api-forge-prod
+kubectl get job temporal-schema-setup -n api-forge-prod
 
 # Wait for job completion
-kubectl wait --for=condition=complete job/postgres-verifier -n my-project-prod --timeout=300s
+kubectl wait --for=condition=complete job/postgres-verifier \
+  -n api-forge-prod --timeout=300s
 
-# Check job logs
-kubectl logs -n my-project-prod job/postgres-verifier
-
-# Run Temporal schema setup job
-kubectl apply -f k8s/base/jobs/temporal-schema-setup.yaml
-
-# Wait for job completion
-kubectl wait --for=condition=complete job/temporal-schema-setup -n my-project-prod --timeout=300s
+# View job logs
+kubectl logs -n api-forge-prod job/postgres-verifier
+kubectl logs -n api-forge-prod job/temporal-namespace-init
+kubectl logs -n api-forge-prod job/temporal-schema-setup
 ```
 
-### Step 8: Verify Deployment
+**Jobs run automatically** after Helm deployment and perform these tasks:
 
-**Using the CLI:**
+1. **postgres-verifier**: Validates PostgreSQL TLS certificates and permissions
+2. **temporal-namespace-init**: Creates Temporal namespace
+3. **temporal-schema-setup**: Initializes Temporal database schemas
+
+**Rerun jobs if needed:**
 
 ```bash
-# Check overall status
-uv run api-forge-cli deploy status k8s
+# Delete and recreate a job (jobs are immutable)
+kubectl delete job postgres-verifier -n api-forge-prod
+helm upgrade api-forge ./infra/helm/api-forge -n api-forge-prod
 
-# View application logs
-kubectl logs -n api-forge-prod -l app=app --tail=100 -f
+# Or redeploy with CLI
+uv run api-forge-cli deploy up k8s
 ```
 
-**Manual alternative:**
+### Step 8: Test Application
+
+**Port forward to access the application:**
 
 ```bash
-# Check all resources
-kubectl get all -n my-project-prod
+# Forward application port
+kubectl port-forward -n api-forge-prod svc/app 8000:8000
 
-# Check pod status
-kubectl get pods -n my-project-prod
-
-# Check service endpoints
-kubectl get endpoints -n my-project-prod
-
-# Test health endpoint
-kubectl port-forward -n my-project-prod svc/app 8000:8000
+# In another terminal, test health endpoints
+curl http://localhost:8000/health/live
+curl http://localhost:8000/health/ready
 curl http://localhost:8000/health
 
-# Access FastAPI docs
+# Access FastAPI documentation
 open http://localhost:8000/docs
+```
+
+**View application logs:**
+
+```bash
+# Application logs
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=app --tail=100 -f
+
+# Worker logs
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=worker --tail=100 -f
+
+# PostgreSQL logs
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=postgres --tail=100
+
+# Redis logs (if enabled)
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=redis --tail=100
+
+# Temporal logs (if enabled)
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=temporal --tail=100
+```
+
+**Exec into containers for debugging:**
+
+```bash
+# Shell into app container
+kubectl exec -it -n api-forge-prod deployment/app -- /bin/bash
+
+# Test database connection
+kubectl exec -it -n api-forge-prod deployment/app -- \
+  psql -h postgres -U appuser -d appdb -c "SELECT version();"
+
+# Test Redis connection (if enabled)
+kubectl exec -it -n api-forge-prod deployment/redis -- redis-cli ping
 ```
 
 ## Configuration
 
-### Environment-Specific Overlays
+### Helm Values
 
-Use Kustomize overlays for environment-specific configuration:
+Configuration is managed through Helm's `values.yaml` file located at `infra/helm/api-forge/values.yaml`.
 
-**k8s/overlays/production/kustomization.yaml**:
+**Key configuration sections:**
+
 ```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
+# Namespace
+namespace: api-forge-prod
 
-namespace: my-project-prod
+# Image configuration
+image:
+  app: api-forge-app:latest
+  postgres: api-forge-postgres:latest
+  redis: api-forge-redis:latest
+  temporal: api-forge-temporal:latest
+  pullPolicy: IfNotPresent  # Use 'Always' for production registries
 
-bases:
-  - ../../base
+# Replica counts
+app:
+  replicaCount: 1
+worker:
+  replicaCount: 1
 
-replicas:
-  - name: app
-    count: 3
-  - name: worker
-    count: 2
+# Service enablement (synced from config.yaml)
+redis:
+  enabled: true
+temporal:
+  enabled: true
 
-images:
-  - name: my-project-app
-    newTag: v1.0.0
-
-configMapGenerator:
-  - name: app-env
-    behavior: merge
-    literals:
-      - APP_ENVIRONMENT=production
-      - LOG_LEVEL=INFO
-
+# Resource limits
 resources:
-  - ingress.yaml
-  - hpa.yaml
+  app:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "1000m"
+```
+
+### Config Sync Feature
+
+The CLI automatically synchronizes settings from `config.yaml` to `values.yaml` before each deployment:
+
+**Synced settings:**
+- `config.redis.enabled` → `redis.enabled` in values.yaml
+- `config.temporal.enabled` → `temporal.enabled` in values.yaml
+
+This ensures your Kubernetes deployment matches your application configuration.
+
+**How it works:**
+
+```bash
+# When you run:
+uv run api-forge-cli deploy up k8s
+
+# The CLI:
+# 1. Reads config.yaml
+# 2. Updates values.yaml with redis.enabled and temporal.enabled
+# 3. Reports synced changes
+# 4. Proceeds with Helm deployment
+```
+
+### Customizing Deployment
+
+**Option 1: Modify values.yaml directly**
+
+```bash
+# Edit the values file
+vim infra/helm/api-forge/values.yaml
+
+# Deploy changes
+uv run api-forge-cli deploy up k8s
+# Or manually:
+helm upgrade api-forge ./infra/helm/api-forge -n api-forge-prod
+```
+
+**Option 2: Create custom values file**
+
+```bash
+# Create custom overrides
+cat > custom-values.yaml <<EOF
+app:
+  replicaCount: 3
+redis:
+  enabled: false
+resources:
+  app:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+EOF
+
+# Deploy with custom values
+helm upgrade api-forge ./infra/helm/api-forge \
+  -n api-forge-prod \
+  --values custom-values.yaml
+```
+
+**Option 3: Override via CLI flags**
+
+```bash
+# Override specific values
+helm upgrade api-forge ./infra/helm/api-forge \
+  -n api-forge-prod \
+  --set app.replicaCount=3 \
+  --set redis.enabled=false
 ```
 
 ### ConfigMaps
 
-ConfigMaps are created dynamically at deployment time from your project's configuration files, not from static manifest files. This ensures your Kubernetes deployment uses the same configuration as your local development environment.
+Helm templates create ConfigMaps dynamically from your project files:
 
-**How ConfigMaps are created:**
+- **app-env** - Environment variables from `.env` and `config.yaml`
+- **postgres-config** - PostgreSQL configuration files
+- **redis-config** - Redis configuration
+- **temporal-config** - Temporal configuration
+- **universal-entrypoint** - Container entrypoint script
 
-The CLI (`api-forge-cli deploy up k8s`) or the `deploy-config.sh` script automatically creates ConfigMaps from:
-
-1. **`config.yaml`** - Your main application configuration
-2. **`.env`** - Environment variables
-3. **PostgreSQL configs** - `postgresql.conf`, `pg_hba.conf`
-4. **Redis configs** - `redis.conf`
-5. **Other service configs** - As defined in your project
-
-**Example: Creating ConfigMap from config.yaml**
+**Updating ConfigMaps:**
 
 ```bash
-# This is done automatically by the CLI or script
-kubectl create configmap app-config \
-  --from-file=config.yaml=config.yaml \
-  -n my-project-prod
+# Update config.yaml or .env locally
+vim config.yaml
 
-# View the created ConfigMap
-kubectl get configmap app-config -n my-project-prod -o yaml
-```
+# Redeploy with Helm (ConfigMaps are recreated)
+helm upgrade api-forge ./infra/helm/api-forge -n api-forge-prod
 
-**Mounting ConfigMaps in deployments:**
+# Or use CLI
+uv run api-forge-cli deploy up k8s
 
-Your deployment manifests mount these dynamically created ConfigMaps:
-
-```yaml
-volumeMounts:
-  - name: config
-    mountPath: /app/config.yaml
-    subPath: config.yaml
-  - name: env
-    mountPath: /app/.env
-    subPath: .env
-volumes:
-  - name: config
-    configMap:
-      name: app-config
-  - name: env
-    configMap:
-      name: env-config
-```
-
-**Updating configuration:**
-
-To update configuration after deployment:
-
-```bash
-# Update the ConfigMap
-kubectl create configmap app-config \
-  --from-file=config.yaml=config.yaml \
-  -n my-project-prod \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Restart pods to pick up changes
-kubectl rollout restart deployment/app -n my-project-prod
+# Restart pods to pick up changes (forced by timestamp annotation)
+# Pods automatically restart on each deployment
 ```
 
 ## Health Checks
@@ -882,10 +996,10 @@ curl http://localhost:8000/health
 
 ## CI/CD Integration
 
-### GitHub Actions
+### GitHub Actions with Helm
 
 ```yaml
-name: Deploy to Kubernetes
+name: Deploy to Kubernetes with Helm
 
 on:
   push:
@@ -897,67 +1011,164 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Build Docker image
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+      
+      - name: Build and push Docker images
         run: |
-          docker build -t ${{ secrets.REGISTRY }}/my-project-app:${{ github.sha }} .
-          docker push ${{ secrets.REGISTRY }}/my-project-app:${{ github.sha }}
+          docker build -t ${{ secrets.REGISTRY }}/api-forge-app:${{ github.sha }} .
+          docker push ${{ secrets.REGISTRY }}/api-forge-app:${{ github.sha }}
+          # Build other images as needed
       
       - name: Configure kubectl
         uses: azure/k8s-set-context@v3
         with:
           kubeconfig: ${{ secrets.KUBECONFIG }}
       
-      - name: Deploy to Kubernetes
+      - name: Deploy secrets
         run: |
-          cd k8s/overlays/production
-          kustomize edit set image my-project-app=${{ secrets.REGISTRY }}/my-project-app:${{ github.sha }}
-          kubectl apply -k .
+          # Ensure secrets exist (idempotent)
+          ./infra/helm/api-forge/scripts/apply-secrets.sh
+        env:
+          # Secrets should be stored in GitHub Secrets
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
       
-      - name: Wait for deployment
+      - name: Deploy with Helm
         run: |
-          kubectl rollout status deployment/app -n my-project-prod
+          helm upgrade api-forge ./infra/helm/api-forge \
+            --install \
+            --namespace api-forge-prod \
+            --create-namespace \
+            --set image.app=${{ secrets.REGISTRY }}/api-forge-app:${{ github.sha }} \
+            --set image.pullPolicy=Always \
+            --wait \
+            --timeout 10m
+      
+      - name: Verify deployment
+        run: |
+          helm status api-forge -n api-forge-prod
+          kubectl get pods -n api-forge-prod
+          kubectl rollout status deployment/app -n api-forge-prod
 ```
 
-### GitLab CI
+### GitLab CI with Helm
 
 ```yaml
 deploy:
   stage: deploy
-  image: bitnami/kubectl:latest
+  image: alpine/helm:3.13.0
   script:
+    # Configure kubectl
     - kubectl config set-cluster k8s --server="$K8S_SERVER"
     - kubectl config set-credentials gitlab --token="$K8S_TOKEN"
     - kubectl config set-context default --cluster=k8s --user=gitlab
     - kubectl config use-context default
-    - kubectl apply -k k8s/overlays/production
-    - kubectl rollout status deployment/app -n my-project-prod
+    
+    # Build images (if using GitLab registry)
+    - docker build -t $CI_REGISTRY_IMAGE/app:$CI_COMMIT_SHA .
+    - docker push $CI_REGISTRY_IMAGE/app:$CI_COMMIT_SHA
+    
+    # Deploy secrets
+    - ./infra/helm/api-forge/scripts/apply-secrets.sh
+    
+    # Deploy with Helm
+    - helm upgrade api-forge ./infra/helm/api-forge
+        --install
+        --namespace api-forge-prod
+        --create-namespace
+        --set image.app=$CI_REGISTRY_IMAGE/app:$CI_COMMIT_SHA
+        --wait
+        --timeout 10m
+    
+    # Verify
+    - helm status api-forge -n api-forge-prod
+    - kubectl rollout status deployment/app -n api-forge-prod
   only:
     - main
+
+### ArgoCD GitOps
+
+For GitOps-style deployments with ArgoCD:
+
+```yaml
+# argocd-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-forge
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/your-repo
+    targetRevision: main
+    path: infra/helm/api-forge
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: image.app
+          value: your-registry/api-forge-app:v1.0.0
+        - name: app.replicaCount
+          value: "3"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api-forge-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+Deploy ArgoCD application:
+
+```bash
+kubectl apply -f argocd-application.yaml
 ```
 
 ## Best Practices
 
-1. **Use namespaces** for environment isolation
-2. **Set resource requests and limits** for all containers
-3. **Implement health checks** (liveness and readiness)
-4. **Use secrets** for sensitive data, never ConfigMaps
-5. **Enable NetworkPolicies** to restrict traffic
-6. **Use Ingress** with TLS for external access
-7. **Implement HPA** for automatic scaling
-8. **Use PersistentVolumes** for stateful data
-9. **Tag images** with versions, not `latest`
-10. **Monitor and log** everything
+1. **Use Helm for deployments** - Provides templating, versioning, and rollback capabilities
+2. **Sync config.yaml settings** - Let the CLI handle redis.enabled and temporal.enabled synchronization
+3. **Set resource requests and limits** - Define appropriate limits for all containers
+4. **Implement health checks** - Configure liveness and readiness probes
+5. **Use secrets properly** - Never store sensitive data in ConfigMaps or values.yaml
+6. **Enable NetworkPolicies** - Restrict pod-to-pod communication
+7. **Use Ingress with TLS** - Secure external access with TLS certificates
+8. **Implement HPA** - Enable Horizontal Pod Autoscaling for dynamic scaling
+9. **Use PersistentVolumes** - Ensure data persistence for stateful services
+10. **Tag images with versions** - Avoid using `latest` in production
+11. **Monitor and log** - Implement comprehensive monitoring and logging
+12. **Test locally first** - Use Minikube to test deployments before production
+13. **Use External Secrets Operator** - For production secret management
+14. **Leverage Helm rollbacks** - Easy rollback to previous releases if issues arise
+
+## Helm-Specific Tips
+
+- **Use `helm diff`** - Preview changes before applying (requires helm-diff plugin)
+- **Leverage hooks** - Use Helm hooks for pre/post-install actions
+- **Version your charts** - Increment Chart.yaml version for each change
+- **Test templates** - Use `helm template` to render templates locally
+- **Use `.helmignore`** - Exclude unnecessary files from chart packages
 
 ## Related Documentation
 
 - [Docker Dev Environment](./fastapi-docker-dev-environment.md) - Local testing before deployment
 - [Docker Compose Production](./fastapi-production-deployment-docker-compose.md) - Alternative deployment
 - [Testing Strategy](./fastapi-testing-strategy.md) - Test before deploying
+- [Secrets Management](./security/secrets_management.md) - Comprehensive secrets guide
+- [Helm Migration Plan](./helm-migration-plan-update.md) - Migration from Kustomize to Helm
 
 ## Additional Resources
 
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
-- [Kustomize Documentation](https://kustomize.io/)
 - [Helm Documentation](https://helm.sh/docs/)
+- [Helm Best Practices](https://helm.sh/docs/chart_best_practices/)
 - [External Secrets Operator](https://external-secrets.io/)
 - [cert-manager](https://cert-manager.io/)
+- [ArgoCD](https://argo-cd.readthedocs.io/) - GitOps continuous delivery

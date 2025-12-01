@@ -142,7 +142,7 @@ jobs:
           if-no-files-found: ignore
 
   e2e-kubernetes:
-    name: Kubernetes E2E Tests
+    name: Kubernetes E2E Tests (Helm)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Only run on manual trigger or release branches
@@ -175,25 +175,59 @@ jobs:
           cpus: 2
           memory: 4096m
       
-      - name: Verify Kubernetes cluster
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+      
+      - name: Verify Kubernetes cluster and Helm
         run: |
           kubectl cluster-info
           kubectl get nodes
+          helm version
       
-      - name: Run Kubernetes E2E tests
+      - name: Run Kubernetes E2E tests (Helm deployment)
         run: |
           uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_08_kubernetes_deployment -v -s --tb=short
       
-      - name: Get Kubernetes logs on failure
+      - name: Get Helm and Kubernetes logs on failure
         if: failure()
         run: |
+          echo "=== Helm Releases ==="
+          helm list -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Helm Release Status ==="
+          helm status api-forge -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Kubernetes Resources ==="
           kubectl get all -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Pod Descriptions ==="
           kubectl describe pods -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Pod Logs ==="
           kubectl logs -n api-forge-prod --all-containers --tail=100 || true
+          
+          echo ""
+          echo "=== Job Status ==="
+          kubectl get jobs -n api-forge-prod || true
+          
+          echo ""
+          echo "=== ConfigMaps ==="
+          kubectl get configmaps -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Secrets ==="
+          kubectl get secrets -n api-forge-prod || true
       
       - name: Cleanup Kubernetes resources
         if: always()
         run: |
+          helm uninstall api-forge -n api-forge-prod --wait --timeout=120s || true
           kubectl delete namespace api-forge-prod --wait=true --timeout=120s || true
       
       - name: Upload test results

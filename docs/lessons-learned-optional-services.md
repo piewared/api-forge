@@ -497,27 +497,57 @@ def test_redis_optional_deployment():
 
 ---
 
-## Applying to Kubernetes
+## Applying to Kubernetes (Helm Deployment)
 
-The same principles apply, with these K8s-specific considerations:
+The same principles apply, with these Helm-specific considerations:
 
-### K8s Differences
-1. **Multiple Files**: Deployment, Service, ConfigMap, Secret, PVC all separate
-2. **Dependency Management**: Use `initContainers` or job dependencies
-3. **Network Policies**: Update to exclude disabled services
-4. **Resource Quotas**: Adjust for service count
-5. **Kustomize Overlays**: May need different bases
+### Helm Implementation
+1. **Conditional Templates**: Use `{{ if .Values.redis.enabled }}` to wrap resources
+2. **Automatic Sync**: CLI syncs `config.yaml` settings to `values.yaml` before deployment
+3. **Single Source of Truth**: `config.yaml` controls Redis/Temporal enable/disable
+4. **Template Helpers**: Use `_helpers.tpl` for reusable conditional logic
+5. **Values Inheritance**: Environment-specific values files can override defaults
 
-### K8s Removal Checklist
-- [ ] `deployments/<service>.yaml`
-- [ ] `services/services.yaml` (service entry)
-- [ ] `configmaps/` (service-specific configs)
-- [ ] `secrets/` (service credentials)
-- [ ] `persistentvolumeclaims.yaml` (service volumes)
-- [ ] `network-policies/` (service network rules)
-- [ ] `kustomization.yaml` (resource references)
-- [ ] Job dependencies (initContainers)
-- [ ] Update `k8s_deployer.py` service lists
+### Helm Conditional Resource Pattern
+
+**Current Implementation** (Redis/Temporal):
+```yaml
+# infra/helm/api-forge/templates/deployments/redis.yaml
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  # ... deployment spec ...
+{{- end }}
+```
+
+**Config Sync Flow**:
+1. User edits `config.yaml`: `redis.enabled: false`
+2. CLI runs `_sync_config_to_values()` before deployment
+3. Updates `values.yaml`: `redis.enabled: false`
+4. Helm excludes all Redis resources during deployment
+
+### Helm Service Removal Checklist
+
+To fully disable a service in Helm deployment:
+
+- [ ] Wrap templates in conditionals (`{{ if .Values.service.enabled }}`)
+- [ ] Add service enable flag to `values.yaml`
+- [ ] Update `src/cli/deployment/helm_deployer.py` to sync the flag
+- [ ] Update dependent services (remove references in other templates)
+- [ ] Update init jobs (remove service-specific initialization)
+- [ ] Test with service enabled and disabled
+- [ ] Document the configuration option in `docs/configuration.md`
+
+**Files to Update** (using Redis as example):
+- `infra/helm/api-forge/templates/deployments/redis.yaml`
+- `infra/helm/api-forge/templates/services/redis.yaml`
+- `infra/helm/api-forge/templates/persistentvolumeclaims/redis-data.yaml`
+- `infra/helm/api-forge/templates/configmaps/redis-config.yaml`
+- `infra/helm/api-forge/values.yaml` (add `redis.enabled`)
+- `src/cli/deployment/helm_deployer.py` (_sync_config_to_values method)
 
 ---
 

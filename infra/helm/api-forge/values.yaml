@@ -52,7 +52,7 @@ postgres:
       - protocol: TCP
         port: 5432
 redis:
-  enabled: false
+  enabled: true
   image: app_data_redis_image
   replicas: 1
   resources:
