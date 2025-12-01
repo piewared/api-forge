@@ -4,7 +4,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import yaml  # type: ignore[import-untyped]
 from rich.console import Console
+
+from src.app.runtime.config.config_loader import load_config
 
 from .base import BaseDeployer
 from .health_checks import HealthChecker
@@ -37,9 +40,10 @@ class HelmDeployer(BaseDeployer):
         1. Build Docker images
         2. Load images into Minikube
         3. Deploy secrets (from infra/secrets)
-        4. Copy config files to infra/helm/api-forge/files/
-        5. Create ConfigMaps from config files
-        6. Deploy resources via Helm
+        4. Sync config.yaml settings to values.yaml
+        5. Copy config files to infra/helm/api-forge/files/
+        6. Create ConfigMaps from config files
+        7. Deploy resources via Helm
 
         Args:
             **kwargs: Additional deployment options (namespace, no_wait, force_recreate)
@@ -59,7 +63,10 @@ class HelmDeployer(BaseDeployer):
         # Step 3: Deploy secrets
         self._deploy_secrets(namespace)
 
-        # Step 4: Copy config files to helm staging area
+        # Step 4: Sync config.yaml settings to values.yaml
+        self._sync_config_to_values()
+
+        # Step 5: Copy config files to helm staging area
         self._copy_config_files()
 
         # Step 5: ConfigMaps are now handled by Helm via files/ directory
@@ -241,6 +248,89 @@ class HelmDeployer(BaseDeployer):
             progress.update(task, completed=1)
 
         self.success(f"Secrets deployed to namespace {namespace}")
+
+    def _sync_config_to_values(self) -> None:
+        """Synchronize settings from config.yaml to values.yaml.
+
+        This ensures that service enable/disable flags are consistent between
+        the application config and Helm deployment values.
+
+        Synced settings:
+        - redis.enabled
+        - temporal.enabled
+        """
+        self.console.print(
+            "[bold cyan]🔄 Synchronizing config.yaml → values.yaml...[/bold cyan]"
+        )
+
+        config_path = self.project_root / "config.yaml"
+        values_path = self.helm_chart / "values.yaml"
+
+        if not config_path.exists():
+            self.console.print(
+                "[yellow]⚠️  config.yaml not found, skipping sync[/yellow]"
+            )
+            return
+
+        try:
+            # Load config.yaml using the config loader (returns dict with processed=False)
+            config_raw = load_config(config_path, processed=False)
+            # Access the actual config section
+            config_data = config_raw if isinstance(config_raw, dict) else {}
+
+            # Load values.yaml
+            with open(values_path) as f:
+                values_data = yaml.safe_load(f)
+
+            # Track changes
+            changes = []
+
+            # Sync redis.enabled
+            if "config" in config_data and "redis" in config_data["config"]:
+                redis_enabled = config_data["config"]["redis"].get("enabled", True)
+                if "redis" in values_data:
+                    old_value = values_data["redis"].get("enabled", True)
+                    if old_value != redis_enabled:
+                        values_data["redis"]["enabled"] = redis_enabled
+                        changes.append(f"redis.enabled: {old_value} → {redis_enabled}")
+
+            # Sync temporal.enabled
+            if "config" in config_data and "temporal" in config_data["config"]:
+                temporal_enabled = config_data["config"]["temporal"].get(
+                    "enabled", True
+                )
+                if "temporal" in values_data:
+                    old_value = values_data["temporal"].get("enabled", True)
+                    if old_value != temporal_enabled:
+                        values_data["temporal"]["enabled"] = temporal_enabled
+                        changes.append(
+                            f"temporal.enabled: {old_value} → {temporal_enabled}"
+                        )
+
+            # Write back values.yaml if changes were made
+            if changes:
+                with open(values_path, "w") as f:
+                    yaml.safe_dump(
+                        values_data,
+                        f,
+                        default_flow_style=False,
+                        sort_keys=False,
+                        allow_unicode=True,
+                    )
+
+                self.console.print("[green]✓ Synced changes:[/green]")
+                for change in changes:
+                    self.console.print(f"  • {change}")
+            else:
+                self.console.print(
+                    "[dim]  ✓ No changes needed (values already in sync)[/dim]"
+                )
+
+        except Exception as e:
+            self.console.print(f"[yellow]⚠️  Failed to sync config: {e}[/yellow]")
+            self.console.print(
+                "[dim]  Continuing with deployment using existing values.yaml[/dim]"
+            )
 
     def _copy_config_files(self) -> None:
         """Copy configuration files from project root to infra/helm/api-forge/files/.

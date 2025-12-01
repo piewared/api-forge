@@ -25,6 +25,9 @@ spec:
         app.kubernetes.io/name: worker
         app.kubernetes.io/component: temporal-worker
         app.kubernetes.io/part-of: api-forge
+      annotations:
+        # Force pod recreation on every deployment (ensures latest :latest image is pulled)
+        deployment.kubernetes.io/revision-timestamp: "{{ now | unixEpoch }}"
     spec:
       # Disable automatic service discovery environment variable injection
       # to prevent conflicts with explicitly defined environment variables (e.g., APP_PORT)

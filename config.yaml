@@ -7,10 +7,10 @@ config:
     per_method: true
 
   database:
-    url: "${DATABASE_URL:-postgresql+asyncpg://user:password@postgres:5432/app_db}"
+    url: "${DATABASE_URL:-postgresql+asyncpg://appuser@postgres:5432/appdb}"
     app_db: "${APP_DB:-appdb}"
     owner_user: "${APP_DB_OWNER:-appowner}"
-    user: "${APP_DB_USER:-user}"
+    user: "${APP_DB_USER:-appuser}"
     ro_user: "${APP_DB_RO_USER:-backupuser}"
     pool_size: 20
     max_overflow: 10

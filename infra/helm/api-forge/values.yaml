@@ -2,16 +2,12 @@ global:
   namespace: api-forge-prod
   createNamespace: false
   environment: production
-  # Prefix for all resource names (ConfigMaps, Services, etc.)
-  # Resources will be named: <namePrefix>-<resource-name>
-  # Example: "api-forge" produces "api-forge-app-config"
-  namePrefix: "api-forge"
-  imageRegistry: ""
+  namePrefix: api-forge
+  imageRegistry: ''
   imagePullPolicy: IfNotPresent
   labels:
     environment: production
     app.kubernetes.io/managed-by: helm
-
 postgres:
   enabled: true
   image: app_data_postgres_image
@@ -29,35 +25,34 @@ postgres:
     data:
       enabled: true
       size: 10Gi
-      storageClass: ""
+      storageClass: ''
     backups:
       enabled: true
       size: 20Gi
-      storageClass: ""
+      storageClass: ''
   config:
     maxConnections: 200
     sharedBuffers: 256MB
     effectiveCacheSize: 1GB
   tls:
     enabled: true
-    existingSecret: "postgres-tls"   # required in production
+    existingSecret: postgres-tls
   ca:
-    existingSecret: "postgres-ca"   # required in production
+    existingSecret: postgres-ca
   secrets:
-    existingSecret: "postgres-secrets"   # required in production
+    existingSecret: postgres-secrets
   networkPolicy:
     enabled: true
     ingress:
-      - from:
-          - podSelector:
-              matchLabels:
-                app.kubernetes.io/component: application
-        ports:
-          - protocol: TCP
-            port: 5432
-
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
+      ports:
+      - protocol: TCP
+        port: 5432
 redis:
-  enabled: true
+  enabled: false
   image: app_data_redis_image
   replicas: 1
   resources:
@@ -71,24 +66,23 @@ redis:
     data:
       enabled: true
       size: 5Gi
-      storageClass: ""
+      storageClass: ''
     backups:
       enabled: true
       size: 10Gi
-      storageClass: ""
+      storageClass: ''
   config:
     maxMemory: 256mb
     maxMemoryPolicy: allkeys-lru
   secrets:
-    existingSecret: "redis-secrets"
+    existingSecret: redis-secrets
   networkPolicy:
     enabled: true
     ingress:
-      - from:
-          - podSelector:
-              matchLabels:
-                app.kubernetes.io/component: application
-
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
 temporal:
   enabled: true
   image: my-temporal-server:latest
@@ -104,9 +98,9 @@ temporal:
     certs:
       enabled: true
       size: 1Gi
-      storageClass: ""
+      storageClass: ''
   config:
-    services: "history,matching,worker,frontend"
+    services: history,matching,worker,frontend
     numHistoryShards: 64
   web:
     enabled: true
@@ -133,14 +127,13 @@ temporal:
   networkPolicy:
     enabled: true
     ingress:
-      - from:
-          - podSelector:
-              matchLabels:
-                app.kubernetes.io/component: application
-        ports:
-          - protocol: TCP
-            port: 7233
-
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
+      ports:
+      - protocol: TCP
+        port: 7233
 app:
   enabled: true
   name: app
@@ -157,17 +150,17 @@ app:
     logs:
       enabled: true
       size: 5Gi
-      storageClass: ""
+      storageClass: ''
   env:
     APP_ENVIRONMENT: production
     APP_HOST: 0.0.0.0
-    APP_PORT: "8000"
+    APP_PORT: '8000'
     LOG_FORMAT: json
     LOG_LEVEL: INFO
   config:
     fromFile: true
   secrets:
-    existingSecret: "app-secrets"
+    existingSecret: app-secrets
   service:
     type: ClusterIP
     port: 8000
@@ -176,12 +169,11 @@ app:
     className: nginx
     annotations: {}
     hosts:
-      - host: api-forge.local
-        paths:
-          - path: /
-            pathType: Prefix
+    - host: api-forge.local
+      paths:
+      - path: /
+        pathType: Prefix
     tls: []
-
 worker:
   enabled: true
   image: api-forge-app:latest
@@ -193,7 +185,6 @@ worker:
     limits:
       cpu: 1000m
       memory: 1Gi
-
 jobs:
   postgresVerifier:
     enabled: true
