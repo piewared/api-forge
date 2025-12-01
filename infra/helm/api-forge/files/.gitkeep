@@ -1,4 +1,4 @@
-# This file ensures the helm/api-forge/files/ directory is tracked by git
+# This file ensures the infra/helm/api-forge/files/ directory is tracked by git
 # even when empty. The directory is required for the Helm deployment process.
 #
 # During deployment, config files are copied here from the project root:

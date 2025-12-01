@@ -26,7 +26,7 @@ class HelmDeployer(BaseDeployer):
         super().__init__(console, project_root)
         self.status_display = StatusDisplay(console)
         self.health_checker = HealthChecker()
-        self.helm_chart = project_root / "helm" / "api-forge"
+        self.helm_chart = project_root / "infra" / "helm" / "api-forge"
         self.helm_scripts = self.helm_chart / "scripts"
         self.helm_files = self.helm_chart / "files"
 
@@ -37,7 +37,7 @@ class HelmDeployer(BaseDeployer):
         1. Build Docker images
         2. Load images into Minikube
         3. Deploy secrets (from infra/secrets)
-        4. Copy config files to helm/api-forge/files/
+        4. Copy config files to infra/helm/api-forge/files/
         5. Create ConfigMaps from config files
         6. Deploy resources via Helm
 
@@ -243,7 +243,7 @@ class HelmDeployer(BaseDeployer):
         self.success(f"Secrets deployed to namespace {namespace}")
 
     def _copy_config_files(self) -> None:
-        """Copy configuration files from project root to helm/api-forge/files/.
+        """Copy configuration files from project root to infra/helm/api-forge/files/.
 
         This copies:
         - .env → files/.env

@@ -8,8 +8,8 @@ set -euo pipefail
 # Configuration
 NAMESPACE="${1:-api-forge-prod}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Script is in helm/api-forge/scripts/, project root is 3 levels up
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+# Script is in infra/helm/api-forge/scripts/, project root is 4 levels up
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 SECRETS_DIR="${PROJECT_ROOT}/infra/secrets"
 
 # Colors for output
