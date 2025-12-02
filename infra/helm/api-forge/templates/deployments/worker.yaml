@@ -1,4 +1,4 @@
-{{- if .Values.worker.enabled }}
+{{- if and .Values.worker.enabled .Values.temporal.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/version: "1.0.0"
 spec:
   replicas: {{ .Values.worker.replicas | default 1 }}
+  revisionHistoryLimit: {{ .Values.worker.revisionHistoryLimit | default 3 }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -40,8 +41,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: {{ .Values.worker.image | default "api-forge-app:latest" }}
-          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          image: {{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag | default "latest" }}
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
           # Load all app environment variables from ConfigMap
           envFrom:
             - configMapRef:

@@ -256,9 +256,10 @@ class TestCopierToDeployment:
         # Files that should have been updated
         critical_files = [
             f"{project_name}/app/worker/registry.py",
-            "k8s/base/deployments/worker.yaml",
+            "infra/helm/api-forge/templates/deployments/worker.yaml",
             "docker-compose.prod.yml",
             "Dockerfile",
+            "pyproject.toml",
         ]
 
         for file_path in critical_files:

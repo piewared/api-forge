@@ -6,7 +6,6 @@ This script runs after the template has been copied to customize files
 that can't contain Jinja2 templates (like pyproject.toml).
 """
 
-import importlib
 import re
 import sys
 from pathlib import Path
@@ -246,21 +245,28 @@ def update_config_yaml(project_dir: Path, answers: dict):
     if not answers.get("use_redis", True):
         print("📝 Updating config.yaml (disabling Redis)...")
 
-        # Dynamic import based on package name
-        package_name = answers.get("package_name", "src")
-        config_loader = importlib.import_module(
-            f"{package_name}.app.runtime.config.config_loader"
+        config_path = project_dir / "config.yaml"
+
+        if not config_path.exists():
+            print(f"⚠️  config.yaml not found at {config_path}")
+            return
+
+        # Read the file
+        with open(config_path) as f:
+            content = f.read()
+
+        # Simple regex replacement to set redis.enabled to false
+        content = re.sub(
+            r"(redis:\s*\n\s*enabled:\s*)true",
+            r"\1false",
+            content,
+            flags=re.MULTILINE,
         )
 
-        # Load YAML directly without validation
-        config_dict = config_loader.load_config(processed=False)
+        # Write back
+        with open(config_path, "w") as f:
+            f.write(content)
 
-        # Update the redis.enabled field
-        if "config" in config_dict and "redis" in config_dict["config"]:
-            config_dict["config"]["redis"]["enabled"] = False
-
-        # Save back to file
-        config_loader.save_config(config_dict)
         print("✅ config.yaml updated (Redis disabled)")
 
 

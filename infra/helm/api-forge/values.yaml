@@ -52,7 +52,7 @@ postgres:
       - protocol: TCP
         port: 5432
 redis:
-  enabled: true
+  enabled: false
   image: app_data_redis_image
   replicas: 1
   resources:
@@ -84,7 +84,7 @@ redis:
           matchLabels:
             app.kubernetes.io/component: application
 temporal:
-  enabled: true
+  enabled: false
   image: my-temporal-server:latest
   replicas: 1
   resources:
@@ -137,8 +137,12 @@ temporal:
 app:
   enabled: true
   name: app
-  image: api-forge-app:latest
+  image:
+    repository: api-forge-app
+    tag: latest
+    pullPolicy: IfNotPresent
   replicas: 1
+  revisionHistoryLimit: 3
   resources:
     requests:
       cpu: 250m
@@ -176,8 +180,12 @@ app:
     tls: []
 worker:
   enabled: true
-  image: api-forge-app:latest
+  image:
+    repository: api-forge-app
+    tag: latest
+    pullPolicy: IfNotPresent
   replicas: 1
+  revisionHistoryLimit: 3
   resources:
     requests:
       cpu: 250m

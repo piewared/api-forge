@@ -49,6 +49,12 @@ def up(
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
+    registry: str = typer.Option(
+        None,
+        "--registry",
+        "-r",
+        help="Container registry for remote k8s clusters (e.g., ghcr.io/myuser)",
+    ),
 ) -> None:
     """
     🚀 Deploy the application to the specified environment.
@@ -57,6 +63,10 @@ def up(
     - dev: Development environment with hot reload
     - prod: Production-like Docker Compose environment
     - k8s: Kubernetes cluster deployment
+
+    For k8s deployments, the cluster type is auto-detected:
+    - Minikube/Kind: Images loaded directly into cluster cache
+    - Remote clusters: Use --registry to push images to a container registry
     """
     project_root = Path(get_project_root())
 
@@ -84,7 +94,10 @@ def up(
     elif env == Environment.K8S:
         deployer = HelmDeployer(console, project_root)
         deployer.deploy(
-            namespace=namespace, no_wait=no_wait, force_recreate=force_recreate
+            namespace=namespace,
+            no_wait=no_wait,
+            force_recreate=force_recreate,
+            registry=registry,
         )
 
 

@@ -17,10 +17,11 @@ data:
   {{- range $line := splitList "\n" $envContent -}}
     {{- if and (ne (trim $line) "") (not (hasPrefix "#" (trim $line))) -}}
       {{- $parts := splitList "=" $line -}}
-      {{- if eq (len $parts) 2 -}}
+      {{- if ge (len $parts) 2 -}}
         {{- $key := index $parts 0 | trim -}}
+        {{- $value := slice $parts 1 | join "=" | trim -}}
         {{- if ne $key "APP_ENVIRONMENT" }}
-  {{ $key }}: {{ index $parts 1 | trim | quote }}
+  {{ $key }}: {{ $value | quote }}
         {{- end -}}
       {{- end -}}
     {{- end -}}

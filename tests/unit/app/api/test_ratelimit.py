@@ -1,5 +1,4 @@
 import asyncio
-import os
 from unittest.mock import Mock
 
 import pytest
@@ -11,8 +10,16 @@ from src.app.api.http.middleware.limiter import (
     DefaultLocalRateLimiter,
     get_rate_limiter,
 )
+from src.app.core.services.redis_service import is_redis_available
 from src.app.runtime.config.config_data import ConfigData
-from src.app.runtime.context import get_config, set_config, with_context
+from src.app.runtime.context import get_config, with_context
+
+# Check Redis availability once at module load time
+REDIS_AVAILABLE = is_redis_available()
+
+requires_redis = pytest.mark.skipif(
+    not REDIS_AVAILABLE, reason="Redis is not running or not accessible"
+)
 
 
 class TestRateLimiting:
@@ -30,10 +37,7 @@ class TestRateLimiting:
             "local",
             pytest.param(
                 "redis",
-                marks=pytest.mark.skipif(
-                    not get_config().redis.url,
-                    reason="Redis URL not configured for testing",
-                ),
+                marks=requires_redis,
             ),
         ]
     )
