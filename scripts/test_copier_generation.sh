@@ -67,7 +67,7 @@ log_info "Output directory: $TEST_OUTPUT_DIR"
 # Use --vcs-ref HEAD to use the current state (including uncommitted changes)
 # Use --data to override specific answers for testing optional features
 copier copy --trust --defaults --vcs-ref HEAD \
-    --data use_temporal=false \
+    --data use_temporal=false --data use_redis=false \
     "$TEMPLATE_DIR" "$TEST_OUTPUT_DIR"
 
 if [ $? -eq 0 ]; then
