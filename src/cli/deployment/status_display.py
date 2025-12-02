@@ -17,7 +17,7 @@ from src.dev.dev_utils import (
 )
 
 from .health_checks import HealthChecker
-from .service_config import get_production_services
+from .service_config import get_production_services, is_temporal_enabled
 
 
 class StatusDisplay:
@@ -245,7 +245,8 @@ class StatusDisplay:
         self.console.print("  └─ API: http://localhost:8000")
         self.console.print("  └─ Health: http://localhost:8000/health")
         self.console.print("  └─ API Docs: http://localhost:8000/docs")
-        self.console.print("  └─ Temporal Web: http://localhost:8081")
+        if is_temporal_enabled():
+            self.console.print("  └─ Temporal Web: http://localhost:8081")
 
     def _show_k8s_access_instructions(self, namespace: str) -> None:
         """Display Kubernetes access instructions.
@@ -257,9 +258,10 @@ class StatusDisplay:
         self.console.print(
             f"  └─ Port-forward to app: kubectl port-forward -n {namespace} svc/app 8000:8000"
         )
-        self.console.print(
-            f"  └─ Port-forward to Temporal Web: kubectl port-forward -n {namespace} svc/temporal-web 8080:8080"
-        )
+        if is_temporal_enabled():
+            self.console.print(
+                f"  └─ Port-forward to Temporal Web: kubectl port-forward -n {namespace} svc/temporal-web 8080:8080"
+            )
         self.console.print(
             f"  └─ View logs: kubectl logs -n {namespace} -l app.kubernetes.io/name=app -f"
         )
