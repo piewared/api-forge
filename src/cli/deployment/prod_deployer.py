@@ -94,9 +94,12 @@ class ProdDeployer(BaseDeployer):
     def _validate_bind_mount_volumes(self) -> None:
         """Validate bind-mount volumes and remove stale ones.
 
-        Docker bind-mount volumes can become stale if the source directory is deleted
-        while the volume metadata persists. This causes 'readdirent: no such file or
-        directory' errors when trying to start containers.
+        Docker bind-mount volumes can become stale in two ways:
+        1. The source directory was deleted while the volume metadata persists
+        2. The bind mount references a deleted inode (shows as //deleted in findmnt)
+
+        Both cases cause 'readdirent: no such file or directory' errors when trying
+        to start containers.
 
         This method detects stale bind-mount volumes and removes them so they can be
         recreated fresh with the correct bind mount.
@@ -144,13 +147,32 @@ class ProdDeployer(BaseDeployer):
                 mount_type = options.get("type", "")
                 bind_option = options.get("o", "")
                 device = options.get("device", "")
+                mountpoint = volume_info[0].get("Mountpoint", "")
 
                 # Check if it's a bind mount
                 if mount_type == "none" and "bind" in bind_option and device:
-                    # Verify the source directory exists
+                    # Check 1: Verify the source directory exists
                     source_path = Path(device)
                     if not source_path.exists():
-                        stale_volumes.append((volume_name, device))
+                        stale_volumes.append((volume_name, device, "missing"))
+                        continue
+
+                    # Check 2: Verify the mount isn't pointing to a deleted inode
+                    # This happens when rm -rf removes the directory while mount persists
+                    if mountpoint:
+                        findmnt_result = self.run_command(
+                            ["findmnt", "-n", "-o", "SOURCE", mountpoint],
+                            capture_output=True,
+                            check=False,
+                        )
+                        if findmnt_result and findmnt_result.stdout:
+                            mount_source = findmnt_result.stdout.strip()
+                            if "deleted" in mount_source.lower():
+                                stale_volumes.append(
+                                    (volume_name, device, "deleted inode")
+                                )
+                                continue
+
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
 
@@ -158,15 +180,15 @@ class ProdDeployer(BaseDeployer):
             self.console.print(
                 f"[yellow]⚠ Found {len(stale_volumes)} stale bind-mount volume(s)[/yellow]"
             )
-            for vol_name, device in stale_volumes:
-                self.console.print(f"  [dim]• {vol_name} → {device} (missing)[/dim]")
+            for vol_name, device, reason in stale_volumes:
+                self.console.print(f"  [dim]• {vol_name} → {device} ({reason})[/dim]")
 
             # Stop any containers using these volumes first
             self.info("Stopping containers to remove stale volumes...")
             self.teardown(volumes=False)
 
             # Remove stale volumes
-            for vol_name, _ in stale_volumes:
+            for vol_name, _, _ in stale_volumes:
                 self.run_command(
                     ["docker", "volume", "rm", vol_name],
                     check=False,
