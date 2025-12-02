@@ -1,5 +1,7 @@
 """Temporal client service for managing shared Temporal client state."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from loguru import logger
