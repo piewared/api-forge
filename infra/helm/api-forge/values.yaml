@@ -54,7 +54,7 @@ postgres:
       - protocol: TCP
         port: 5432
 redis:
-  enabled: false
+  enabled: true
   image:
     repository: app_data_redis_image
     tag: latest
@@ -88,7 +88,7 @@ redis:
           matchLabels:
             app.kubernetes.io/component: application
 temporal:
-  enabled: false
+  enabled: true
   image:
     repository: my-temporal-server
     tag: latest

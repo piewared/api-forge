@@ -31,7 +31,11 @@ warn(){ printf "⚠️  %s\n" "$*"; }
 
 echo "== Verifying Postgres (host: postgres) =="
 echo "   DB=$APP_DB  OWNER=$APP_OWNER  USER=$APP_USER  RO=$APP_RO  SCHEMA=$APP_SCHEMA"
-echo "   Temporal DB=$TEMPORAL_DB  USER=$TEMPORAL_DB_USER  OWNER=$TEMPORAL_DB_OWNER"
+if [ -n "${TEMPORAL_DB_USER:-}" ]; then
+  echo "   Temporal DB=$TEMPORAL_DB  USER=$TEMPORAL_DB_USER  OWNER=$TEMPORAL_DB_OWNER"
+else
+  echo "   Temporal: disabled"
+fi
 echo
 
 # --- Core: roles / db / schema / grants ---------------------------------------
@@ -53,20 +57,23 @@ echo
   || bad "Role ${APP_OWNER} should be NOLOGIN"
 ok "App DB role login attributes look correct (${APP_USER}/${APP_RO} LOGIN, ${APP_OWNER} NOLOGIN)"
 
-# Temporal DB roles exist?
+# Temporal DB roles exist? (only check if Temporal is enabled)
+if [ -n "${TEMPORAL_DB_USER:-}" ]; then
+  [ "$($PSQL -c "SELECT COUNT(*) FROM pg_roles WHERE rolname='${TEMPORAL_DB_USER}';")" = "1" ] \
+    || bad "Role ${TEMPORAL_DB_USER} does not exist"
+  [ "$($PSQL -c "SELECT COUNT(*) FROM pg_roles WHERE rolname='${TEMPORAL_DB_OWNER}';")" = "1" ] \
+    || bad "Role ${TEMPORAL_DB_OWNER} does not exist"
 
-[ "$($PSQL -c "SELECT COUNT(*) FROM pg_roles WHERE rolname='${TEMPORAL_DB_USER}';")" = "1" ] \
-  || bad "Role ${TEMPORAL_DB_USER} does not exist"
-[ "$($PSQL -c "SELECT COUNT(*) FROM pg_roles WHERE rolname='${TEMPORAL_DB_OWNER}';")" = "1" ] \
-  || bad "Role ${TEMPORAL_DB_OWNER} does not exist"
+  # LOGIN/NOLOGIN checks
+  [ "$($PSQL -c "SELECT rolcanlogin FROM pg_roles WHERE rolname='${TEMPORAL_DB_USER}';")" = "t" ] \
+    || bad "Role ${TEMPORAL_DB_USER} missing LOGIN"
+  [ "$($PSQL -c "SELECT rolcanlogin FROM pg_roles WHERE rolname='${TEMPORAL_DB_OWNER}';")" = "f" ] \
+    || bad "Role ${TEMPORAL_DB_OWNER} should be NOLOGIN"
 
-# LOGIN/NOLOGIN checks
-[ "$($PSQL -c "SELECT rolcanlogin FROM pg_roles WHERE rolname='${TEMPORAL_DB_USER}';")" = "t" ] \
-  || bad "Role ${TEMPORAL_DB_USER} missing LOGIN"
-[ "$($PSQL -c "SELECT rolcanlogin FROM pg_roles WHERE rolname='${TEMPORAL_DB_OWNER}';")" = "f" ] \
-  || bad "Role ${TEMPORAL_DB_OWNER} should be NOLOGIN"
-
-ok "Temporal DB role login attributes look correct (${TEMPORAL_DB_USER} LOGIN, ${TEMPORAL_DB_OWNER} NOLOGIN)"
+  ok "Temporal DB role login attributes look correct (${TEMPORAL_DB_USER} LOGIN, ${TEMPORAL_DB_OWNER} NOLOGIN)"
+else
+  ok "Temporal disabled, skipping Temporal role checks"
+fi
 
 # Database ownership
 OWNER="$($PSQL -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='${APP_DB}';")"
