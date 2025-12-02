@@ -59,7 +59,7 @@ class HelmReleaseManager:
         """Create a temporary values file to override image tags.
 
         Args:
-            image_tag: The unique image tag to use
+            image_tag: The unique image tag to use for all images
             registry: Optional container registry prefix for remote clusters
 
         Returns:
@@ -68,12 +68,22 @@ class HelmReleaseManager:
         # Determine image repository - use registry prefix for remote clusters
         if registry:
             app_repo = f"{registry}/{self.constants.APP_IMAGE_NAME}"
+            postgres_repo = f"{registry}/{self.constants.POSTGRES_IMAGE_NAME}"
+            redis_repo = f"{registry}/{self.constants.REDIS_IMAGE_NAME}"
+            temporal_repo = f"{registry}/{self.constants.TEMPORAL_IMAGE_NAME}"
         else:
             app_repo = self.constants.APP_IMAGE_NAME
+            postgres_repo = self.constants.POSTGRES_IMAGE_NAME
+            redis_repo = self.constants.REDIS_IMAGE_NAME
+            temporal_repo = self.constants.TEMPORAL_IMAGE_NAME
 
         override_values = {
             "app": {"image": {"repository": app_repo, "tag": image_tag}},
             "worker": {"image": {"repository": app_repo, "tag": image_tag}},
+            # Use content-based tags for infra images to avoid stale image issues
+            "postgres": {"image": {"repository": postgres_repo, "tag": image_tag}},
+            "redis": {"image": {"repository": redis_repo, "tag": image_tag}},
+            "temporal": {"image": {"repository": temporal_repo, "tag": image_tag}},
         }
 
         temp_file = Path(tempfile.mktemp(suffix=".yaml", prefix="helm-image-override-"))

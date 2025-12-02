@@ -40,7 +40,7 @@ class DeploymentConstants:
     REDIS_IMAGE_NAME: str = "app_data_redis_image"
     TEMPORAL_IMAGE_NAME: str = "my-temporal-server"
 
-    # Infrastructure images that use :latest tag
+    # Infrastructure images (tagged with same content-based tag as app)
     @property
     def infra_image_names(self) -> tuple[str, ...]:
         """Get infrastructure image names."""

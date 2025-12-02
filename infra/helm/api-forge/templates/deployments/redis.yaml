@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: redis
-          image: {{ .Values.redis.image | default "app_data_redis_image:latest" }}
+          image: {{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag | default "latest" }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           env:
             - name: TZ

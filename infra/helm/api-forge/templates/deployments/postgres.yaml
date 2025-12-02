@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: {{ .Values.postgres.image | default "app_data_postgres_image:latest" }}
+          image: {{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag | default "latest" }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           command: ["/opt/entry/start-scripts/universal-entrypoint.sh"]
           args: ["/bin/sh", "-lc", "/opt/entry/start-scripts/pg-start.sh"]

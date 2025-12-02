@@ -90,11 +90,10 @@ class ImageBuilder:
         image_tag = self._generate_content_tag()
         self.console.print(f"[dim]Using image tag: {image_tag}[/dim]")
 
-        # Skip rebuild if image already exists
-        full_image = f"{self.constants.APP_IMAGE_NAME}:{image_tag}"
-        if self.commands.docker.image_exists(full_image):
+        # Skip rebuild only if ALL images exist with this tag
+        if self._all_images_exist(image_tag):
             self.console.print(
-                f"[yellow]✓ Image with tag {image_tag} already exists, "
+                f"[yellow]✓ All images with tag {image_tag} already exist, "
                 "skipping build[/yellow]"
             )
             self._load_images_to_cluster(image_tag, registry, progress_factory)
@@ -108,10 +107,22 @@ class ImageBuilder:
             self.commands.docker.compose_build()
             progress.update(task, completed=1)
 
+        # Tag app image with content-based tag
         self.commands.docker.tag_image(
             f"{self.constants.APP_IMAGE_NAME}:latest",
             f"{self.constants.APP_IMAGE_NAME}:{image_tag}",
         )
+
+        # Tag infrastructure images with the same content-based tag
+        # This ensures Kubernetes always pulls the correct version
+        for infra_image in self.constants.infra_image_names:
+            if self.commands.docker.image_exists(f"{infra_image}:latest"):
+                self.commands.docker.tag_image(
+                    f"{infra_image}:latest",
+                    f"{infra_image}:{image_tag}",
+                )
+                self.console.print(f"[dim]Tagged {infra_image}:{image_tag}[/dim]")
+
         self.console.print(
             f"[green]✓ Docker images built and tagged: {image_tag}[/green]"
         )
@@ -149,29 +160,78 @@ class ImageBuilder:
         return f"ts-{int(time.time())}"
 
     def _compute_source_hash(self) -> str | None:
-        """Compute a hash of all Python source files.
+        """Compute a hash of all source files that affect Docker images.
 
-        Scans package directories for .py files and creates a deterministic
-        hash of their contents.
+        Includes:
+        - Python source files from package directories
+        - Infrastructure files (Dockerfiles, shell scripts, configs)
+
+        This ensures any change to app code OR infrastructure scripts
+        triggers a new image tag, avoiding stale image issues.
 
         Returns:
             12-character hex hash, or None if computation fails
         """
         try:
-            package_dirs = self._find_package_directories()
-            if not package_dirs:
-                return None
-
             hasher = hashlib.sha256()
-            for package_dir in sorted(package_dirs):
+            files_hashed = 0
+
+            # Hash Python source files
+            for package_dir in sorted(self._find_package_directories()):
                 for py_file in sorted(package_dir.rglob("*.py")):
                     if "__pycache__" not in str(py_file):
                         hasher.update(py_file.read_bytes())
+                        files_hashed += 1
+
+            # Hash infrastructure files (Dockerfiles, scripts, configs)
+            infra_docker_dir = self.project_root / "infra" / "docker" / "prod"
+            if infra_docker_dir.exists():
+                for infra_file in sorted(infra_docker_dir.rglob("*")):
+                    if infra_file.is_file() and self._is_infra_source_file(infra_file):
+                        hasher.update(infra_file.read_bytes())
+                        files_hashed += 1
+
+            # Also hash the main Dockerfile and docker-compose files
+            for docker_file in ["Dockerfile", "docker-compose.prod.yml"]:
+                path = self.project_root / docker_file
+                if path.exists():
+                    hasher.update(path.read_bytes())
+                    files_hashed += 1
+
+            if files_hashed == 0:
+                return None
 
             return hasher.hexdigest()[:12]
         except Exception as e:
             self.console.print(f"[dim]Could not compute content hash: {e}[/dim]")
             return None
+
+    def _is_infra_source_file(self, path: Path) -> bool:
+        """Check if a file is an infrastructure source file worth hashing.
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if the file should be included in the content hash
+        """
+        # Include these extensions
+        include_extensions = {
+            ".sh",  # Shell scripts
+            ".sql",  # SQL init scripts
+            ".conf",  # Config files (postgresql.conf, redis.conf)
+            ".yaml",  # YAML configs
+            ".yml",  # YAML configs
+            ".json",  # JSON configs
+            ".toml",  # TOML configs
+            ".py",  # Python scripts
+        }
+
+        # Include Dockerfiles (no extension)
+        if path.name in ("Dockerfile", "Dockerfile.dev", "Dockerfile.prod"):
+            return True
+
+        return path.suffix.lower() in include_extensions
 
     def _find_package_directories(self) -> list[Path]:
         """Find Python package directories in the project root.
@@ -198,17 +258,36 @@ class ImageBuilder:
                     packages.append(path)
         return packages
 
+    def _all_images_exist(self, image_tag: str) -> bool:
+        """Check if all Docker images exist with the given tag.
+
+        Args:
+            image_tag: The tag to check for
+
+        Returns:
+            True if ALL images (app + infra) exist with this tag
+        """
+        all_images = self._get_all_images(image_tag)
+        for image in all_images:
+            if not self.commands.docker.image_exists(image):
+                self.console.print(f"[dim]Image {image} not found, will rebuild[/dim]")
+                return False
+        return True
+
     def _get_all_images(self, image_tag: str) -> list[str]:
         """Get list of all Docker images to deploy.
 
         Args:
-            image_tag: Tag for the app image (infra images use :latest)
+            image_tag: Tag for all images (app and infra use same tag)
 
         Returns:
             List of fully qualified image names with tags
         """
         images = [f"{self.constants.APP_IMAGE_NAME}:{image_tag}"]
-        images.extend(f"{name}:latest" for name in self.constants.infra_image_names)
+        # Use the same content-based tag for infra images to avoid stale image issues
+        images.extend(
+            f"{name}:{image_tag}" for name in self.constants.infra_image_names
+        )
         return images
 
     def _load_images_to_cluster(

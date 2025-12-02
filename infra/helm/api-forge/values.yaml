@@ -10,7 +10,9 @@ global:
     app.kubernetes.io/managed-by: helm
 postgres:
   enabled: true
-  image: app_data_postgres_image
+  image:
+    repository: app_data_postgres_image
+    tag: latest
   replicas: 1
   database: appdb
   username: appuser
@@ -53,7 +55,9 @@ postgres:
         port: 5432
 redis:
   enabled: false
-  image: app_data_redis_image
+  image:
+    repository: app_data_redis_image
+    tag: latest
   replicas: 1
   resources:
     requests:
@@ -85,7 +89,9 @@ redis:
             app.kubernetes.io/component: application
 temporal:
   enabled: false
-  image: my-temporal-server:latest
+  image:
+    repository: my-temporal-server
+    tag: latest
   replicas: 1
   resources:
     requests:
