@@ -6,10 +6,13 @@ APP_DB="${APP_DB:-${APP_DB:-appdb}}"
 APP_USER="${APP_DB_USER:-${APP_DB_USER:-appuser}}"
 APP_RO="${APP_DB_RO_USER:-${APP_DB_RO_USER:-appreadonly}}"
 APP_OWNER="${APP_DB_OWNER:-${APP_DB_OWNER:-owner}}"
-TEMPORAL_DB="${TEMPORAL_DB:-${TEMPORAL_DB:-temporal}}"
-TEMPORAL_DB_USER="${TEMPORAL_DB_USER:-${TEMPORAL_DB_USER:-temporaluser}}"
-TEMPORAL_DB_OWNER="${TEMPORAL_DB_OWNER:-${TEMPORAL_DB_USER}_owner}"
 APP_SCHEMA="${APP_SCHEMA:-app}"
+
+# Temporal variables - only set if TEMPORAL_DB_USER is provided (no defaults)
+# When Temporal is disabled, these should be empty/unset
+TEMPORAL_DB="${TEMPORAL_DB:-}"
+TEMPORAL_DB_USER="${TEMPORAL_DB_USER:-}"
+TEMPORAL_DB_OWNER="${TEMPORAL_DB_OWNER:-${TEMPORAL_DB_USER:+${TEMPORAL_DB_USER}_owner}}"
 
 # Comma-separated list of subnets that SHOULD be allowed via hostssl
 # e.g. "172.30.50.0/24,10.10.0.0/16"
