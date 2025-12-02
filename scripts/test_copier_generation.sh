@@ -65,7 +65,10 @@ log_info "Output directory: $TEST_OUTPUT_DIR"
 
 # Use --defaults to accept all default values
 # Use --vcs-ref HEAD to use the current state (including uncommitted changes)
-copier copy --trust --defaults --vcs-ref MIGRATING_TO_HELM "$TEMPLATE_DIR" "$TEST_OUTPUT_DIR"
+# Use --data to override specific answers for testing optional features
+copier copy --trust --defaults --vcs-ref MIGRATING_TO_HELM \
+    --data use_temporal=false \
+    "$TEMPLATE_DIR" "$TEST_OUTPUT_DIR"
 
 if [ $? -eq 0 ]; then
     log_success "Copier generation completed successfully"

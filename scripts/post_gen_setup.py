@@ -10,7 +10,10 @@ import re
 import sys
 from pathlib import Path
 
-from docker_compose_utils import remove_redis_from_docker_compose
+from docker_compose_utils import (
+    remove_redis_from_docker_compose,
+    remove_temporal_from_docker_compose,
+)
 
 
 def update_pyproject_toml(project_dir: Path, answers: dict):
@@ -333,6 +336,116 @@ def update_docker_compose(project_dir: Path, answers: dict):
             print(f"  ✅ {compose_file} updated")
 
 
+def remove_temporal_dependencies(project_dir: Path):
+    """Remove Temporal dependencies from pyproject.toml."""
+    pyproject_path = project_dir / "pyproject.toml"
+
+    if not pyproject_path.exists():
+        print(f"⚠️  pyproject.toml not found at {pyproject_path}")
+        return
+
+    print("📝 Removing Temporal dependencies from pyproject.toml...")
+
+    with open(pyproject_path) as f:
+        content = f.read()
+
+    # Remove temporalio dependency
+    content = re.sub(r'\s+"temporalio>=[\d.]+",?\n', "", content)
+
+    with open(pyproject_path, "w") as f:
+        f.write(content)
+
+    print("✅ Temporal dependencies removed from pyproject.toml")
+
+
+def update_config_yaml_temporal(project_dir: Path):
+    """Update config.yaml to disable Temporal."""
+    print("📝 Updating config.yaml (disabling Temporal)...")
+
+    config_path = project_dir / "config.yaml"
+
+    if not config_path.exists():
+        print(f"⚠️  config.yaml not found at {config_path}")
+        return
+
+    with open(config_path) as f:
+        content = f.read()
+
+    # Set temporal.enabled to false
+    content = re.sub(
+        r"(temporal:\s*\n\s*enabled:\s*)true",
+        r"\1false",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    with open(config_path, "w") as f:
+        f.write(content)
+
+    print("✅ config.yaml updated (Temporal disabled)")
+
+
+def update_env_example_temporal(project_dir: Path):
+    """Update .env.example to remove Temporal variables."""
+    env_path = project_dir / ".env.example"
+
+    if not env_path.exists():
+        print(f"⚠️  .env.example not found at {env_path}")
+        return
+
+    print("📝 Updating .env.example (removing Temporal vars)...")
+
+    with open(env_path) as f:
+        lines = f.readlines()
+
+    # Remove Temporal section and variables
+    filtered_lines = []
+    skip_temporal_section = False
+
+    for line in lines:
+        # Check if we're entering Temporal section
+        if "Temporal Settings" in line or "Temporal Configuration" in line:
+            skip_temporal_section = True
+            continue
+
+        # Check if we're leaving Temporal section (next ### marker)
+        if skip_temporal_section and line.strip().startswith("###"):
+            skip_temporal_section = False
+
+        # Skip Temporal-related lines
+        if skip_temporal_section or "TEMPORAL_" in line:
+            continue
+
+        filtered_lines.append(line)
+
+    with open(env_path, "w") as f:
+        f.writelines(filtered_lines)
+
+    print("✅ .env.example updated (Temporal variables removed)")
+
+
+def update_docker_compose_temporal(project_dir: Path):
+    """Update docker-compose files to remove Temporal services."""
+    print("📝 Updating docker-compose files (removing Temporal)...")
+
+    for compose_file in ["docker-compose.dev.yml", "docker-compose.prod.yml"]:
+        compose_path = project_dir / compose_file
+
+        if not compose_path.exists():
+            continue
+
+        with open(compose_path) as f:
+            content = f.read()
+
+        # Use the centralized function for Temporal removal
+        content = remove_temporal_from_docker_compose(content)
+
+        with open(compose_path, "w") as f:
+            f.write(content)
+
+        print(f"  ✅ {compose_file} updated")
+
+
 def copy_infra_secrets(project_dir: Path):
     """Copy infra/secrets directory while respecting .gitignore patterns."""
 
@@ -433,6 +546,14 @@ def main():
             update_config_yaml(project_dir, answers)
             update_env_example(project_dir, answers)
             update_docker_compose(project_dir, answers)
+
+        # 6. Handle optional Temporal removal
+        if not answers.get("use_temporal", True):
+            print("\n🔧 Removing Temporal dependencies (use_temporal=false)...")
+            remove_temporal_dependencies(project_dir)
+            update_config_yaml_temporal(project_dir)
+            update_env_example_temporal(project_dir)
+            update_docker_compose_temporal(project_dir)
 
         print("\n✅ Post-generation setup complete!")
         print(f"\n📁 Your project is ready at: {project_dir}")
