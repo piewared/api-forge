@@ -66,7 +66,7 @@ log_info "Output directory: $TEST_OUTPUT_DIR"
 # Use --defaults to accept all default values
 # Use --vcs-ref HEAD to use the current state (including uncommitted changes)
 # Use --data to override specific answers for testing optional features
-copier copy --trust --defaults --vcs-ref MIGRATING_TO_HELM \
+copier copy --trust --defaults --vcs-ref HEAD \
     --data use_temporal=false \
     "$TEMPLATE_DIR" "$TEST_OUTPUT_DIR"
 
