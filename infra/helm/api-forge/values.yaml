@@ -1,0 +1,211 @@
+global:
+  namespace: api-forge-prod
+  createNamespace: false
+  environment: production
+  namePrefix: api-forge
+  imageRegistry: ''
+  imagePullPolicy: IfNotPresent
+  labels:
+    environment: production
+    app.kubernetes.io/managed-by: helm
+postgres:
+  enabled: true
+  image: app_data_postgres_image
+  replicas: 1
+  database: appdb
+  username: appuser
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  persistence:
+    data:
+      enabled: true
+      size: 10Gi
+      storageClass: ''
+    backups:
+      enabled: true
+      size: 20Gi
+      storageClass: ''
+  config:
+    maxConnections: 200
+    sharedBuffers: 256MB
+    effectiveCacheSize: 1GB
+  tls:
+    enabled: true
+    existingSecret: postgres-tls
+  ca:
+    existingSecret: postgres-ca
+  secrets:
+    existingSecret: postgres-secrets
+  networkPolicy:
+    enabled: true
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
+      ports:
+      - protocol: TCP
+        port: 5432
+redis:
+  enabled: false
+  image: app_data_redis_image
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  persistence:
+    data:
+      enabled: true
+      size: 5Gi
+      storageClass: ''
+    backups:
+      enabled: true
+      size: 10Gi
+      storageClass: ''
+  config:
+    maxMemory: 256mb
+    maxMemoryPolicy: allkeys-lru
+  secrets:
+    existingSecret: redis-secrets
+  networkPolicy:
+    enabled: true
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
+temporal:
+  enabled: false
+  image: my-temporal-server:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  persistence:
+    certs:
+      enabled: true
+      size: 1Gi
+      storageClass: ''
+  config:
+    services: history,matching,worker,frontend
+    numHistoryShards: 64
+  web:
+    enabled: true
+    image: temporalio/ui:latest
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  jobs:
+    schemaSetup:
+      enabled: true
+      image: temporalio/admin-tools:latest
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 300
+    namespaceInit:
+      enabled: true
+      image: temporalio/admin-tools:latest
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 300
+  networkPolicy:
+    enabled: true
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
+      ports:
+      - protocol: TCP
+        port: 7233
+app:
+  enabled: true
+  name: app
+  image:
+    repository: api-forge-app
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  revisionHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  persistence:
+    logs:
+      enabled: true
+      size: 5Gi
+      storageClass: ''
+  env:
+    APP_ENVIRONMENT: production
+    APP_HOST: 0.0.0.0
+    APP_PORT: '8000'
+    LOG_FORMAT: json
+    LOG_LEVEL: INFO
+  config:
+    fromFile: true
+  secrets:
+    existingSecret: app-secrets
+  service:
+    type: ClusterIP
+    port: 8000
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts:
+    - host: api-forge.local
+      paths:
+      - path: /
+        pathType: Prefix
+    tls: []
+worker:
+  enabled: true
+  image:
+    repository: api-forge-app
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  revisionHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+jobs:
+  postgresVerifier:
+    enabled: true
+    image: app_data_postgres_image
+    backoffLimit: 3
+    ttlSecondsAfterFinished: 300
+  temporalSchemaSetup:
+    enabled: true
+    image: temporalio/admin-tools:latest
+    backoffLimit: 3
+    ttlSecondsAfterFinished: 300
+  temporalNamespaceInit:
+    enabled: true
+    image: temporalio/admin-tools:latest
+    backoffLimit: 3
+    ttlSecondsAfterFinished: 300

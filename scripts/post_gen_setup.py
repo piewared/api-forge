@@ -12,8 +12,6 @@ from pathlib import Path
 
 from docker_compose_utils import remove_redis_from_docker_compose
 
-from src.app.runtime.config.config_loader import load_config, save_config
-
 
 def update_pyproject_toml(project_dir: Path, answers: dict):
     """Update pyproject.toml with values from copier answers."""
@@ -247,15 +245,28 @@ def update_config_yaml(project_dir: Path, answers: dict):
     if not answers.get("use_redis", True):
         print("📝 Updating config.yaml (disabling Redis)...")
 
-        # Load YAML directly without validation
-        config_dict = load_config(processed=False)
+        config_path = project_dir / "config.yaml"
 
-        # Update the redis.enabled field
-        if "config" in config_dict and "redis" in config_dict["config"]:
-            config_dict["config"]["redis"]["enabled"] = False
+        if not config_path.exists():
+            print(f"⚠️  config.yaml not found at {config_path}")
+            return
 
-        # Save back to file
-        save_config(config_dict)
+        # Read the file
+        with open(config_path) as f:
+            content = f.read()
+
+        # Simple regex replacement to set redis.enabled to false
+        content = re.sub(
+            r"(redis:\s*\n\s*enabled:\s*)true",
+            r"\1false",
+            content,
+            flags=re.MULTILINE,
+        )
+
+        # Write back
+        with open(config_path, "w") as f:
+            f.write(content)
+
         print("✅ config.yaml updated (Redis disabled)")
 
 

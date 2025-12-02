@@ -1,0 +1,20 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-backups
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache-backup
+    app.kubernetes.io/part-of: api-forge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.redis.persistence.backups.size | default "10Gi" }}
+  {{- if .Values.redis.persistence.backups.storageClass }}
+  storageClassName: {{ .Values.redis.persistence.backups.storageClass }}
+  {{- end }}
+{{- end }}

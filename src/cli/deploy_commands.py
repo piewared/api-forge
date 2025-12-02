@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 from rich.panel import Panel
 
-from .deployment import DevDeployer, K8sDeployer, ProdDeployer
+from .deployment import DevDeployer, HelmDeployer, ProdDeployer
 from .utils import console, get_project_root
 
 # Create the deploy command group
@@ -49,6 +49,12 @@ def up(
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
+    registry: str = typer.Option(
+        None,
+        "--registry",
+        "-r",
+        help="Container registry for remote k8s clusters (e.g., ghcr.io/myuser)",
+    ),
 ) -> None:
     """
     🚀 Deploy the application to the specified environment.
@@ -57,6 +63,10 @@ def up(
     - dev: Development environment with hot reload
     - prod: Production-like Docker Compose environment
     - k8s: Kubernetes cluster deployment
+
+    For k8s deployments, the cluster type is auto-detected:
+    - Minikube/Kind: Images loaded directly into cluster cache
+    - Remote clusters: Use --registry to push images to a container registry
     """
     project_root = Path(get_project_root())
 
@@ -70,7 +80,7 @@ def up(
     )
 
     # Create appropriate deployer and execute deployment
-    deployer: DevDeployer | ProdDeployer | K8sDeployer
+    deployer: DevDeployer | ProdDeployer | HelmDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
         deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
@@ -82,9 +92,12 @@ def up(
         )
 
     elif env == Environment.K8S:
-        deployer = K8sDeployer(console, project_root)
+        deployer = HelmDeployer(console, project_root)
         deployer.deploy(
-            namespace=namespace, no_wait=no_wait, force_recreate=force_recreate
+            namespace=namespace,
+            no_wait=no_wait,
+            force_recreate=force_recreate,
+            registry=registry,
         )
 
 
@@ -120,7 +133,7 @@ def down(
     )
 
     # Create appropriate deployer and execute teardown
-    deployer: DevDeployer | ProdDeployer | K8sDeployer
+    deployer: DevDeployer | ProdDeployer | HelmDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
         deployer.teardown(volumes=volumes)
@@ -130,7 +143,7 @@ def down(
         deployer.teardown(volumes=volumes)
 
     elif env == Environment.K8S:
-        deployer = K8sDeployer(console, project_root)
+        deployer = HelmDeployer(console, project_root)
         deployer.teardown(namespace=namespace, volumes=volumes)
 
 
@@ -154,7 +167,7 @@ def status(
     project_root = Path(get_project_root())
 
     # Create appropriate deployer and show status
-    deployer: DevDeployer | ProdDeployer | K8sDeployer
+    deployer: DevDeployer | ProdDeployer | HelmDeployer
     if env == Environment.DEV:
         deployer = DevDeployer(console, project_root)
         deployer.show_status()
@@ -164,7 +177,7 @@ def status(
         deployer.show_status()
 
     elif env == Environment.K8S:
-        deployer = K8sDeployer(console, project_root)
+        deployer = HelmDeployer(console, project_root)
         deployer.show_status(namespace)
 
 
@@ -280,13 +293,13 @@ def rotate(
             f"\n[bold]Step {'3/3' if backup else '2/2'}:[/bold] Redeploying with new secrets..."
         )
 
-        deployer: DevDeployer | ProdDeployer | K8sDeployer
+        deployer: DevDeployer | ProdDeployer | HelmDeployer
         if env == Environment.PROD:
             deployer = ProdDeployer(console, project_root)
             deployer.deploy(skip_build=False, no_wait=False, force_recreate=True)
 
         elif env == Environment.K8S:
-            deployer = K8sDeployer(console, project_root)
+            deployer = HelmDeployer(console, project_root)
             deployer.deploy(namespace=namespace, no_wait=False, force_recreate=True)
 
         console.print(

@@ -164,20 +164,23 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA temporal_visibility TO temporaluser
 **Expected Behavior**: Some integration tests fail without Docker environment running  
 **Action**: ALWAYS run `uv run api-forge-cli dev start-env` before integration tests
 
-### 7. PostgreSQL TLS Certificate Verification (NEW)
-**Context**: The `postgres-verifier` Kubernetes job now mounts the `postgres-tls` secret and enforces certificate permissions before finishing.  
+### 7. PostgreSQL TLS Certificate Verification (HELM DEPLOYMENT)
+**Context**: The `postgres-verifier` Kubernetes job (deployed via Helm) mounts the `postgres-tls` secret and enforces certificate permissions before finishing.  
 **Requirements**:
 - Secret must contain `server.crt` (<= 0644) and `server.key` (<= 0600) files
-- `k8s/base/jobs/postgres-verifier.yaml` mounts each file individually via `subPath` with the correct modes (644/400 out of the box)
-- Run `uv run api-forge-cli deploy up k8s` (or rerun the job) after updating TLS assets so the verifier can re-check them
-**Troubleshooting**: If the job reports `Cert files not mounted` or permission errors, ensure the secret was created with `kubectl create secret tls postgres-tls ...`, then delete/recreate the `postgres-verifier` job so it picks up the new secret.
+- Helm template `infra/helm/api-forge/templates/jobs/postgres-verifier.yaml` mounts each file individually via `subPath`
+- Run `uv run api-forge-cli deploy up k8s` (Helm deployment) after updating TLS assets
+**Troubleshooting**: If the job reports `Cert files not mounted` or permission errors:
+  1. Ensure secrets were created: `./infra/helm/api-forge/scripts/apply-secrets.sh`
+  2. Delete the job: `kubectl delete job postgres-verifier -n api-forge-prod`
+  3. Redeploy with Helm: `uv run api-forge-cli deploy up k8s`
 
-### 5. K8s Secret Management & Environment Variable Precedence (DOCUMENTED)
-**Context**: OIDC client secrets flow through multiple layers in K8s deployments  
+### 5. K8s Secret Management & Environment Variable Precedence (HELM DEPLOYMENT)
+**Context**: OIDC client secrets flow through multiple layers in Helm-based K8s deployments  
 **Secret Flow**:
 1. Local files: `infra/secrets/keys/oidc_*_client_secret.txt` (actual values)
-2. K8s secrets: Created via `k8s/scripts/apply-secrets.sh` (base64 encoded)
-3. Volume mounts: `/run/secrets/oidc_*_client_secret` (mounted in pods)
+2. K8s secrets: Created via `infra/helm/api-forge/scripts/apply-secrets.sh` or CLI (base64 encoded)
+3. Volume mounts: `/run/secrets/oidc_*_client_secret` (mounted in pods via Helm templates)
 4. Entrypoint script: Copies to `/app/keys/` and creates env vars
 5. Application: Reads from entrypoint-created env vars
 
@@ -191,6 +194,7 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA temporal_visibility TO temporaluser
 - `.env` file should NOT contain real OIDC secrets (removed as of Nov 2025)
 - ConfigMap may show placeholder values, but they're not used by the app
 - Real secrets only in `infra/secrets/keys/` and K8s secrets
+- Helm templates handle all secret mounting automatically
 - See `docs/security/secrets_management.md` for complete flow documentation
 
 ### 6. Port Conflicts
@@ -228,7 +232,7 @@ Reference tests: `tests/unit/app/core/services/test_jwt_services.py`, `tests/uni
 - **Config + model parity**: All config surface area lives in `config.yaml` and is validated by `ConfigData` models. When adding a knob, update both the YAML defaults and the corresponding Pydantic model (plus docs under `docs/configuration.md`) and extend tests that rely on the new setting.
 - **Database + storage changes**: Until Alembic migrations land, schema adjustments go through `src/app/runtime/init_db.py` and the SQLite dev database. Update fixtures under `tests/fixtures/` and add helper data in `data/` if the change requires dev/test visibility.
 - **Testing strategy**: Keep fast unit tests under `tests/unit/` and lean on the provided Redis/Postgres/Temporal containers for integration suites. For anything auth-related, reuse the Keycloak fixtures in `tests/fixtures/auth.py` and avoid hardcoding secrets.
-- **Deployment surfaces**: Docker Compose files live in `docker/`, while Kubernetes manifests are in `k8s/` with overlays emitted to `k8s-out/`. CI/CD and local smoke tests rely on `uv run api-forge-cli deploy up k8s` plus the `postgres-verifier` job, so ensure any new assets (TLS certs, ConfigMaps) thread through that flow.
+- **Deployment surfaces**: Docker Compose files live in `infra/docker/`, while Helm chart is in `infra/helm/api-forge/`. CI/CD and local deployments use `uv run api-forge-cli deploy up k8s` which handles Helm packaging, config sync (redis.enabled, temporal.enabled), secret creation, and deployment. Ensure any new assets (TLS certs, ConfigMaps, Jobs) are added to the Helm templates and tested through the CLI flow.
 - **Observability + logging**: Structured logging defaults to JSON via Loguru. When adding logs, avoid secrets, prefer metadata, and ensure new components emit health info that shows up in `uv run api-forge-cli dev logs <service>`.
 - **Stateful services**: Redis (sessions/cache), PostgreSQL (app DB + Temporal), and Temporal itself all have dev/prod splits. For changes touching these systems, note the different ports/secrets and update `docs/redis/`, `docs/postgres/`, or `docs/temporal/` as needed.
 

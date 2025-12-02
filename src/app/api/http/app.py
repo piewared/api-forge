@@ -230,8 +230,13 @@ def _activate_local_rate_limiter() -> None:
 
 # --- Rate limiter setup ---
 async def _initialize_rate_limiter() -> None:
-    # Skip initialization when Redis is not configured
+    # Skip initialization when Redis is not configured or disabled
     config = get_config()
+    if not config.redis.enabled:
+        logger.info("Redis is disabled; using local in-memory rate limiter")
+        _activate_local_rate_limiter()
+        return None
+
     if config.redis.url is None:
         logger.info("Redis URL not configured; using local in-memory rate limiter")
         _activate_local_rate_limiter()

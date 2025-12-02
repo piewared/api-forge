@@ -1,0 +1,6 @@
+redis:
+  enabled: false
+temporal:
+  enabled: false
+worker:
+  enabled: false

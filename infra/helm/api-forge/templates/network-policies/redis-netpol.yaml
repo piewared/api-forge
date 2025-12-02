@@ -1,0 +1,17 @@
+{{- if and .Values.redis.enabled .Values.redis.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-forge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: cache
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- toYaml .Values.redis.networkPolicy.ingress | nindent 4 }}
+{{- end }}

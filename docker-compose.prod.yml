@@ -182,23 +182,10 @@ services:
         condition: service_healthy
     environment:
       TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      - ./infra/docker/prod/temporal/scripts/namespace-init.sh:/scripts/namespace-init.sh:ro
     entrypoint: []  # Override the default 'sleep infinity' entrypoint
-    command: >
-      sh -lc '
-        set -e
-        echo "[init] waiting for cluster health...";
-        for i in $(seq 1 60); do
-          temporal --command-timeout 2s operator cluster health && break || sleep 2
-        done
-        echo "[init] describing namespace...";
-        if temporal operator namespace describe -n default >/dev/null 2>&1; then
-          echo "[init] namespace already exists";
-        else
-          echo "[init] creating namespace...";
-          temporal operator namespace create -n default --retention 7d
-          echo "[init] created";
-        fi
-      '
+    command: ["/scripts/namespace-init.sh"]
     restart: "no"
     networks:
       - backend
@@ -210,7 +197,7 @@ services:
     build:
       context: .
       dockerfile: ./infra/docker/prod/temporal/Dockerfile
-    image: my-temporal-server:1.29.0
+    image: my-temporal-server:latest
     depends_on:
       postgres:
         condition: service_healthy

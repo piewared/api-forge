@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: api-forge-prod
-  labels:
-    app.kubernetes.io/name: api-forge
-    app.kubernetes.io/environment: production

@@ -4,7 +4,75 @@
 
 # ============================================================
 
-This migration plan defines the detailed strategy, architecture, technical implementation, and verification workflow for migrating a large multi-service Kubernetes deployment stack from:
+## ✅ MIGRATION COMPLETE (November 2025)
+
+**This migration has been successfully completed!** The system has been fully migrated from Kustomize to Helm.
+
+### Migration Status
+
+- ✅ **Helm Chart Created**: Full chart at `infra/helm/api-forge/` with all templates
+- ✅ **Config Sync Implemented**: Automatic sync of `config.yaml` → `values.yaml`
+- ✅ **Conditional Resources**: Redis and Temporal controlled by configuration
+- ✅ **Secret Management**: Integrated with `infra/helm/api-forge/scripts/apply-secrets.sh`
+- ✅ **CLI Integration**: `uv run api-forge-cli deploy up k8s` fully operational
+- ✅ **Timestamp Annotations**: Automatic pod recreation on deployment
+- ✅ **Documentation Updated**: All docs reflect Helm deployment
+- ✅ **Testing Complete**: Tested with redis.enabled=false and redis.enabled=true
+
+### Current Architecture (Post-Migration)
+
+The deployment now uses:
+
+* **Helm v3** for package management and templating
+* **Dynamic config sync** from `config.yaml` to `values.yaml`
+* **Conditional templates** with `{{ if .Values.redis.enabled }}` pattern
+* **Automated secret creation** via apply-secrets.sh script
+* **Single CLI command** deployment: `uv run api-forge-cli deploy up k8s`
+* **Timestamp annotations** for guaranteed pod recreation
+* **Clean template structure** in `infra/helm/api-forge/templates/`
+
+### Key Implementation Details
+
+**Directory Structure**:
+```
+infra/helm/api-forge/
+├── Chart.yaml
+├── values.yaml
+├── templates/
+│   ├── namespace.yaml
+│   ├── configmaps/
+│   ├── deployments/  (with conditional resources)
+│   ├── services/
+│   ├── jobs/
+│   ├── persistentvolumeclaims/
+│   ├── networkpolicies/
+│   └── _helpers.tpl
+└── scripts/
+    ├── apply-secrets.sh
+    └── build-images.sh
+```
+
+**Config Sync** (`src/cli/deployment/helm_deployer.py`):
+- Reads `config.yaml` (unprocessed, raw YAML)
+- Updates `values.yaml` with redis.enabled and temporal.enabled
+- Reports changes to user before deployment
+- Ensures deployment matches application configuration
+
+**Deployment Flow**:
+1. `uv run api-forge-cli deploy up k8s`
+2. Sync config → values
+3. Build/check images
+4. Generate secrets if needed
+5. Apply secrets to cluster
+6. Package Helm chart
+7. Install/upgrade Helm release
+8. Monitor deployment status
+
+---
+
+## Original Migration Plan Documentation
+
+This document originally defined the migration strategy from:
 
 * Kustomize
 * Bash-based orchestration
@@ -23,7 +91,9 @@ This migration plan defines the detailed strategy, architecture, technical imple
 * Jobs either managed by Helm or executed separately
 * Optional future compatibility with **Fly.io Kubernetes (FKS)**
 
-This document is self-contained and includes:
+The remainder of this document contains the original migration plan for historical reference.
+
+This document includes:
 
 * Complete architecture analysis
 * Feature parity mapping
@@ -36,8 +106,6 @@ This document is self-contained and includes:
 * CI/CD integration
 * Testing matrix
 * Detailed checklists
-
-The entire original content has been incorporated, corrected, and expanded.
 
 ---
 

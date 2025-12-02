@@ -1,0 +1,21 @@
+{{- if .Values.temporal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/part-of: api-forge
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 7233
+      targetPort: 7233
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: temporal
+  sessionAffinity: None
+{{- end }}

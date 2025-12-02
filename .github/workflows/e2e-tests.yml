@@ -2,10 +2,22 @@ name: E2E Tests
 
 on:
   push:
-    branches: [main, develop, KUBERNETES_DEV]
+    branches: [main, develop, MIGRATING_TO_HELM]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   pull_request:
     branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   workflow_dispatch:  # Allow manual triggering
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e-fast:
@@ -27,10 +39,16 @@ jobs:
         with:
           version: "latest"
       
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+      
       - name: Install dependencies
-        run: |
-          uv sync --dev
-          uv run pip install -e .
+        run: uv sync --dev
       
       - name: Run fast E2E tests
         run: |
@@ -67,10 +85,16 @@ jobs:
         with:
           version: "latest"
       
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+      
       - name: Install dependencies
-        run: |
-          uv sync --dev
-          uv run pip install -e .
+        run: uv sync --dev
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -128,7 +152,13 @@ jobs:
       - name: Cleanup Docker resources
         if: always()
         run: |
-          docker-compose down -v || true
+          # Stop and remove all api-forge containers
+          docker ps -aq --filter "name=api-forge" | xargs -r docker rm -f || true
+          # Remove api-forge networks
+          docker network ls -q --filter "name=api-forge" | xargs -r docker network rm || true
+          # Remove api-forge volumes
+          docker volume ls -q --filter "name=api-forge" | xargs -r docker volume rm || true
+          # General cleanup
           docker system prune -af --volumes || true
       
       - name: Upload test results
@@ -142,7 +172,7 @@ jobs:
           if-no-files-found: ignore
 
   e2e-kubernetes:
-    name: Kubernetes E2E Tests
+    name: Kubernetes E2E Tests (Helm)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Only run on manual trigger or release branches
@@ -162,38 +192,82 @@ jobs:
         with:
           version: "latest"
       
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+      
       - name: Install dependencies
-        run: |
-          uv sync --dev
-          uv run pip install -e .
+        run: uv sync --dev
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       
       - name: Set up Minikube
         uses: medyagh/setup-minikube@latest
         with:
           driver: docker
           kubernetes-version: v1.28.0
-          cpus: 2
-          memory: 4096m
+          cpus: 4
+          memory: 6144m
       
-      - name: Verify Kubernetes cluster
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+      
+      - name: Verify Kubernetes cluster and Helm
         run: |
           kubectl cluster-info
           kubectl get nodes
+          helm version
       
-      - name: Run Kubernetes E2E tests
+      - name: Run Kubernetes E2E tests (Helm deployment)
         run: |
           uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_08_kubernetes_deployment -v -s --tb=short
       
-      - name: Get Kubernetes logs on failure
+      - name: Get Helm and Kubernetes logs on failure
         if: failure()
         run: |
+          echo "=== Helm Releases ==="
+          helm list -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Helm Release Status ==="
+          helm status api-forge -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Kubernetes Resources ==="
           kubectl get all -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Pod Descriptions ==="
           kubectl describe pods -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Pod Logs ==="
           kubectl logs -n api-forge-prod --all-containers --tail=100 || true
+          
+          echo ""
+          echo "=== Job Status ==="
+          kubectl get jobs -n api-forge-prod || true
+          
+          echo ""
+          echo "=== ConfigMaps ==="
+          kubectl get configmaps -n api-forge-prod || true
+          
+          echo ""
+          echo "=== Secrets ==="
+          kubectl get secrets -n api-forge-prod || true
       
       - name: Cleanup Kubernetes resources
         if: always()
         run: |
+          helm uninstall api-forge -n api-forge-prod --wait --timeout=300s || true
+          kubectl delete pods -n api-forge-prod --all --force --grace-period=0 || true
           kubectl delete namespace api-forge-prod --wait=true --timeout=120s || true
       
       - name: Upload test results

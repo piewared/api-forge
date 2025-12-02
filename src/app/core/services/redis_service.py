@@ -236,3 +236,36 @@ class RedisService:
     def url(self) -> str | None:
         """Get the Redis connection URL."""
         return self._url
+
+
+def is_redis_available(timeout: float = 1.0) -> bool:
+    """Check if Redis is available by attempting a synchronous connection.
+
+    This is a lightweight synchronous check intended for use at module load time,
+    such as in pytest skipif conditions. For async code, use RedisService.health_check().
+
+    Args:
+        timeout: Connection timeout in seconds (default: 1.0)
+
+    Returns:
+        True if Redis is running and accessible, False otherwise.
+    """
+    try:
+        import redis
+
+        config = get_config()
+
+        if not config.redis.enabled or not config.redis.url:
+            return False
+
+        # Try to connect synchronously with a short timeout
+        client = redis.from_url(
+            config.redis.connection_string,
+            socket_connect_timeout=timeout,
+            socket_timeout=timeout,
+        )
+        client.ping()
+        client.close()
+        return True
+    except Exception:
+        return False
