@@ -30,22 +30,54 @@ def is_redis_enabled() -> bool:
         return True
 
 
+def is_temporal_enabled() -> bool:
+    """Check if Temporal is enabled in config.yaml.
+
+    Uses load_config(processed=False) to read raw YAML without environment
+    processing, avoiding side effects from loading the full application config.
+
+    Returns:
+        True if Temporal is enabled, False otherwise
+    """
+    try:
+        from src.app.runtime.config.config_loader import load_config
+
+        # Load raw config without environment variable substitution or processing
+        config_data = load_config(processed=False)
+
+        # Navigate to config.temporal.enabled in the YAML structure
+        config_section = config_data.get("config", {})
+        temporal_config = config_section.get("temporal", {})
+        return cast(
+            bool, temporal_config.get("enabled", True)
+        )  # Default to True if not specified
+
+    except Exception:
+        # If we can't load config, assume Temporal is enabled for backward compatibility
+        return True
+
+
 def get_production_services() -> list[tuple[str, str]]:
     """Get list of production services based on configuration.
 
     Returns:
         List of (container_name, display_name) tuples for active services
     """
-    services = [
+    services: list[tuple[str, str]] = [
         ("api-forge-postgres", "PostgreSQL"),
-        ("api-forge-temporal", "Temporal"),
-        ("api-forge-temporal-web", "Temporal Web"),
-        ("api-forge-app", "FastAPI App"),
-        ("api-forge-worker", "Temporal Worker"),
     ]
 
     # Add Redis if it's enabled in config
     if is_redis_enabled():
-        services.insert(1, ("api-forge-redis", "Redis"))
+        services.append(("api-forge-redis", "Redis"))
+
+    # Add Temporal services if enabled in config
+    if is_temporal_enabled():
+        services.append(("api-forge-temporal", "Temporal"))
+        services.append(("api-forge-temporal-web", "Temporal Web"))
+        services.append(("api-forge-worker", "Temporal Worker"))
+
+    # App is always last (depends on other services)
+    services.append(("api-forge-app", "FastAPI App"))
 
     return services
