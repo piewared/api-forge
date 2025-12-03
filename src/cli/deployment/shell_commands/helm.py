@@ -128,6 +128,73 @@ class HelmCommands:
             cmd.append("--wait")
         return self._runner.run(cmd)
 
+    def rollback(
+        self,
+        release_name: str,
+        namespace: str,
+        revision: int | None = None,
+        *,
+        wait: bool = True,
+        timeout: str = "5m",
+    ) -> CommandResult:
+        """Rollback a Helm release to a previous revision.
+
+        Args:
+            release_name: Name of the release to rollback
+            namespace: Kubernetes namespace
+            revision: Specific revision to rollback to (default: previous revision)
+            wait: Whether to wait for rollback to complete
+            timeout: Maximum time to wait for rollback
+
+        Returns:
+            CommandResult with rollback status
+        """
+        cmd = ["helm", "rollback", release_name, "-n", namespace]
+        if revision is not None:
+            cmd.append(str(revision))
+        if wait:
+            cmd.append("--wait")
+        cmd.extend(["--timeout", timeout])
+        return self._runner.run(cmd)
+
+    def history(
+        self,
+        release_name: str,
+        namespace: str,
+        max_revisions: int = 10,
+    ) -> list[dict[str, str]]:
+        """Get release history.
+
+        Args:
+            release_name: Name of the release
+            namespace: Kubernetes namespace
+            max_revisions: Maximum number of revisions to return
+
+        Returns:
+            List of revision dictionaries with keys: revision, updated, status, description
+        """
+        cmd = [
+            "helm",
+            "history",
+            release_name,
+            "-n",
+            namespace,
+            "-o",
+            "json",
+            "--max",
+            str(max_revisions),
+        ]
+
+        result = self._runner.run(cmd)
+        if not result.success or not result.stdout:
+            return []
+
+        try:
+            history_data: list[dict[str, str]] = json.loads(result.stdout)
+            return history_data
+        except json.JSONDecodeError:
+            return []
+
     # =========================================================================
     # Status Queries
     # =========================================================================

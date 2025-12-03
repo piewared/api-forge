@@ -384,3 +384,227 @@ def rotate(
             console.print(
                 f"   [cyan]uv run api-forge-cli deploy up k8s --force-recreate -n {namespace}[/cyan]"
             )
+
+
+@deploy_app.command()
+def rollback(
+    revision: int = typer.Argument(
+        None, help="Revision number to rollback to (default: previous revision)"
+    ),
+    namespace: str = typer.Option(
+        "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+) -> None:
+    """
+    ⏪ Rollback Kubernetes deployment to a previous revision.
+
+    This command uses Helm's native rollback functionality to restore
+    the deployment to a previous working state.
+
+    Examples:
+        # Rollback to the previous revision
+        uv run api-forge-cli deploy rollback
+
+        # Rollback to a specific revision
+        uv run api-forge-cli deploy rollback 3
+
+        # View revision history first
+        uv run api-forge-cli deploy history
+    """
+    from rich.table import Table
+
+    from .deployment import HelmDeployer
+
+    project_root = Path(get_project_root())
+    deployer = HelmDeployer(console, project_root)
+
+    # Get release history
+    history = deployer.commands.helm.history(
+        deployer.constants.HELM_RELEASE_NAME, namespace
+    )
+
+    if not history:
+        console.print(
+            f"[red]No release history found for '{deployer.constants.HELM_RELEASE_NAME}' "
+            f"in namespace '{namespace}'[/red]"
+        )
+        console.print("\n[dim]Make sure the release exists and you have access.[/dim]")
+        raise typer.Exit(1)
+
+    # Show current state
+    current = history[-1]
+    current_revision = int(current.get("revision", 0))
+
+    if current_revision <= 1:
+        console.print(
+            "[yellow]⚠ Only one revision exists. Nothing to rollback to.[/yellow]"
+        )
+        raise typer.Exit(0)
+
+    # Determine target revision
+    target_revision = revision if revision is not None else current_revision - 1
+
+    if target_revision < 1 or target_revision >= current_revision:
+        console.print(
+            f"[red]Invalid revision {target_revision}. "
+            f"Must be between 1 and {current_revision - 1}.[/red]"
+        )
+        raise typer.Exit(1)
+
+    # Find target revision info
+    target_info = next(
+        (h for h in history if int(h.get("revision", 0)) == target_revision), None
+    )
+
+    # Show rollback plan
+    console.print("\n[bold cyan]📋 Rollback Plan[/bold cyan]\n")
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("", style="dim")
+    table.add_column("Revision")
+    table.add_column("Status")
+    table.add_column("Description")
+
+    table.add_row(
+        "Current",
+        str(current_revision),
+        current.get("status", "unknown"),
+        current.get("description", "")[:50],
+    )
+
+    if target_info:
+        table.add_row(
+            "Target",
+            str(target_revision),
+            target_info.get("status", "unknown"),
+            target_info.get("description", "")[:50],
+        )
+
+    console.print(table)
+
+    # Confirm
+    if not confirm_destructive_action(
+        action=f"Rollback to revision {target_revision}",
+        details=f"This will restore the deployment in namespace '{namespace}' to revision {target_revision}.",
+        extra_warning="Active pods will be replaced with the previous configuration.",
+        force=yes,
+    ):
+        console.print("[dim]Rollback cancelled.[/dim]")
+        raise typer.Exit(0)
+
+    # Perform rollback
+    console.print(
+        Panel.fit(
+            f"[bold yellow]⏪ Rolling back to revision {target_revision}[/bold yellow]",
+            border_style="yellow",
+        )
+    )
+
+    result = deployer.commands.helm.rollback(
+        deployer.constants.HELM_RELEASE_NAME,
+        namespace,
+        target_revision,
+        wait=True,
+        timeout="5m",
+    )
+
+    if result.success:
+        console.print(
+            f"\n[bold green]✅ Successfully rolled back to revision {target_revision}![/bold green]"
+        )
+        console.print(
+            "\n[dim]Run 'uv run api-forge-cli deploy status k8s' to verify.[/dim]"
+        )
+    else:
+        console.print("\n[bold red]❌ Rollback failed[/bold red]")
+        if result.stderr:
+            console.print(Panel(result.stderr, title="Error", border_style="red"))
+        raise typer.Exit(1)
+
+
+@deploy_app.command()
+def history(
+    namespace: str = typer.Option(
+        "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace"
+    ),
+    max_revisions: int = typer.Option(
+        10, "--max", "-m", help="Maximum number of revisions to show"
+    ),
+) -> None:
+    """
+    📜 Show Kubernetes deployment revision history.
+
+    Displays the Helm release history including revision numbers,
+    timestamps, status, and descriptions. Use this to identify
+    which revision to rollback to.
+
+    Examples:
+        # Show last 10 revisions
+        uv run api-forge-cli deploy history
+
+        # Show last 5 revisions
+        uv run api-forge-cli deploy history --max 5
+    """
+    from rich.table import Table
+
+    from .deployment import HelmDeployer
+
+    project_root = Path(get_project_root())
+    deployer = HelmDeployer(console, project_root)
+
+    # Get release history
+    history_data = deployer.commands.helm.history(
+        deployer.constants.HELM_RELEASE_NAME, namespace, max_revisions
+    )
+
+    if not history_data:
+        console.print(
+            f"[yellow]No release history found for '{deployer.constants.HELM_RELEASE_NAME}' "
+            f"in namespace '{namespace}'[/yellow]"
+        )
+        console.print(
+            "\n[dim]Deploy first with: uv run api-forge-cli deploy up k8s[/dim]"
+        )
+        return
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]📜 Release History: {deployer.constants.HELM_RELEASE_NAME}[/bold cyan]",
+            border_style="cyan",
+        )
+    )
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Revision", justify="right")
+    table.add_column("Updated")
+    table.add_column("Status")
+    table.add_column("Chart")
+    table.add_column("Description")
+
+    for entry in history_data:
+        revision = entry.get("revision", "")
+        updated = entry.get("updated", "")[:19]  # Trim timezone
+        status = entry.get("status", "")
+        chart = entry.get("chart", "")
+        description = entry.get("description", "")[:40]
+
+        # Color status
+        if status == "deployed":
+            status_display = f"[green]{status}[/green]"
+        elif status in ("failed", "superseded"):
+            status_display = f"[red]{status}[/red]"
+        elif status == "pending-upgrade":
+            status_display = f"[yellow]{status}[/yellow]"
+        else:
+            status_display = status
+
+        table.add_row(str(revision), updated, status_display, chart, description)
+
+    console.print(table)
+
+    # Show rollback hint
+    if len(history_data) > 1:
+        console.print(
+            "\n[dim]To rollback: uv run api-forge-cli deploy rollback <revision>[/dim]"
+        )
