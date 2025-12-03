@@ -425,6 +425,7 @@ class TestCopierToDeployment:
                 "generate",
                 "--pki",
                 "--force",
+                "--yes",
                 "--oidc-google-secret",
                 "test-google-secret-e2e",
                 "--oidc-microsoft-secret",
@@ -531,7 +532,16 @@ print("✅ All imports successful")
             # Clean up any previous Docker Compose deployment first
             print("\n🧹 Cleaning up any previous Docker Compose deployment...")
             self.run_command(
-                ["uv", "run", "api-forge-cli", "deploy", "down", "prod", "--volumes"],
+                [
+                    "uv",
+                    "run",
+                    "api-forge-cli",
+                    "deploy",
+                    "down",
+                    "prod",
+                    "--volumes",
+                    "--yes",
+                ],
                 cwd=project_dir,
                 timeout=60,
                 check=False,
@@ -570,6 +580,7 @@ print("✅ All imports successful")
                         "generate",
                         "--pki",
                         "--force",
+                        "--yes",
                         "--oidc-google-secret",
                         "test-google-secret-e2e",
                         "--oidc-microsoft-secret",
@@ -802,7 +813,16 @@ print("✅ All imports successful")
             # Cleanup: Stop and remove containers
             print("\n🧹 Cleaning up Docker Compose deployment...")
             self.run_command(
-                ["uv", "run", "api-forge-cli", "deploy", "down", "prod", "--volumes"],
+                [
+                    "uv",
+                    "run",
+                    "api-forge-cli",
+                    "deploy",
+                    "down",
+                    "prod",
+                    "--volumes",
+                    "--yes",
+                ],
                 cwd=project_dir,
                 check=False,
             )
@@ -877,6 +897,7 @@ print("✅ All imports successful")
                         "generate",
                         "--pki",
                         "--force",
+                        "--yes",
                         "--oidc-google-secret",
                         "test-google-secret-e2e",
                         "--oidc-microsoft-secret",

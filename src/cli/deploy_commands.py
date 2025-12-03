@@ -10,7 +10,7 @@ from rich.panel import Panel
 
 from .deployment import DevDeployer, HelmDeployer, ProdDeployer
 from .deployment.helm_deployer.image_builder import DeploymentError
-from .utils import console, get_project_root
+from .utils import confirm_destructive_action, console, get_project_root
 
 # Create the deploy command group
 deploy_app = typer.Typer(help="🚀 Deployment commands for different environments")
@@ -121,6 +121,7 @@ def down(
     volumes: bool = typer.Option(
         False, "--volumes", "-v", help="Remove volumes/PVCs along with deployment"
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """
     ⏹️  Stop services in the specified environment.
@@ -131,9 +132,32 @@ def down(
     - k8s: Delete Kubernetes deployment and optionally PVCs
     """
     project_root = Path(get_project_root())
+    env_name = env.value.upper()
+
+    # Build confirmation details
+    if env == Environment.K8S:
+        details = f"This will stop all services in namespace '{namespace}'."
+    else:
+        details = f"This will stop all {env_name} Docker Compose services."
+
+    extra_warning = None
+    if volumes:
+        extra_warning = (
+            "⚠️  --volumes flag is set: ALL DATA WILL BE PERMANENTLY DELETED!\n"
+            "   This includes databases, caches, and any persistent storage."
+        )
+
+    # Confirm destructive action
+    if not confirm_destructive_action(
+        action=f"Stop {env_name} environment",
+        details=details,
+        extra_warning=extra_warning,
+        force=yes,
+    ):
+        console.print("[dim]Operation cancelled.[/dim]")
+        raise typer.Exit(0)
 
     # Display header
-    env_name = env.value.upper()
     console.print(
         Panel.fit(
             f"[bold red]Stopping {env_name} Environment[/bold red]",
@@ -214,6 +238,7 @@ def rotate(
     namespace: str = typer.Option(
         "api-forge-prod", "--namespace", "-n", help="Kubernetes namespace (k8s only)"
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """
     🔐 Rotate secrets and optionally redeploy.
@@ -251,6 +276,31 @@ def rotate(
             "[yellow]⚠[/yellow] Secret rotation is not needed for dev environment"
         )
         console.print("   Dev environment uses hardcoded test credentials")
+        raise typer.Exit(0)
+
+    # Confirm destructive action
+    env_name = env.value.upper()
+    details = (
+        "This will regenerate all production secrets including:\n"
+        "  • Database passwords\n"
+        "  • Session signing secrets\n"
+        "  • CSRF signing secrets\n"
+        "  • OIDC client secrets"
+    )
+    extra_warning = (
+        "⚠️  Existing secrets will be overwritten!\n"
+        "   Running services will need to be restarted to use new secrets."
+    )
+    if not backup:
+        extra_warning += "\n   --no-backup: Old secrets will NOT be backed up!"
+
+    if not confirm_destructive_action(
+        action=f"Rotate {env_name} secrets",
+        details=details,
+        extra_warning=extra_warning,
+        force=yes,
+    ):
+        console.print("[dim]Operation cancelled.[/dim]")
         raise typer.Exit(0)
 
     # Display header
