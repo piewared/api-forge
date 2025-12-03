@@ -2,10 +2,26 @@
 
 This module handles copying configuration files to the Helm staging area
 and synchronizing settings between the application config and Helm values.
+
+Note on YAML editing:
+    This module uses regex-based line editing to preserve comments and structure
+    in values.yaml. If more complex YAML manipulation is needed in the future,
+    consider using `ruamel.yaml` instead of `pyyaml`. ruamel.yaml preserves
+    comments, ordering, and formatting when round-tripping YAML files:
+
+        from ruamel.yaml import YAML
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        with open(path) as f:
+            data = yaml.load(f)
+        # modify data...
+        with open(path, 'w') as f:
+            yaml.dump(data, f)
 """
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -84,6 +100,8 @@ class ConfigSynchronizer:
     ) -> list[str]:
         """Compare and update values.yaml with config.yaml settings.
 
+        Uses line-based editing to preserve comments and formatting in values.yaml.
+
         Args:
             config_path: Path to config.yaml
             values_path: Path to values.yaml
@@ -94,36 +112,77 @@ class ConfigSynchronizer:
         config_raw = load_config(config_path, processed=False)
         config_data = config_raw if isinstance(config_raw, dict) else {}
 
+        # Read values.yaml for comparison (to detect what needs changing)
         with open(values_path) as f:
             values_data = yaml.safe_load(f)
 
         changes = []
+        updates: dict[str, tuple[bool, bool]] = {}  # key -> (old_val, new_val)
 
-        # Sync redis.enabled
+        # Check redis.enabled
         if redis_config := config_data.get("config", {}).get("redis"):
             if "redis" in values_data:
                 old_val = values_data["redis"].get("enabled", True)
                 new_val = redis_config.get("enabled", True)
                 if old_val != new_val:
-                    values_data["redis"]["enabled"] = new_val
+                    updates["redis"] = (old_val, new_val)
                     changes.append(f"redis.enabled: {old_val} → {new_val}")
 
-        # Sync temporal.enabled
+        # Check temporal.enabled
         if temporal_config := config_data.get("config", {}).get("temporal"):
             if "temporal" in values_data:
                 old_val = values_data["temporal"].get("enabled", True)
                 new_val = temporal_config.get("enabled", True)
                 if old_val != new_val:
-                    values_data["temporal"]["enabled"] = new_val
+                    updates["temporal"] = (old_val, new_val)
                     changes.append(f"temporal.enabled: {old_val} → {new_val}")
 
-        if changes:
-            with open(values_path, "w") as f:
-                yaml.safe_dump(
-                    values_data, f, default_flow_style=False, sort_keys=False
-                )
+        if updates:
+            self._update_values_preserving_format(values_path, updates)
 
         return changes
+
+    def _update_values_preserving_format(
+        self,
+        values_path: Path,
+        updates: dict[str, tuple[bool, bool]],
+    ) -> None:
+        """Update values.yaml while preserving comments and formatting.
+
+        Uses line-based editing to find and update specific values without
+        rewriting the entire file.
+
+        Args:
+            values_path: Path to values.yaml
+            updates: Dict of section_name -> (old_value, new_value) to update
+        """
+        with open(values_path) as f:
+            lines = f.readlines()
+
+        current_section: str | None = None
+        modified_lines = []
+
+        for line in lines:
+            # Detect top-level section (no leading whitespace, ends with :)
+            stripped = line.rstrip()
+            if stripped and not line[0].isspace() and stripped.endswith(":"):
+                # Extract section name (e.g., "redis:" -> "redis")
+                current_section = stripped[:-1].split("#")[0].strip()
+
+            # Check if this line is an 'enabled:' setting in a section we want to update
+            if current_section in updates:
+                # Match lines like "  enabled: true" or "  enabled: false"
+                match = re.match(r"^(\s+enabled:\s*)(true|false)(.*)$", line)
+                if match:
+                    indent, old_bool, rest = match.groups()
+                    _, new_val = updates[current_section]
+                    new_bool = "true" if new_val else "false"
+                    line = f"{indent}{new_bool}{rest}\n"
+
+            modified_lines.append(line)
+
+        with open(values_path, "w") as f:
+            f.writelines(modified_lines)
 
     def copy_config_files(self, progress_factory: type[Progress]) -> None:
         """Copy configuration files to Helm staging area.
