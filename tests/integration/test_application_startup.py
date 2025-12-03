@@ -6,6 +6,10 @@ from src.app.runtime.context import get_config
 
 config = get_config()
 
+# Mark all tests in this module to run in the same xdist group
+# to avoid database initialization race conditions during parallel execution
+pytestmark = pytest.mark.xdist_group("database_init")
+
 
 class TestApplicationStartup:
     """Test application startup and configuration validation."""

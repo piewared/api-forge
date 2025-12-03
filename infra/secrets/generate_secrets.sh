@@ -507,6 +507,186 @@ backup_existing_secrets() {
     fi
 }
 
+# Function to list available backups
+list_backups() {
+    local backups=()
+    
+    # Find all backup directories, sorted by name (newest first due to timestamp format)
+    while IFS= read -r -d '' dir; do
+        backups+=("$dir")
+    done < <(find "$SCRIPT_DIR" -maxdepth 1 -type d -name "backup_*" -print0 | sort -rz)
+    
+    if [ ${#backups[@]} -eq 0 ]; then
+        print_warning "No backups found in $SCRIPT_DIR"
+        return 1
+    fi
+    
+    echo ""
+    print_info "Available backups (newest first):"
+    echo ""
+    
+    local idx=1
+    for backup in "${backups[@]}"; do
+        local backup_name="$(basename "$backup")"
+        # Extract timestamp from backup name (backup_YYYYMMDD_HHMMSS)
+        local timestamp="${backup_name#backup_}"
+        local year="${timestamp:0:4}"
+        local month="${timestamp:4:2}"
+        local day="${timestamp:6:2}"
+        local hour="${timestamp:9:2}"
+        local min="${timestamp:11:2}"
+        local sec="${timestamp:13:2}"
+        local formatted_date="$year-$month-$day $hour:$min:$sec"
+        
+        # Count files in backup
+        local file_count=0
+        if [ -d "$backup/keys" ]; then
+            file_count=$((file_count + $(find "$backup/keys" -type f 2>/dev/null | wc -l)))
+        fi
+        if [ -d "$backup/certs" ]; then
+            file_count=$((file_count + $(find "$backup/certs" -type f 2>/dev/null | wc -l)))
+        fi
+        # Count loose files
+        file_count=$((file_count + $(find "$backup" -maxdepth 1 -type f -name "*.txt" 2>/dev/null | wc -l)))
+        
+        printf "  %2d. %s (%s) - %d files\n" "$idx" "$backup_name" "$formatted_date" "$file_count"
+        idx=$((idx + 1))
+    done
+    
+    echo ""
+    return 0
+}
+
+# Function to get the most recent backup
+get_latest_backup() {
+    find "$SCRIPT_DIR" -maxdepth 1 -type d -name "backup_*" -print0 | sort -rz | head -z -n 1 | tr -d '\0'
+}
+
+# Function to restore from a backup (pop)
+pop_backup() {
+    local force="$1"
+    local latest_backup
+    
+    latest_backup="$(get_latest_backup)"
+    
+    if [ -z "$latest_backup" ]; then
+        print_error "No backups available to restore from"
+        exit 1
+    fi
+    
+    local backup_name="$(basename "$latest_backup")"
+    local timestamp="${backup_name#backup_}"
+    local year="${timestamp:0:4}"
+    local month="${timestamp:4:2}"
+    local day="${timestamp:6:2}"
+    local hour="${timestamp:9:2}"
+    local min="${timestamp:11:2}"
+    local sec="${timestamp:13:2}"
+    local formatted_date="$year-$month-$day $hour:$min:$sec"
+    
+    echo ""
+    print_warning "╔════════════════════════════════════════════════════════════════╗"
+    print_warning "║              RESTORE FROM BACKUP (POP)                         ║"
+    print_warning "╠════════════════════════════════════════════════════════════════╣"
+    print_warning "║  This will restore secrets from the most recent backup:        ║"
+    print_warning "║                                                                ║"
+    printf "${YELLOW}[WARNING]${NC} ║    Backup: %-52s ║\n" "$backup_name"
+    printf "${YELLOW}[WARNING]${NC} ║    Date:   %-52s ║\n" "$formatted_date"
+    print_warning "║                                                                ║"
+    print_warning "║  Current secrets in keys/ and certs/ will be OVERWRITTEN.     ║"
+    print_warning "║  The backup directory will be DELETED after restoration.       ║"
+    print_warning "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    # Show what will be restored
+    print_info "Files to restore:"
+    if [ -d "$latest_backup/keys" ]; then
+        for file in "$latest_backup/keys"/*; do
+            if [ -f "$file" ]; then
+                echo "  - keys/$(basename "$file")"
+            fi
+        done
+    fi
+    if [ -d "$latest_backup/certs" ]; then
+        # List certs subdirectories
+        for subdir in "$latest_backup/certs"/*; do
+            if [ -d "$subdir" ]; then
+                for file in "$subdir"/*; do
+                    if [ -f "$file" ]; then
+                        echo "  - certs/$(basename "$subdir")/$(basename "$file")"
+                    fi
+                done
+            elif [ -f "$subdir" ]; then
+                echo "  - certs/$(basename "$subdir")"
+            fi
+        done
+    fi
+    # List loose .txt files
+    for file in "$latest_backup"/*.txt; do
+        if [ -f "$file" ]; then
+            echo "  - $(basename "$file")"
+        fi
+    done
+    echo ""
+    
+    # Confirm unless --yes flag is used
+    if [ "$force" != true ]; then
+        read -r -p "Are you sure you want to restore from this backup? [y/N] " response
+        case "$response" in
+            [yY][eE][sS]|[yY])
+                ;;
+            *)
+                print_info "Restore cancelled"
+                exit 0
+                ;;
+        esac
+    fi
+    
+    # Perform the restoration
+    print_info "Restoring from backup..."
+    
+    # Restore keys
+    if [ -d "$latest_backup/keys" ]; then
+        mkdir -p "$KEYS_DIR"
+        for file in "$latest_backup/keys"/*; do
+            if [ -f "$file" ]; then
+                cp "$file" "$KEYS_DIR/"
+                chmod 600 "$KEYS_DIR/$(basename "$file")"
+                print_success "Restored: keys/$(basename "$file")"
+            fi
+        done
+    fi
+    
+    # Restore certs (including subdirectories)
+    if [ -d "$latest_backup/certs" ]; then
+        mkdir -p "$CERTS_DIR"
+        # Copy everything preserving structure
+        cp -r "$latest_backup/certs"/* "$CERTS_DIR/" 2>/dev/null || true
+        # Fix permissions on key files
+        find "$CERTS_DIR" -type f -name "*.key" -exec chmod 600 {} \;
+        find "$CERTS_DIR" -type f -name "*.crt" -exec chmod 644 {} \;
+        find "$CERTS_DIR" -type f -name "*.pem" -exec chmod 644 {} \;
+        print_success "Restored: certs/ directory"
+    fi
+    
+    # Restore loose .txt files
+    for file in "$latest_backup"/*.txt; do
+        if [ -f "$file" ]; then
+            cp "$file" "$SCRIPT_DIR/"
+            chmod 600 "$SCRIPT_DIR/$(basename "$file")"
+            print_success "Restored: $(basename "$file")"
+        fi
+    done
+    
+    # Delete the backup directory
+    rm -rf "$latest_backup"
+    print_success "Removed backup: $backup_name"
+    
+    echo ""
+    print_success "Secrets restored successfully from $backup_name"
+    print_info "Run '$0 --verify' to verify the restored secrets"
+}
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -519,6 +699,9 @@ show_usage() {
     echo "  -b, --backup-only    Only backup existing secrets, don't generate new ones"
     echo "  -v, --verify         Verify existing secrets meet security requirements"
     echo "  -l, --list           List all secret files and their sizes"
+    echo "  --list-backups       List all available backups"
+    echo "  --pop                Restore secrets from the most recent backup (destructive)"
+    echo "  -y, --yes            Skip confirmation prompts (use with --pop)"
     echo "  -p, --generate-pki   Generate PKI certificates (root CA, intermediate CA, service certs)"
     echo "  --force-ca           Force regeneration of CA certificates (use with caution)"
     echo "  --user-secrets-file  Path to user-provided.env containing deterministic secrets"
@@ -817,6 +1000,9 @@ main() {
     local backup_only=false
     local verify_only=false
     local list_only=false
+    local list_backups_only=false
+    local pop_only=false
+    local skip_confirm=false
     local generate_pki=false
     local force_ca=false
     
@@ -841,6 +1027,18 @@ main() {
                 ;;
             -l|--list)
                 list_only=true
+                shift
+                ;;
+            --list-backups)
+                list_backups_only=true
+                shift
+                ;;
+            --pop)
+                pop_only=true
+                shift
+                ;;
+            -y|--yes)
+                skip_confirm=true
                 shift
                 ;;
             -p|--generate-pki)
@@ -904,6 +1102,16 @@ main() {
     # Handle different modes
     if [ "$list_only" = true ]; then
         list_secrets
+        exit 0
+    fi
+    
+    if [ "$list_backups_only" = true ]; then
+        list_backups
+        exit 0
+    fi
+    
+    if [ "$pop_only" = true ]; then
+        pop_backup "$skip_confirm"
         exit 0
     fi
     
