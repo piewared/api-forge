@@ -394,17 +394,16 @@ helm install api-forge ./infra/helm/api-forge \
 **Check Helm release:**
 
 ```bash
-# List Helm releases
-helm list -n api-forge-prod
+# Using the CLI (recommended)
+uv run api-forge-cli deploy status k8s
+uv run api-forge-cli deploy history
 
-# Get release status
+# Or using Helm directly
+helm list -n api-forge-prod
 helm status api-forge -n api-forge-prod
 
 # View deployed resources
 helm get manifest api-forge -n api-forge-prod
-
-# View release history
-helm history api-forge -n api-forge-prod
 ```
 
 **Check Kubernetes resources:**
@@ -945,6 +944,118 @@ spec:
       path: /metrics
       interval: 30s
 ```
+
+## Rollback and Recovery
+
+API Forge provides built-in rollback capabilities using Helm's native release management. If a deployment fails or introduces issues, you can quickly restore to a previous working state.
+
+### View Release History
+
+Check the revision history to see all deployments:
+
+```bash
+# Using the CLI (recommended)
+uv run api-forge-cli deploy history
+
+# Or using Helm directly
+helm history api-forge -n api-forge-prod
+```
+
+Example output:
+```
+📜 Release History: api-forge
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+┃ Revision ┃ Updated             ┃ Status     ┃ Chart              ┃ Description         ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+│        3 │ 2025-12-02 22:30:00 │ deployed   │ api-forge-0.1.0    │ Upgrade complete    │
+│        2 │ 2025-12-02 20:00:00 │ superseded │ api-forge-0.1.0    │ Upgrade complete    │
+│        1 │ 2025-12-01 10:00:00 │ superseded │ api-forge-0.1.0    │ Install complete    │
+└──────────┴─────────────────────┴────────────┴────────────────────┴─────────────────────┘
+```
+
+### Rollback to Previous Revision
+
+Restore to the immediately previous working version:
+
+```bash
+# Using the CLI (recommended)
+uv run api-forge-cli deploy rollback
+
+# Skip confirmation prompt (for automation)
+uv run api-forge-cli deploy rollback --yes
+
+# Using Helm directly
+helm rollback api-forge -n api-forge-prod
+```
+
+### Rollback to Specific Revision
+
+Restore to a specific revision number:
+
+```bash
+# Using the CLI
+uv run api-forge-cli deploy rollback 2
+
+# Using Helm directly
+helm rollback api-forge 2 -n api-forge-prod
+```
+
+### Automatic Rollback on Failure
+
+The deployment automatically rolls back if pods fail to start. This is enabled by the `--rollback-on-failure` flag in Helm upgrade:
+
+```bash
+# The CLI does this automatically, but for manual deployments:
+helm upgrade --install api-forge ./infra/helm/api-forge \
+  --namespace api-forge-prod \
+  --wait \
+  --rollback-on-failure
+```
+
+### Recovery Workflow
+
+When a deployment fails or causes issues:
+
+1. **Check current status**:
+   ```bash
+   uv run api-forge-cli deploy status k8s
+   kubectl get pods -n api-forge-prod
+   ```
+
+2. **View release history**:
+   ```bash
+   uv run api-forge-cli deploy history
+   ```
+
+3. **Identify a working revision** from the history table
+
+4. **Rollback to the working revision**:
+   ```bash
+   uv run api-forge-cli deploy rollback <revision>
+   ```
+
+5. **Verify the rollback succeeded**:
+   ```bash
+   uv run api-forge-cli deploy status k8s
+   kubectl get pods -n api-forge-prod
+   ```
+
+### ReplicaSet History
+
+Kubernetes also maintains ReplicaSet history for quick pod rollbacks:
+
+```bash
+# View deployment rollout history
+kubectl rollout history deployment/app -n api-forge-prod
+
+# Rollback to previous ReplicaSet
+kubectl rollout undo deployment/app -n api-forge-prod
+
+# Rollback to specific revision
+kubectl rollout undo deployment/app -n api-forge-prod --to-revision=2
+```
+
+> **Note:** The `revisionHistoryLimit` setting in `values.yaml` controls how many old ReplicaSets are retained. Default is 3.
 
 ## Troubleshooting
 

@@ -1,6 +1,9 @@
 # Production Deployment Guide
 
-This guide covers the deployment of the FastAPI application stack to production environments including VPS servers and managed container services like Fly.io.
+This guide covers the deployment of the FastAPI application stack to production environments using the API Forge CLI. For detailed deployment guides, see:
+
+- **[Docker Compose Production](../fastapi-production-deployment-docker-compose.md)** - Single-host deployments
+- **[Kubernetes Deployment](../fastapi-kubernetes-deployment.md)** - Scalable cluster deployments
 
 ## 🏗️ Architecture Overview
 
@@ -21,6 +24,7 @@ This guide covers the deployment of the FastAPI application stack to production 
 
 ### Prerequisites
 - Docker and Docker Compose installed
+- `uv` package manager installed
 - Domain name configured (for SSL certificates)
 - At least 2GB RAM and 20GB storage
 - OIDC provider credentials (Google, Microsoft, etc.)
@@ -28,36 +32,59 @@ This guide covers the deployment of the FastAPI application stack to production 
 ### 1. Clone and Setup
 ```bash
 git clone <your-repo>
-cd api-forge3
+cd your-project
+
+# Install dependencies
+uv sync --dev
 
 # Copy and configure environment
-cp .env .env.production
-nano .env.production  # Update configuration values
+cp .env.example .env
+# Edit .env with production configuration values
 ```
 
 ### 2. Generate Secrets
 ```bash
-# The deployment script handles secret generation
-sudo bash deploy/deploy-local.txt secrets
+# Generate all secrets and TLS certificates
+cd infra/secrets
+./generate_secrets.sh
+
+# Copy user-provided secrets template and fill in OIDC credentials
+cp user-provided.env.example user-provided.env
+# Edit user-provided.env with your OIDC client secrets
 ```
 
 ### 3. Deploy
-```bash
-# Full deployment with SSL (replace with your domain/email)
-sudo bash deploy/deploy-local.txt deploy yourdomain.com your-email@example.com
 
-# Or deploy without SSL setup
-sudo bash deploy/deploy-local.txt deploy
+**Docker Compose (single host):**
+```bash
+uv run api-forge-cli deploy up prod
+
+# Check deployment status
+uv run api-forge-cli deploy status prod
+```
+
+**Kubernetes (cluster deployment):**
+```bash
+uv run api-forge-cli deploy up k8s
+
+# Check deployment status
+uv run api-forge-cli deploy status k8s
+
+# View release history
+uv run api-forge-cli deploy history
 ```
 
 ### 4. Verify Deployment
 ```bash
 # Check service health
 curl https://yourdomain.com/health
-curl https://yourdomain.com/ready
+curl https://yourdomain.com/health/ready
 
-# View service logs
+# View service logs (Docker Compose)
 docker-compose -f docker-compose.prod.yml logs -f
+
+# View pod logs (Kubernetes)
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=app -f
 ```
 
 ## 🔧 Configuration
@@ -69,25 +96,25 @@ docker-compose -f docker-compose.prod.yml logs -f
 APP_ENVIRONMENT=production
 BASE_URL=https://yourdomain.com
 APP_PORT=8000
-DATA_PATH=/opt/app/data
 
 # Database
-DATABASE_URL=postgresql://appuser:$(cat /opt/app/secrets/postgres_password.txt)@postgres:5432/appdb
+DATABASE_URL=postgresql://appuser@postgres:5432/appdb?sslmode=verify-full
 
 # Redis
-REDIS_URL=redis://:$(cat /opt/app/secrets/redis_password.txt)@redis:6379/0
+REDIS_URL=rediss://:password@redis:6379/0
 
-# JWT & Sessions
+# JWT & Sessions (use file-based secrets)
 JWT_AUDIENCE=api://default
 SESSION_MAX_AGE=3600
-SESSION_SIGNING_SECRET_FILE=/opt/app/secrets/session_signing_secret.txt
-CSRF_SIGNING_SECRET_FILE=/opt/app/secrets/csrf_signing_secret.txt
+SESSION_SIGNING_SECRET_FILE=/run/secrets/session_signing_secret
+CSRF_SIGNING_SECRET_FILE=/run/secrets/csrf_signing_secret
 
 # CORS
 CLIENT_ORIGIN=https://yourdomain.com
 ```
 
 #### OIDC Configuration
+Store OIDC secrets in `infra/secrets/user-provided.env`:
 ```env
 # Google OAuth
 OIDC_GOOGLE_CLIENT_ID=your-google-client-id
@@ -99,24 +126,24 @@ OIDC_MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
 ```
 
 ### Secret Management
-All sensitive data is stored in `/opt/app/secrets/` with restricted permissions:
+All sensitive data is stored in `infra/secrets/` with restricted permissions:
 
 ```bash
-# Generated automatically
-/opt/app/secrets/postgres_password.txt
-/opt/app/secrets/redis_password.txt
-/opt/app/secrets/session_signing_secret.txt
-/opt/app/secrets/csrf_signing_secret.txt
+# Auto-generated secrets (in infra/secrets/keys/)
+session_signing_secret.txt
+csrf_signing_secret.txt
+postgres_password.txt
+postgres_app_user_pw.txt
+redis_password.txt
 
-# Update manually
-/opt/app/secrets/oidc_google_client_secret.txt
-/opt/app/secrets/oidc_microsoft_client_secret.txt
-
-> For Docker Compose-based deployments, keep deterministic secrets such as `OIDC_*_CLIENT_SECRET`
-> inside `infra/secrets/user-provided.env` (copied from the `.example`), which is mounted via
-> `env_file`. When deploying directly to servers or Kubernetes, provide these values through your
-> secret manager of choice—the application only requires them as environment variables.
+# User-provided secrets (in infra/secrets/user-provided.env)
+OIDC_GOOGLE_CLIENT_SECRET=...
+OIDC_MICROSOFT_CLIENT_SECRET=...
 ```
+
+For Docker Compose-based deployments, keep deterministic secrets such as `OIDC_*_CLIENT_SECRET`
+inside `infra/secrets/user-provided.env` (copied from the `.example`), which is mounted via
+`env_file`. When deploying to Kubernetes, these values are created as Kubernetes secrets.
 
 ## 🛡️ Security Considerations
 
@@ -219,51 +246,78 @@ docker exec -i $(docker ps -q -f name=redis) redis-cli \
 ## 🔄 Maintenance
 
 ### Updates
+
+**Docker Compose:**
 ```bash
-# Update application
+# Build and deploy updated application
+uv run api-forge-cli deploy up prod --force-recreate
+
+# Or manually update
 docker-compose -f docker-compose.prod.yml pull app
 docker-compose -f docker-compose.prod.yml up -d app
+```
 
-# Update all services
-docker-compose -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.prod.yml up -d
+**Kubernetes:**
+```bash
+# Deploy updated application
+uv run api-forge-cli deploy up k8s
+
+# View release history
+uv run api-forge-cli deploy history
+
+# Rollback if needed
+uv run api-forge-cli deploy rollback
 ```
 
 ### SSL Certificate Renewal
 ```bash
-# Manual renewal
+# Manual renewal (if using Let's Encrypt)
 certbot renew
 
-# Automatic renewal is configured via cron
+# Automatic renewal is typically configured via cron or systemd timer
 ```
 
 ### Database Maintenance
+
+**Docker Compose:**
 ```bash
 # Connect to database
-docker exec -it $(docker ps -q -f name=postgres) psql -U appuser -d appdb
+docker exec -it api-forge-postgres-prod psql -U appuser -d appdb
 
 # Run VACUUM and ANALYZE
-docker exec $(docker ps -q -f name=postgres) psql -U appuser -d appdb -c "VACUUM ANALYZE;"
+docker exec api-forge-postgres-prod psql -U appuser -d appdb -c "VACUUM ANALYZE;"
+```
+
+**Kubernetes:**
+```bash
+# Connect to database pod
+kubectl exec -it -n api-forge-prod deployment/postgres -- psql -U appuser -d appdb
+
+# Run maintenance
+kubectl exec -n api-forge-prod deployment/postgres -- psql -U appuser -d appdb -c "VACUUM ANALYZE;"
 ```
 
 ## 🌐 Deployment Platforms
 
-### VPS Deployment
-The included deployment script supports major Linux distributions:
-- Ubuntu 20.04+ / Debian 11+
-- CentOS 8+ / RHEL 8+
-- Automated firewall, SSL, and security setup
-
-### Fly.io Deployment
+### Docker Compose (Single Host)
+Suitable for small to medium deployments on a single VPS or VM:
 ```bash
-# Install flyctl
-curl -L https://fly.io/install.sh | sh
-
-# Configure and deploy
-fly auth login
-fly launch --name your-app-name
-fly deploy
+uv run api-forge-cli deploy up prod
+uv run api-forge-cli deploy status prod
 ```
+
+See [Docker Compose Production Guide](../fastapi-production-deployment-docker-compose.md) for details.
+
+### Kubernetes
+For scalable, production-grade deployments:
+```bash
+uv run api-forge-cli deploy up k8s
+uv run api-forge-cli deploy status k8s
+uv run api-forge-cli deploy history
+uv run api-forge-cli deploy rollback  # If needed
+```
+
+See [Kubernetes Deployment Guide](../fastapi-kubernetes-deployment.md) for details.
 
 ### Docker Swarm
 ```bash
@@ -274,19 +328,13 @@ docker swarm init
 docker stack deploy -c docker-compose.prod.yml app-stack
 ```
 
-### Kubernetes
-Kubernetes manifests can be generated from the docker-compose file:
-```bash
-# Using Kompose
-kompose convert -f docker-compose.prod.yml
-kubectl apply -f .
-```
-
 ## 🚨 Troubleshooting
 
 ### Common Issues
 
 #### Application Won't Start
+
+**Docker Compose:**
 ```bash
 # Check logs
 docker-compose -f docker-compose.prod.yml logs app
@@ -295,36 +343,67 @@ docker-compose -f docker-compose.prod.yml logs app
 docker-compose -f docker-compose.prod.yml config
 
 # Check secret files
-ls -la /opt/app/secrets/
+ls -la infra/secrets/keys/
+```
+
+**Kubernetes:**
+```bash
+# Check pod status
+kubectl get pods -n api-forge-prod
+kubectl describe pod -n api-forge-prod -l app.kubernetes.io/name=app
+
+# View logs
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=app
+
+# Check secrets
+kubectl get secrets -n api-forge-prod
 ```
 
 #### Database Connection Issues
+
+**Docker Compose:**
 ```bash
 # Check PostgreSQL logs
 docker-compose -f docker-compose.prod.yml logs postgres
 
 # Test connection
-docker exec -it $(docker ps -q -f name=postgres) pg_isready -U appuser -d appdb
+docker exec -it api-forge-postgres-prod pg_isready -U appuser -d appdb
 
 # Verify network connectivity
-docker exec $(docker ps -q -f name=app) nc -zv postgres 5432
+docker exec api-forge-app-prod nc -zv postgres 5432
+```
+
+**Kubernetes:**
+```bash
+# Check PostgreSQL pod
+kubectl get pods -n api-forge-prod -l app.kubernetes.io/name=postgres
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=postgres
+
+# Test connection from app pod
+kubectl exec -n api-forge-prod deployment/app -- nc -zv postgres 5432
 ```
 
 #### Redis Connection Issues
+
+**Docker Compose:**
 ```bash
 # Check Redis logs
 docker-compose -f docker-compose.prod.yml logs redis
 
 # Test Redis connectivity
-docker exec $(docker ps -q -f name=redis) redis-cli ping
+docker exec api-forge-redis-prod redis-cli ping
+```
 
-# Check authentication
-docker exec $(docker ps -q -f name=redis) redis-cli auth your-password ping
+**Kubernetes:**
+```bash
+# Check Redis pod
+kubectl get pods -n api-forge-prod -l app.kubernetes.io/name=redis
+kubectl logs -n api-forge-prod -l app.kubernetes.io/name=redis
 ```
 
 #### SSL Certificate Issues
 ```bash
-# Check certificate status
+# Check certificate status (if using Let's Encrypt)
 certbot certificates
 
 # Test SSL configuration
@@ -332,6 +411,19 @@ openssl s_client -connect yourdomain.com:443 -servername yourdomain.com
 
 # Renew certificates
 certbot renew --dry-run
+```
+
+#### Kubernetes Rollback
+If a deployment causes issues:
+```bash
+# View release history
+uv run api-forge-cli deploy history
+
+# Rollback to previous version
+uv run api-forge-cli deploy rollback
+
+# Rollback to specific revision
+uv run api-forge-cli deploy rollback 2
 ```
 
 ### Performance Tuning
@@ -356,25 +448,37 @@ certbot renew --dry-run
 ### Pre-deployment
 - [ ] Domain name configured and DNS pointing to server
 - [ ] OIDC provider applications created and configured
-- [ ] SSL certificate requirements verified
+- [ ] Secrets generated (`./infra/secrets/generate_secrets.sh`)
+- [ ] User-provided secrets configured (`infra/secrets/user-provided.env`)
+- [ ] `.env` file configured with production values
 - [ ] Server resources adequate (2GB+ RAM, 20GB+ storage)
 - [ ] Backup storage configured
 
 ### Post-deployment
-- [ ] Health endpoints responding correctly
+- [ ] Health endpoints responding correctly (`/health`, `/health/ready`)
 - [ ] OIDC authentication flows working
-- [ ] SSL certificates installed and auto-renewal configured
+- [ ] SSL certificates installed (if applicable)
 - [ ] Backup scripts tested and running
 - [ ] Monitoring and alerting configured
-- [ ] Firewall rules verified
-- [ ] Documentation updated with environment-specific details
+- [ ] Firewall rules verified (if applicable)
+
+### Kubernetes-specific
+- [ ] `uv run api-forge-cli deploy status k8s` shows healthy pods
+- [ ] `uv run api-forge-cli deploy history` shows successful deployment
+- [ ] Rollback tested (`uv run api-forge-cli deploy rollback`)
 
 ### Security Audit
 - [ ] All services running as non-root users
 - [ ] Secrets properly secured with restricted permissions
-- [ ] Database connections encrypted
+- [ ] Database connections encrypted (TLS)
 - [ ] API rate limiting functional
 - [ ] Security headers properly configured
 - [ ] Log files protected and rotated
-- [ ] Unnecessary services disabled
 - [ ] Regular security updates scheduled
+
+## 📚 Related Documentation
+
+- [Docker Compose Production Deployment](../fastapi-production-deployment-docker-compose.md)
+- [Kubernetes Deployment](../fastapi-kubernetes-deployment.md)
+- [Secrets Management](../security/secrets_management.md)
+- [Security Guide](../security.md)
