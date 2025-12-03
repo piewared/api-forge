@@ -1,6 +1,7 @@
 """Deployment CLI commands for dev, prod, and k8s environments."""
 
 import subprocess
+import sys
 from enum import Enum
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import typer
 from rich.panel import Panel
 
 from .deployment import DevDeployer, HelmDeployer, ProdDeployer
+from .deployment.helm_deployer.image_builder import DeploymentError
 from .utils import console, get_project_root
 
 # Create the deploy command group
@@ -80,25 +82,32 @@ def up(
     )
 
     # Create appropriate deployer and execute deployment
-    deployer: DevDeployer | ProdDeployer | HelmDeployer
-    if env == Environment.DEV:
-        deployer = DevDeployer(console, project_root)
-        deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
+    try:
+        deployer: DevDeployer | ProdDeployer | HelmDeployer
+        if env == Environment.DEV:
+            deployer = DevDeployer(console, project_root)
+            deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
 
-    elif env == Environment.PROD:
-        deployer = ProdDeployer(console, project_root)
-        deployer.deploy(
-            skip_build=skip_build, no_wait=no_wait, force_recreate=force_recreate
-        )
+        elif env == Environment.PROD:
+            deployer = ProdDeployer(console, project_root)
+            deployer.deploy(
+                skip_build=skip_build, no_wait=no_wait, force_recreate=force_recreate
+            )
 
-    elif env == Environment.K8S:
-        deployer = HelmDeployer(console, project_root)
-        deployer.deploy(
-            namespace=namespace,
-            no_wait=no_wait,
-            force_recreate=force_recreate,
-            registry=registry,
-        )
+        elif env == Environment.K8S:
+            deployer = HelmDeployer(console, project_root)
+            deployer.deploy(
+                namespace=namespace,
+                no_wait=no_wait,
+                force_recreate=force_recreate,
+                registry=registry,
+            )
+
+    except DeploymentError as e:
+        console.print(f"\n[bold red]❌ Deployment failed: {e.message}[/bold red]\n")
+        if e.details:
+            console.print(Panel(e.details, title="Details", border_style="red"))
+        sys.exit(1)
 
 
 @deploy_app.command()
@@ -133,18 +142,25 @@ def down(
     )
 
     # Create appropriate deployer and execute teardown
-    deployer: DevDeployer | ProdDeployer | HelmDeployer
-    if env == Environment.DEV:
-        deployer = DevDeployer(console, project_root)
-        deployer.teardown(volumes=volumes)
+    try:
+        deployer: DevDeployer | ProdDeployer | HelmDeployer
+        if env == Environment.DEV:
+            deployer = DevDeployer(console, project_root)
+            deployer.teardown(volumes=volumes)
 
-    elif env == Environment.PROD:
-        deployer = ProdDeployer(console, project_root)
-        deployer.teardown(volumes=volumes)
+        elif env == Environment.PROD:
+            deployer = ProdDeployer(console, project_root)
+            deployer.teardown(volumes=volumes)
 
-    elif env == Environment.K8S:
-        deployer = HelmDeployer(console, project_root)
-        deployer.teardown(namespace=namespace, volumes=volumes)
+        elif env == Environment.K8S:
+            deployer = HelmDeployer(console, project_root)
+            deployer.teardown(namespace=namespace, volumes=volumes)
+
+    except DeploymentError as e:
+        console.print(f"\n[bold red]❌ Teardown failed: {e.message}[/bold red]\n")
+        if e.details:
+            console.print(Panel(e.details, title="Details", border_style="red"))
+        sys.exit(1)
 
 
 @deploy_app.command()

@@ -142,7 +142,23 @@ class HelmReleaseManager:
 
             if not result.success:
                 self.console.print("[red]✗ Helm deployment failed[/red]")
-                raise DeploymentError("Helm deployment failed")
+                raise DeploymentError(
+                    "Helm deployment failed",
+                    details=(
+                        "The Helm chart could not be deployed to the cluster.\n\n"
+                        "Common causes:\n"
+                        "  • Kubernetes cluster is not running or accessible\n"
+                        "  • Previous deployment left resources in a bad state\n"
+                        "  • Secrets or config files are missing or invalid\n"
+                        "  • Insufficient cluster resources (CPU, memory)\n\n"
+                        "Recovery steps:\n"
+                        "  1. Check cluster status: kubectl cluster-info\n"
+                        "  2. Check pod status: kubectl get pods -n api-forge-prod\n"
+                        "  3. View pod logs: kubectl logs <pod-name> -n api-forge-prod\n"
+                        "  4. Clean up and retry: uv run api-forge-cli deploy down k8s --volumes\n"
+                        "  5. Redeploy: uv run api-forge-cli deploy up k8s"
+                    ),
+                )
 
         finally:
             # Clean up temporary override file

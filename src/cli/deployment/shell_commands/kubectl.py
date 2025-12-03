@@ -70,6 +70,21 @@ class KubectlCommands:
     # Namespace Management
     # =========================================================================
 
+    def namespace_exists(self, namespace: str) -> bool:
+        """Check if a namespace exists.
+
+        Args:
+            namespace: Namespace to check
+
+        Returns:
+            True if the namespace exists, False otherwise
+        """
+        result = self._runner.run(
+            ["kubectl", "get", "namespace", namespace],
+            capture_output=True,
+        )
+        return result.success
+
     def delete_namespace(
         self,
         namespace: str,
@@ -95,6 +110,20 @@ class KubectlCommands:
             cmd.append("--wait=true")
             cmd.extend(["--timeout", timeout])
         return self._runner.run(cmd)
+
+    def delete_pvcs(self, namespace: str) -> CommandResult:
+        """Delete all PersistentVolumeClaims in a namespace.
+
+        Args:
+            namespace: Kubernetes namespace
+
+        Returns:
+            CommandResult with deletion status
+        """
+        return self._runner.run(
+            ["kubectl", "delete", "pvc", "--all", "-n", namespace],
+            capture_output=True,
+        )
 
     # =========================================================================
     # Resource Deletion
@@ -456,3 +485,108 @@ class KubectlCommands:
             ],
             capture_output=False,
         )
+
+    def get_pods(self, namespace: str) -> list[dict[str, str]]:
+        """Get all pods in a namespace with their status.
+
+        Args:
+            namespace: Kubernetes namespace
+
+        Returns:
+            List of dicts with pod name, status, and restarts
+        """
+        result = self._runner.run(
+            ["kubectl", "get", "pods", "-n", namespace, "-o", "json"],
+            capture_output=True,
+        )
+        if not result.success or not result.stdout:
+            return []
+
+        try:
+            data = json.loads(result.stdout)
+            pods = []
+
+            for pod in data.get("items", []):
+                name = pod.get("metadata", {}).get("name", "")
+                status = pod.get("status", {})
+
+                # Determine pod status
+                phase = status.get("phase", "Unknown")
+                container_statuses = status.get("containerStatuses", [])
+
+                # Check for specific states
+                pod_status = phase
+                restarts = 0
+
+                for cs in container_statuses:
+                    restarts += cs.get("restartCount", 0)
+                    state = cs.get("state", {})
+                    if "waiting" in state:
+                        reason = state["waiting"].get("reason", "")
+                        if reason:
+                            pod_status = reason  # e.g., CrashLoopBackOff
+                    elif "terminated" in state:
+                        reason = state["terminated"].get("reason", "")
+                        if reason == "Error":
+                            pod_status = "Error"
+
+                pods.append(
+                    {
+                        "name": name,
+                        "status": pod_status,
+                        "restarts": restarts,
+                    }
+                )
+
+            return pods
+        except json.JSONDecodeError:
+            return []
+
+    # =========================================================================
+    # Job Operations
+    # =========================================================================
+
+    def get_jobs(self, namespace: str) -> list[dict[str, str]]:
+        """Get all jobs in a namespace with their status.
+
+        Args:
+            namespace: Kubernetes namespace
+
+        Returns:
+            List of dicts with job name and status (Running/Complete/Failed)
+        """
+        result = self._runner.run(
+            ["kubectl", "get", "jobs", "-n", namespace, "-o", "json"],
+            capture_output=True,
+        )
+        if not result.success or not result.stdout:
+            return []
+
+        try:
+            data = json.loads(result.stdout)
+            jobs = []
+
+            for job in data.get("items", []):
+                name = job.get("metadata", {}).get("name", "")
+                status = job.get("status", {})
+
+                # Determine job status
+                if status.get("succeeded", 0) > 0:
+                    job_status = "Complete"
+                elif status.get("failed", 0) > 0:
+                    job_status = "Failed"
+                elif status.get("active", 0) > 0:
+                    job_status = "Running"
+                else:
+                    job_status = "Unknown"
+
+                jobs.append(
+                    {
+                        "name": name,
+                        "status": job_status,
+                    }
+                )
+
+            return jobs
+        except json.JSONDecodeError:
+            return []

@@ -8,6 +8,12 @@ metadata:
     app.kubernetes.io/name: temporal-namespace-init
     app.kubernetes.io/component: workflow-engine-init
     app.kubernetes.io/part-of: api-forge
+  annotations:
+    # Run on install and upgrade, delete previous job before creating new one
+    # Weight 15 ensures this runs after schema-setup (weight 5) and verifier (weight 10)
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "15"
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   # Keep successful job for 30 minutes for debugging
   ttlSecondsAfterFinished: 1800

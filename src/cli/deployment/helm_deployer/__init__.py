@@ -8,6 +8,7 @@ with each concern separated into its own module:
 - config_sync: Configuration synchronization between config.yaml and values.yaml
 - helm_release: Helm chart deployment and release management
 - cleanup: Post-deployment cleanup of old resources
+- validator: Pre-deployment validation and cleanup prompts
 
 The HelmDeployer class in deployer.py orchestrates these components to
 provide a complete deployment workflow.
@@ -26,6 +27,7 @@ from .deployer import DeploymentError, HelmDeployer
 from .helm_release import HelmReleaseManager
 from .image_builder import ImageBuilder
 from .secret_manager import SecretManager
+from .validator import DeploymentValidator, ValidationResult, ValidationSeverity
 
 __all__ = [
     "HelmDeployer",
@@ -37,4 +39,7 @@ __all__ = [
     "HelmReleaseManager",
     "CleanupManager",
     "DeploymentConstants",
+    "DeploymentValidator",
+    "ValidationResult",
+    "ValidationSeverity",
 ]

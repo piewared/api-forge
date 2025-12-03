@@ -60,7 +60,14 @@ class SecretManager:
 
             raise DeploymentError(
                 "Cannot deploy secrets - script missing",
-                details=f"Expected script at: {script_path}",
+                details=(
+                    f"Expected script at: {script_path}\n\n"
+                    "This script is required to deploy secrets to Kubernetes.\n\n"
+                    "Recovery steps:\n"
+                    "  1. Check if the file was accidentally deleted\n"
+                    "  2. Restore from git: git checkout -- infra/helm/api-forge/scripts/apply-secrets.sh\n"
+                    "  3. Or regenerate project: uv run api-forge-cli init"
+                ),
             )
 
         with progress_factory(transient=True) as progress:
@@ -97,7 +104,21 @@ class SecretManager:
             self.console.print(
                 f"[red]✗ Secret generation script not found: {generate_script}[/red]"
             )
-            raise DeploymentError("Cannot generate secrets - script missing")
+            raise DeploymentError(
+                "Cannot generate secrets - script missing",
+                details=(
+                    f"Expected script at: {generate_script}\n\n"
+                    "This script generates required secrets for deployment:\n"
+                    "  • PostgreSQL passwords\n"
+                    "  • Session signing secrets\n"
+                    "  • CSRF signing secrets\n"
+                    "  • TLS certificates\n\n"
+                    "Recovery steps:\n"
+                    "  1. Check if the file was accidentally deleted\n"
+                    "  2. Restore from git: git checkout -- infra/secrets/generate_secrets.sh\n"
+                    "  3. Or regenerate project: uv run api-forge-cli init"
+                ),
+            )
 
         with progress_factory(transient=True) as progress:
             task = progress.add_task("Generating secrets and certificates...", total=1)
