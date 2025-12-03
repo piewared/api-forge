@@ -1,3 +1,15 @@
+# =============================================================================
+# API Forge Helm Chart Values
+# =============================================================================
+# Production-ready defaults with autoscaling and pod disruption budgets.
+# Adjust values based on your workload requirements.
+#
+# Resource Sizing Guide:
+#   Low Traffic (<100 req/s):   app: 250m/256Mi, 1 replica
+#   Medium Traffic (100-500):   app: 500m/512Mi, 2-3 replicas, HPA enabled
+#   High Traffic (>500 req/s):  app: 1000m/1Gi, 3+ replicas, HPA enabled
+# =============================================================================
+
 global:
   namespace: api-forge-prod
   createNamespace: false
@@ -8,6 +20,12 @@ global:
   labels:
     environment: production
     app.kubernetes.io/managed-by: helm
+
+# =============================================================================
+# PostgreSQL Database
+# =============================================================================
+# For production, consider using a managed PostgreSQL service (RDS, Cloud SQL)
+# instead of running PostgreSQL in-cluster for better HA and backup support.
 postgres:
   enabled: true
   image:
@@ -19,18 +37,18 @@ postgres:
   resources:
     requests:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
     limits:
       cpu: 2000m
-      memory: 2Gi
+      memory: 4Gi
   persistence:
     data:
       enabled: true
-      size: 10Gi
+      size: 20Gi
       storageClass: ''
     backups:
       enabled: true
-      size: 20Gi
+      size: 40Gi
       storageClass: ''
   config:
     maxConnections: 200
@@ -43,6 +61,10 @@ postgres:
     existingSecret: postgres-ca
   secrets:
     existingSecret: postgres-secrets
+  # PodDisruptionBudget - ensures database availability during maintenance
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   networkPolicy:
     enabled: true
     ingress:
@@ -53,8 +75,12 @@ postgres:
       ports:
       - protocol: TCP
         port: 5432
+
+# =============================================================================
+# Redis Cache/Sessions
+# =============================================================================
 redis:
-  enabled: true
+  enabled: false
   image:
     repository: app_data_redis_image
     tag: latest
@@ -62,10 +88,10 @@ redis:
   resources:
     requests:
       cpu: 250m
-      memory: 128Mi
+      memory: 256Mi
     limits:
       cpu: 1000m
-      memory: 512Mi
+      memory: 1Gi
   persistence:
     data:
       enabled: true
@@ -76,10 +102,14 @@ redis:
       size: 10Gi
       storageClass: ''
   config:
-    maxMemory: 256mb
+    maxMemory: 512mb
     maxMemoryPolicy: allkeys-lru
   secrets:
     existingSecret: redis-secrets
+  # PodDisruptionBudget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   networkPolicy:
     enabled: true
     ingress:
@@ -87,8 +117,12 @@ redis:
       - podSelector:
           matchLabels:
             app.kubernetes.io/component: application
+
+# =============================================================================
+# Temporal Workflow Engine
+# =============================================================================
 temporal:
-  enabled: true
+  enabled: false
   image:
     repository: my-temporal-server
     tag: latest
@@ -96,10 +130,10 @@ temporal:
   resources:
     requests:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
     limits:
       cpu: 2000m
-      memory: 2Gi
+      memory: 4Gi
   persistence:
     certs:
       enabled: true
@@ -130,6 +164,10 @@ temporal:
       image: temporalio/admin-tools:latest
       backoffLimit: 3
       ttlSecondsAfterFinished: 300
+  # PodDisruptionBudget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   networkPolicy:
     enabled: true
     ingress:
@@ -140,6 +178,10 @@ temporal:
       ports:
       - protocol: TCP
         port: 7233
+
+# =============================================================================
+# FastAPI Application
+# =============================================================================
 app:
   enabled: true
   name: app
@@ -147,6 +189,7 @@ app:
     repository: api-forge-app
     tag: latest
     pullPolicy: IfNotPresent
+  # Base replicas (used when autoscaling is disabled)
   replicas: 1
   revisionHistoryLimit: 3
   resources:
@@ -184,12 +227,43 @@ app:
       - path: /
         pathType: Prefix
     tls: []
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        percentValue: 10
+        periodSeconds: 60
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        percentValue: 100
+        podsValue: 4
+        periodSeconds: 15
+  # PodDisruptionBudget - ensures app availability during maintenance
+  # Use maxUnavailable (not minAvailable) to work with single-replica deployments
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+    # Alternatively, use minAvailable (but this blocks eviction when replicas=1):
+    # minAvailable: 1
+    # Alternatively, use maxUnavailable:
+    # maxUnavailable: 1
+
+# =============================================================================
+# Temporal Worker
+# =============================================================================
 worker:
   enabled: true
   image:
     repository: api-forge-app
     tag: latest
     pullPolicy: IfNotPresent
+  # Base replicas (used when autoscaling is disabled)
   replicas: 1
   revisionHistoryLimit: 3
   resources:
@@ -199,6 +273,33 @@ worker:
     limits:
       cpu: 1000m
       memory: 1Gi
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleDown:
+        # Workers scale down more conservatively to avoid disrupting workflows
+        stabilizationWindowSeconds: 600
+        percentValue: 10
+        periodSeconds: 120
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        percentValue: 100
+        podsValue: 2
+        periodSeconds: 15
+  # PodDisruptionBudget
+  # Use maxUnavailable (not minAvailable) to work with single-replica deployments
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+# =============================================================================
+# Initialization Jobs
+# =============================================================================
 jobs:
   postgresVerifier:
     enabled: true

@@ -1,0 +1,52 @@
+{{- if and .Values.app.enabled .Values.app.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: app
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: api-forge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app
+  minReplicas: {{ .Values.app.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.app.autoscaling.maxReplicas | default 5 }}
+  metrics:
+    {{- if .Values.app.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.app.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.app.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.app.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.app.autoscaling.behavior.scaleDown.stabilizationWindowSeconds | default 300 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.app.autoscaling.behavior.scaleDown.percentValue | default 10 }}
+          periodSeconds: {{ .Values.app.autoscaling.behavior.scaleDown.periodSeconds | default 60 }}
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.app.autoscaling.behavior.scaleUp.stabilizationWindowSeconds | default 0 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.app.autoscaling.behavior.scaleUp.percentValue | default 100 }}
+          periodSeconds: {{ .Values.app.autoscaling.behavior.scaleUp.periodSeconds | default 15 }}
+        - type: Pods
+          value: {{ .Values.app.autoscaling.behavior.scaleUp.podsValue | default 4 }}
+          periodSeconds: {{ .Values.app.autoscaling.behavior.scaleUp.periodSeconds | default 15 }}
+      selectPolicy: Max
+{{- end }}

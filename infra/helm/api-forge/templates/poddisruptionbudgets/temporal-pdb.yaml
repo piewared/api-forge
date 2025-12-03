@@ -1,0 +1,23 @@
+{{- if and .Values.temporal.enabled .Values.temporal.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: temporal
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/part-of: api-forge
+spec:
+  {{- if .Values.temporal.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.temporal.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.temporal.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.temporal.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  # Default: Temporal must always be available (single replica setup)
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal
+{{- end }}

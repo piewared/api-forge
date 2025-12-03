@@ -106,11 +106,11 @@ spec:
             readOnlyRootFilesystem: false
           resources:
             requests:
-              cpu: 250m
-              memory: 128Mi
+              cpu: {{ .Values.app.resources.requests.cpu | default "250m" }}
+              memory: {{ .Values.app.resources.requests.memory | default "256Mi" }}
             limits:
-              cpu: 1000m
-              memory: 512Mi
+              cpu: {{ .Values.app.resources.limits.cpu | default "1000m" }}
+              memory: {{ .Values.app.resources.limits.memory | default "1Gi" }}
           volumeMounts:
             # Secrets - mounted as individual files
             - name: postgres-secrets

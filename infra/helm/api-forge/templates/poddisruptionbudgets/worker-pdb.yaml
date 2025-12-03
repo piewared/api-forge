@@ -1,0 +1,23 @@
+{{- if and .Values.worker.enabled .Values.temporal.enabled .Values.worker.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: temporal-worker
+    app.kubernetes.io/part-of: api-forge
+spec:
+  {{- if .Values.worker.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.worker.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.worker.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.worker.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  # Default: allow 1 pod to be unavailable (works with any replica count)
+  maxUnavailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+{{- end }}

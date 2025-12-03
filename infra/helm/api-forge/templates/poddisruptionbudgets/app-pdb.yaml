@@ -1,0 +1,23 @@
+{{- if and .Values.app.enabled .Values.app.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: app
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: api-forge
+spec:
+  {{- if .Values.app.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.app.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.app.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.app.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  # Default: allow 1 pod to be unavailable (works with any replica count)
+  maxUnavailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app
+{{- end }}

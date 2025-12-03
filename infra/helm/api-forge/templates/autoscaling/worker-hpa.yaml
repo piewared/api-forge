@@ -1,0 +1,53 @@
+{{- if and .Values.worker.enabled .Values.temporal.enabled .Values.worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: temporal-worker
+    app.kubernetes.io/part-of: api-forge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas | default 5 }}
+  metrics:
+    {{- if .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.worker.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      # Worker scale-down should be more conservative to avoid disrupting running workflows
+      stabilizationWindowSeconds: {{ .Values.worker.autoscaling.behavior.scaleDown.stabilizationWindowSeconds | default 600 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.worker.autoscaling.behavior.scaleDown.percentValue | default 10 }}
+          periodSeconds: {{ .Values.worker.autoscaling.behavior.scaleDown.periodSeconds | default 120 }}
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.worker.autoscaling.behavior.scaleUp.stabilizationWindowSeconds | default 0 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.worker.autoscaling.behavior.scaleUp.percentValue | default 100 }}
+          periodSeconds: {{ .Values.worker.autoscaling.behavior.scaleUp.periodSeconds | default 15 }}
+        - type: Pods
+          value: {{ .Values.worker.autoscaling.behavior.scaleUp.podsValue | default 2 }}
+          periodSeconds: {{ .Values.worker.autoscaling.behavior.scaleUp.periodSeconds | default 15 }}
+      selectPolicy: Max
+{{- end }}

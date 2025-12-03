@@ -1,0 +1,23 @@
+{{- if and .Values.redis.enabled .Values.redis.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: api-forge
+spec:
+  {{- if .Values.redis.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.redis.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.redis.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.redis.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  # Default: Redis must always be available (single replica setup)
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+{{- end }}

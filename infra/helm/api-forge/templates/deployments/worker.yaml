@@ -105,11 +105,11 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              cpu: 250m
-              memory: 128Mi
+              cpu: {{ .Values.worker.resources.requests.cpu | default "250m" }}
+              memory: {{ .Values.worker.resources.requests.memory | default "256Mi" }}
             limits:
-              cpu: 1000m
-              memory: 512Mi
+              cpu: {{ .Values.worker.resources.limits.cpu | default "1000m" }}
+              memory: {{ .Values.worker.resources.limits.memory | default "1Gi" }}
           volumeMounts:
             # Secrets - mounted as individual files
             - name: postgres-secrets

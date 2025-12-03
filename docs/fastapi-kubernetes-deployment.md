@@ -696,29 +696,109 @@ API Forge provides comprehensive health endpoints:
 
 ### Resource Requests and Limits
 
-Set appropriate resource requests and limits:
+Resource configuration is managed through `values.yaml`. The templates dynamically read these values:
 
 ```yaml
-resources:
-  requests:
-    cpu: 250m
-    memory: 256Mi
-  limits:
-    cpu: 1000m
-    memory: 512Mi
+# infra/helm/api-forge/values.yaml
+app:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
 ```
 
-**Guidelines**:
-- **Requests**: Minimum resources guaranteed
-- **Limits**: Maximum resources allowed
-- **FastAPI App**: 250m CPU, 256-512Mi memory
-- **Worker**: 250m CPU, 256-512Mi memory
-- **PostgreSQL**: 500m CPU, 1Gi memory
-- **Redis**: 100m CPU, 128Mi memory
+**Production Sizing Guidelines**:
 
-### Horizontal Pod Autoscaling
+| Component | Requests (CPU/Mem) | Limits (CPU/Mem) | Notes |
+|-----------|-------------------|------------------|-------|
+| App | 250m / 256Mi | 1000m / 1Gi | Scale horizontally with HPA |
+| Worker | 250m / 256Mi | 1000m / 1Gi | Conservative scale-down for workflows |
+| PostgreSQL | 500m / 1Gi | 2000m / 4Gi | Consider managed DB for HA |
+| Redis | 250m / 256Mi | 1000m / 1Gi | Match maxMemory config |
+| Temporal | 500m / 1Gi | 2000m / 4Gi | Single instance sufficient for most loads |
 
-Scale based on CPU/memory utilization:
+### Horizontal Pod Autoscaling (HPA)
+
+The Helm chart includes built-in HPA support for the app and worker deployments. Enable autoscaling in `values.yaml`:
+
+```yaml
+# infra/helm/api-forge/values.yaml
+app:
+  replicas: 1  # Base replicas when HPA is disabled
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+        percentValue: 10                  # Scale down 10% at a time
+        periodSeconds: 60
+      scaleUp:
+        stabilizationWindowSeconds: 0    # Scale up immediately
+        percentValue: 100
+        podsValue: 4                      # Add up to 4 pods at once
+        periodSeconds: 15
+
+worker:
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 600  # Workers scale down more conservatively
+        periodSeconds: 120               # to avoid disrupting running workflows
+```
+
+When `autoscaling.enabled: true`, the HPA controller manages replica count automatically based on CPU/memory metrics.
+
+**Check HPA status:**
+```bash
+kubectl get hpa -n api-forge-prod
+kubectl describe hpa app -n api-forge-prod
+```
+
+### Pod Disruption Budgets (PDB)
+
+PDBs ensure service availability during voluntary disruptions (node drains, upgrades). The chart includes PDBs for all services:
+
+```yaml
+# infra/helm/api-forge/values.yaml
+app:
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1   # Allow 1 pod to be unavailable (works with any replica count)
+    # Or use minAvailable (but blocks eviction when replicas=1):
+    # minAvailable: 1
+
+postgres:
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+redis:
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+```
+
+> **Note:** Use `maxUnavailable` instead of `minAvailable` when running single-replica deployments. With `minAvailable: 1` and only 1 replica, Kubernetes cannot evict the pod during voluntary disruptions (node drains, upgrades), causing a deadlock.
+
+**Check PDB status:**
+```bash
+kubectl get pdb -n api-forge-prod
+kubectl describe pdb app -n api-forge-prod
+```
+
+### Manual Horizontal Pod Autoscaling
+
+If you prefer manual HPA configuration or need custom metrics:
 
 ```yaml
 apiVersion: autoscaling/v2
@@ -1246,18 +1326,19 @@ kubectl apply -f argocd-application.yaml
 
 1. **Use Helm for deployments** - Provides templating, versioning, and rollback capabilities
 2. **Sync config.yaml settings** - Let the CLI handle redis.enabled and temporal.enabled synchronization
-3. **Set resource requests and limits** - Define appropriate limits for all containers
-4. **Implement health checks** - Configure liveness and readiness probes
-5. **Use secrets properly** - Never store sensitive data in ConfigMaps or values.yaml
-6. **Enable NetworkPolicies** - Restrict pod-to-pod communication
-7. **Use Ingress with TLS** - Secure external access with TLS certificates
-8. **Implement HPA** - Enable Horizontal Pod Autoscaling for dynamic scaling
-9. **Use PersistentVolumes** - Ensure data persistence for stateful services
-10. **Tag images with versions** - Avoid using `latest` in production
-11. **Monitor and log** - Implement comprehensive monitoring and logging
-12. **Test locally first** - Use Minikube to test deployments before production
-13. **Use External Secrets Operator** - For production secret management
-14. **Leverage Helm rollbacks** - Easy rollback to previous releases if issues arise
+3. **Set resource requests and limits** - Configure in `values.yaml` for all containers
+4. **Enable HPA for production** - Set `app.autoscaling.enabled: true` for automatic scaling
+5. **Enable PDBs** - Ensure `podDisruptionBudget.enabled: true` for service availability during maintenance
+6. **Implement health checks** - Configure liveness and readiness probes
+7. **Use secrets properly** - Never store sensitive data in ConfigMaps or values.yaml
+8. **Enable NetworkPolicies** - Restrict pod-to-pod communication
+9. **Use Ingress with TLS** - Secure external access with TLS certificates
+10. **Use PersistentVolumes** - Ensure data persistence for stateful services
+11. **Tag images with versions** - Avoid using `latest` in production
+12. **Monitor and log** - Implement comprehensive monitoring and logging
+13. **Test locally first** - Use Minikube to test deployments before production
+14. **Use External Secrets Operator** - For production secret management
+15. **Leverage Helm rollbacks** - Use `deploy rollback` CLI command if issues arise
 
 ## Helm-Specific Tips
 
