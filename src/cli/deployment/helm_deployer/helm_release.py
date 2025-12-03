@@ -59,7 +59,7 @@ class HelmReleaseManager:
         """Create a temporary values file to override image tags.
 
         Args:
-            image_tag: The unique image tag to use
+            image_tag: The unique image tag to use for all images
             registry: Optional container registry prefix for remote clusters
 
         Returns:
@@ -68,12 +68,22 @@ class HelmReleaseManager:
         # Determine image repository - use registry prefix for remote clusters
         if registry:
             app_repo = f"{registry}/{self.constants.APP_IMAGE_NAME}"
+            postgres_repo = f"{registry}/{self.constants.POSTGRES_IMAGE_NAME}"
+            redis_repo = f"{registry}/{self.constants.REDIS_IMAGE_NAME}"
+            temporal_repo = f"{registry}/{self.constants.TEMPORAL_IMAGE_NAME}"
         else:
             app_repo = self.constants.APP_IMAGE_NAME
+            postgres_repo = self.constants.POSTGRES_IMAGE_NAME
+            redis_repo = self.constants.REDIS_IMAGE_NAME
+            temporal_repo = self.constants.TEMPORAL_IMAGE_NAME
 
         override_values = {
             "app": {"image": {"repository": app_repo, "tag": image_tag}},
             "worker": {"image": {"repository": app_repo, "tag": image_tag}},
+            # Use content-based tags for infra images to avoid stale image issues
+            "postgres": {"image": {"repository": postgres_repo, "tag": image_tag}},
+            "redis": {"image": {"repository": redis_repo, "tag": image_tag}},
+            "temporal": {"image": {"repository": temporal_repo, "tag": image_tag}},
         }
 
         temp_file = Path(tempfile.mktemp(suffix=".yaml", prefix="helm-image-override-"))
@@ -132,7 +142,23 @@ class HelmReleaseManager:
 
             if not result.success:
                 self.console.print("[red]✗ Helm deployment failed[/red]")
-                raise DeploymentError("Helm deployment failed")
+                raise DeploymentError(
+                    "Helm deployment failed",
+                    details=(
+                        "The Helm chart could not be deployed to the cluster.\n\n"
+                        "Common causes:\n"
+                        "  • Kubernetes cluster is not running or accessible\n"
+                        "  • Previous deployment left resources in a bad state\n"
+                        "  • Secrets or config files are missing or invalid\n"
+                        "  • Insufficient cluster resources (CPU, memory)\n\n"
+                        "Recovery steps:\n"
+                        "  1. Check cluster status: kubectl cluster-info\n"
+                        "  2. Check pod status: kubectl get pods -n api-forge-prod\n"
+                        "  3. View pod logs: kubectl logs <pod-name> -n api-forge-prod\n"
+                        "  4. Clean up and retry: uv run api-forge-cli deploy down k8s --volumes\n"
+                        "  5. Redeploy: uv run api-forge-cli deploy up k8s"
+                    ),
+                )
 
         finally:
             # Clean up temporary override file

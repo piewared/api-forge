@@ -111,6 +111,15 @@ class HelmDeployer(BaseDeployer):
             constants=self.constants,
         )
 
+        # Import validator here to avoid circular imports
+        from .validator import DeploymentValidator
+
+        self.validator = DeploymentValidator(
+            commands=self.commands,
+            console=console,
+            constants=self.constants,
+        )
+
     # =========================================================================
     # Progress Factory
     # =========================================================================
@@ -183,6 +192,37 @@ class HelmDeployer(BaseDeployer):
         # Validate registry URL format if provided
         if registry:
             self._validate_registry_url(registry)
+
+        # Phase 0: Pre-deployment validation
+        # Check for existing issues that could cause deployment problems
+        validation_result = self.validator.validate(namespace)
+        self.validator.display_results(validation_result, namespace)
+
+        # If there are issues, prompt for cleanup
+        if not validation_result.is_clean:
+            if validation_result.requires_cleanup:
+                # Critical issues - need cleanup before proceeding
+                if self.validator.prompt_cleanup(validation_result, namespace):
+                    # User accepted cleanup, execute it
+                    if self.validator.run_cleanup(namespace):
+                        self.console.print(
+                            "[bold green]✓[/bold green] Pre-deployment cleanup completed"
+                        )
+                    else:
+                        # Cleanup failed, abort deployment
+                        return
+                else:
+                    # User declined cleanup for critical issues, abort
+                    self.console.print(
+                        "[yellow]⚠[/yellow] Deployment cancelled due to unresolved "
+                        "critical issues."
+                    )
+                    return
+            else:
+                # Non-critical issues - prompt but allow proceeding
+                if not self.validator.prompt_cleanup(validation_result, namespace):
+                    # User explicitly declined after errors/warnings - respect that
+                    return
 
         # Phase 1: Build and prepare images
         image_tag = self.image_builder.build_and_tag_images(

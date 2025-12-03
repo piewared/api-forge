@@ -6,9 +6,58 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 
 # Initialize Rich console for colored output
 console = Console()
+
+
+def confirm_destructive_action(
+    action: str,
+    details: str | None = None,
+    extra_warning: str | None = None,
+    force: bool = False,
+) -> bool:
+    """Prompt user to confirm a destructive action.
+
+    Args:
+        action: Description of the action (e.g., "Stop all services")
+        details: Additional details about what will be affected
+        extra_warning: Extra warning message (e.g., for data loss)
+        force: If True, skip the confirmation prompt
+
+    Returns:
+        True if the user confirmed, False otherwise
+    """
+    if force:
+        return True
+
+    # Build warning message
+    warning_lines = [f"[bold red]⚠️  {action}[/bold red]"]
+
+    if details:
+        warning_lines.append(f"\n{details}")
+
+    if extra_warning:
+        warning_lines.append(f"\n[yellow]{extra_warning}[/yellow]")
+
+    console.print(
+        Panel(
+            "\n".join(warning_lines),
+            title="Confirmation Required",
+            border_style="red",
+        )
+    )
+
+    try:
+        # Escape brackets with backslash for Rich markup
+        response = console.input(
+            "\n[bold]Are you sure you want to proceed?[/bold] \\[y/N]: "
+        )
+        return response.strip().lower() in ("y", "yes")
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[dim]Cancelled.[/dim]")
+        return False
 
 
 def get_project_root() -> Path:

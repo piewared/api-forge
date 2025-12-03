@@ -125,6 +125,11 @@ use_redis:
   help: "Include Redis for caching and sessions?"
   default: yes
 
+use_temporal:
+  type: bool
+  help: "Include Temporal for workflow orchestration?"
+  default: yes
+
 use_postgres:
   type: bool
   help: "Use PostgreSQL instead of SQLite?"

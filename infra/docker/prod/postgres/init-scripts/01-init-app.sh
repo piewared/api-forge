@@ -1,26 +1,28 @@
 #!/bin/sh
 set -eu
 
-# Required env (provided by your entrypoint/compose)
+# =============================================================================
+# PostgreSQL Initialization Script
+# =============================================================================
+# This script initializes:
+#   1. Application database (always) - roles, schema, and permissions
+#   2. Temporal databases (optional) - only if TEMPORAL_DB_USER is set
+# =============================================================================
+
+# Required env for App DB (provided by your entrypoint/compose)
 : "${APP_DB:?missing APP_DB}"
-: "${APP_DB_OWNER:?missing APP_DB_OWNER}"   # NOLOGIN owner (app)
+: "${APP_DB_OWNER:?missing APP_DB_OWNER}"             # NOLOGIN owner (app)
 : "${APP_DB_USER:?missing APP_DB_USER}"               # app_user (LOGIN)
-: "${APP_DB_RO_USER:?missing APP_DB_RO_USER}"         # app_ro  (LOGIN)
-: "${TEMPORAL_DB_USER:?missing TEMPORAL_DB_USER}"               # e.g., temporal_user
-: "${POSTGRES_APP_USER_PW:?missing POSTGRES_APP_USER_PW}"       # password for app user
-: "${POSTGRES_APP_RO_PW:?missing POSTGRES_APP_RO_PW}"           # password for read-only user
-: "${POSTGRES_TEMPORAL_PW:?missing POSTGRES_TEMPORAL_PW}"
-
-# Optional override for Temporal owner (NOLOGIN). Default: "<temporal_user>_owner"
-TEMPORAL_DB_OWNER="${TEMPORAL_DB_OWNER:-${TEMPORAL_DB_USER}_owner}"
-
-# Database names (override if you like)
-TEMPORAL_DB="${TEMPORAL_DB:-temporal}"
-TEMPORAL_VIS_DB="${TEMPORAL_VIS_DB:-temporal_visibility}"
+: "${APP_DB_RO_USER:?missing APP_DB_RO_USER}"         # app_ro (LOGIN)
+: "${POSTGRES_APP_USER_PW:?missing POSTGRES_APP_USER_PW}"   # password for app user
+: "${POSTGRES_APP_RO_PW:?missing POSTGRES_APP_RO_PW}"       # password for read-only user
 
 APP_SCHEMA="${APP_SCHEMA:-app}"
 
-echo "==> Initializing roles/db for ${APP_DB} and Temporal"
+# =============================================================================
+# App Database Initialization
+# =============================================================================
+echo "==> Initializing roles/db for ${APP_DB}"
 
 psql -v ON_ERROR_STOP=1 \
   -v APP_DB="${APP_DB}" \
@@ -29,11 +31,6 @@ psql -v ON_ERROR_STOP=1 \
   -v APP_RO_USER="${APP_DB_RO_USER}" \
   -v APP_USER_PASSWORD="${POSTGRES_APP_USER_PW}" \
   -v APP_RO_USER_PASSWORD="${POSTGRES_APP_RO_PW}" \
-  -v TEMPORAL_OWNER_USER="${TEMPORAL_DB_OWNER}" \
-  -v TEMPORAL_USER="${TEMPORAL_DB_USER}" \
-  -v TEMPORAL_USER_PASSWORD="${POSTGRES_TEMPORAL_PW}" \
-  -v TEMPORAL_DB="${TEMPORAL_DB}" \
-  -v TEMPORAL_VIS_DB="${TEMPORAL_VIS_DB}" \
   -v APP_SCHEMA="${APP_SCHEMA}" <<'PSQL'
 \set ON_ERROR_STOP on
 
@@ -112,7 +109,32 @@ SELECT format(
 )\gexec
 
 \echo === App DB/roles initialized (3-role pattern) ===
+PSQL
 
+echo "==> App database initialization completed"
+
+# =============================================================================
+# Temporal Database Initialization (Optional)
+# =============================================================================
+# Only run if TEMPORAL_DB_USER is set (indicates Temporal is enabled)
+
+if [ -n "${TEMPORAL_DB_USER:-}" ] && [ -n "${POSTGRES_TEMPORAL_PW:-}" ]; then
+  echo "==> Temporal enabled, initializing Temporal roles/databases"
+
+  # Optional override for Temporal owner (NOLOGIN). Default: "<temporal_user>_owner"
+  TEMPORAL_DB_OWNER="${TEMPORAL_DB_OWNER:-${TEMPORAL_DB_USER}_owner}"
+
+  # Database names (override if you like)
+  TEMPORAL_DB="${TEMPORAL_DB:-temporal}"
+  TEMPORAL_VIS_DB="${TEMPORAL_VIS_DB:-temporal_visibility}"
+
+  psql -v ON_ERROR_STOP=1 \
+    -v TEMPORAL_OWNER_USER="${TEMPORAL_DB_OWNER}" \
+    -v TEMPORAL_USER="${TEMPORAL_DB_USER}" \
+    -v TEMPORAL_USER_PASSWORD="${POSTGRES_TEMPORAL_PW}" \
+    -v TEMPORAL_DB="${TEMPORAL_DB}" \
+    -v TEMPORAL_VIS_DB="${TEMPORAL_VIS_DB}" <<'PSQL'
+\set ON_ERROR_STOP on
 
 \echo === Creating Temporal roles and databases ===
 
@@ -203,5 +225,10 @@ SELECT format(
 --   temporal-sql-tool --plugin postgres --ep localhost -p 5432 -u :'TEMPORAL_USER' -pw '<pw>' --db :'TEMPORAL_VIS_DB'  setup-schema --schema-name postgres
 
 PSQL
+
+  echo "==> Temporal database initialization completed"
+else
+  echo "==> Temporal disabled (TEMPORAL_DB_USER not set), skipping Temporal database setup"
+fi
 
 echo "==> Init completed"

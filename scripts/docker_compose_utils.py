@@ -86,3 +86,134 @@ def remove_redis_from_docker_compose(content: str) -> str:
     content = re.sub(r"^  # Redis.*\n", "", content, flags=re.MULTILINE)
 
     return content
+
+
+def remove_temporal_from_docker_compose(content: str) -> str:
+    """
+    Remove Temporal services and dependencies from a Docker Compose file content.
+
+    This function performs the following transformations:
+    1. Removes all Temporal-related service blocks (temporal, temporal-web, temporal-schema-setup,
+       temporal-admin-tools, temporal-namespace-init, worker)
+    2. Removes temporal from depends_on blocks (both with conditions and list format)
+    3. Removes Temporal volume definitions (temporal_data, temporal_postgres_data, temporal_certs)
+    4. Removes postgres_temporal_pw from secrets sections
+    5. Removes Temporal-related environment variables from other services
+    6. Removes Temporal-related comments
+
+    Args:
+        content: The raw Docker Compose YAML content as a string
+
+    Returns:
+        The modified Docker Compose content with Temporal removed
+
+    Example:
+        >>> content = '''
+        ... services:
+        ...   temporal:
+        ...     image: temporalio/auto-setup:1.28.1
+        ...   app:
+        ...     depends_on:
+        ...       - temporal
+        ... '''
+        >>> result = remove_temporal_from_docker_compose(content)
+        >>> 'temporal:' not in result
+        True
+    """
+    # List of Temporal-related services to remove
+    temporal_services = [
+        "temporal-schema-setup",
+        "temporal-admin-tools",
+        "temporal-namespace-init",
+        "temporal-web",
+        "temporal",
+        "worker",
+    ]
+
+    # Remove each Temporal service block
+    # Match optional comment line, then service name at service level (2 spaces)
+    # to the next service definition or to the end of the services section
+    for service in temporal_services:
+        # Handle comment before service (e.g., "  # Temporal Workflow Engine")
+        content = re.sub(
+            rf"(?:^  # (?:Temporal|Worker).*\n)?^  {re.escape(service)}:.*?(?=^  [\w-]+:|^volumes:|^networks:|^secrets:|\Z)",
+            "",
+            content,
+            flags=re.DOTALL | re.MULTILINE,
+        )
+
+    # Remove temporal from depends_on blocks (with condition)
+    # Handles patterns like:
+    #   temporal:
+    #     condition: service_healthy
+    content = re.sub(
+        r"      temporal(?:-[\w-]+)?:\s*\n\s+condition:.*?\n",
+        "",
+        content,
+    )
+
+    # Remove standalone depends_on: temporal lines (in list format)
+    content = re.sub(
+        r"^(\s+)-\s+temporal(?:-[\w-]+)?\s*$", "", content, flags=re.MULTILINE
+    )
+
+    # Remove Temporal volume definitions
+    temporal_volumes = [
+        "temporal_data",
+        "temporal_postgres_data",
+        "temporal_certs",
+    ]
+    for volume in temporal_volumes:
+        content = re.sub(
+            rf"  {volume}:.*?(?=\n  \w+:|\n\w+:|\Z)",
+            "",
+            content,
+            flags=re.DOTALL,
+        )
+
+    # Remove postgres_temporal_pw from secrets lists in services
+    content = re.sub(
+        r"^(\s+)-\s+postgres_temporal_pw\s*$", "", content, flags=re.MULTILINE
+    )
+
+    # Remove postgres_temporal_pw secret definition from secrets section
+    content = re.sub(
+        r"^  postgres_temporal_pw:.*?(?=\n  \w+:|\n\w+:|\n\n|\Z)",
+        "",
+        content,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+
+    # Remove Temporal-related environment variables from remaining services
+    # Handles patterns like:
+    #   - DEVELOPMENT_TEMPORAL_URL=temporal:7233
+    #   - TEMPORAL_ADDRESS=temporal:7233
+    content = re.sub(
+        r"^(\s+)-\s+(?:DEVELOPMENT_|PRODUCTION_)?TEMPORAL_(?:URL|ADDRESS|DB|VIS_DB|DB_USER)=.*$\n",
+        "",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    # Remove Temporal DB settings from postgres environment (in prod compose)
+    # Handles patterns like:
+    #   TEMPORAL_DB: ${TEMPORAL_DB:-temporal}
+    content = re.sub(
+        r"^\s+TEMPORAL_(?:DB|VIS_DB|DB_USER):.*$\n",
+        "",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    # Remove "# Temporal Workflow Engine" and similar comment lines
+    content = re.sub(r"^  # Temporal.*\n", "", content, flags=re.MULTILINE)
+
+    # Clean up empty depends_on blocks that might be left behind
+    content = re.sub(
+        r"    depends_on:\s*\n(?=    \w+:|\n  \w+:|^volumes:|^networks:|^secrets:|\Z)",
+        "",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    return content

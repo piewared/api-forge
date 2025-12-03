@@ -7,7 +7,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from .utils import console, get_project_root
+from .utils import confirm_destructive_action, console, get_project_root
 
 # Create the secrets command group
 secrets_app = typer.Typer(help="🔐 Secrets management commands")
@@ -40,6 +40,9 @@ def generate(
         None,
         "--oidc-keycloak-secret",
         help="Keycloak OIDC client secret (avoids interactive prompt)",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip confirmation prompt for --force"
     ),
 ) -> None:
     """
@@ -81,6 +84,29 @@ def generate(
             f"   {generate_script}",
         )
         raise typer.Exit(1)
+
+    # Confirm if using --force (destructive overwrite)
+    if force:
+        details = (
+            "This will regenerate ALL secrets including:\n"
+            "  • Database passwords (PostgreSQL)\n"
+            "  • Redis password\n"
+            "  • Session signing secret\n"
+            "  • CSRF signing secret"
+        )
+        if pki:
+            details += (
+                "\n  • TLS certificates (Root CA, Intermediate CA, service certs)"
+            )
+
+        if not confirm_destructive_action(
+            action="Regenerate ALL secrets",
+            details=details,
+            extra_warning="⚠️  Existing secrets will be permanently overwritten!",
+            force=yes,
+        ):
+            console.print("[dim]Operation cancelled.[/dim]")
+            raise typer.Exit(0)
 
     # Run generate_secrets.sh
     if pki:

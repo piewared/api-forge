@@ -56,12 +56,17 @@ read_secret_value() {
 # Ensure required env vars exist (populated via docker-compose)
 require_env APP_DB_USER
 require_env APP_DB_RO_USER
-require_env TEMPORAL_DB_USER
+# TEMPORAL_DB_USER is optional - only required if Temporal is enabled
 
 APP_USER_PASSWORD=$(read_secret_value POSTGRES_APP_USER_PW postgres_app_user_pw)
 APP_RO_PASSWORD=$(read_secret_value POSTGRES_APP_RO_PW postgres_app_ro_pw)
-TEMPORAL_PASSWORD=$(read_secret_value POSTGRES_TEMPORAL_PW postgres_temporal_pw)
 SUPERUSER_PASSWORD=$(read_secret_value POSTGRES_PASSWORD postgres_password)
+
+# Temporal password is optional
+TEMPORAL_PASSWORD=""
+if [ -n "${TEMPORAL_DB_USER:-}" ]; then
+    TEMPORAL_PASSWORD=$(read_secret_value POSTGRES_TEMPORAL_PW postgres_temporal_pw)
+fi
 
 log "Synchronizing Postgres role passwords with secrets..."
 
@@ -87,14 +92,13 @@ else
     fi
 fi
 
+# Sync App and superuser passwords (always required)
 "${PSQL_CMD[@]}" \
   -d postgres \
   -v APP_USER="${APP_DB_USER}" \
   -v APP_RO_USER="${APP_DB_RO_USER}" \
-  -v TEMPORAL_USER="${TEMPORAL_DB_USER}" \
   -v APP_USER_PASSWORD="${APP_USER_PASSWORD}" \
   -v APP_RO_USER_PASSWORD="${APP_RO_PASSWORD}" \
-  -v TEMPORAL_USER_PASSWORD="${TEMPORAL_PASSWORD}" \
   -v SUPERUSER_PASSWORD="${SUPERUSER_PASSWORD}" <<'SQL'
 \set ON_ERROR_STOP on
 
@@ -109,10 +113,23 @@ WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'APP_USER')
 SELECT format('ALTER ROLE %I WITH PASSWORD %L', :'APP_RO_USER', :'APP_RO_USER_PASSWORD')
 WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'APP_RO_USER')
 \gexec
+SQL
+
+# Sync Temporal password only if Temporal is enabled
+if [ -n "${TEMPORAL_DB_USER:-}" ] && [ -n "${TEMPORAL_PASSWORD:-}" ]; then
+    log "Syncing Temporal user password..."
+    "${PSQL_CMD[@]}" \
+      -d postgres \
+      -v TEMPORAL_USER="${TEMPORAL_DB_USER}" \
+      -v TEMPORAL_USER_PASSWORD="${TEMPORAL_PASSWORD}" <<'SQL'
+\set ON_ERROR_STOP on
 
 SELECT format('ALTER ROLE %I WITH PASSWORD %L', :'TEMPORAL_USER', :'TEMPORAL_USER_PASSWORD')
 WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'TEMPORAL_USER')
 \gexec
 SQL
+else
+    log "Temporal disabled, skipping Temporal password sync"
+fi
 
 log "Password synchronization complete."

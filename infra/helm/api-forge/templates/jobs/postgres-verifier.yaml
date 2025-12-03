@@ -8,6 +8,11 @@ metadata:
     app.kubernetes.io/name: postgres-verifier
     app.kubernetes.io/component: database-verification
     app.kubernetes.io/part-of: api-forge
+  annotations:
+    # Run on install and upgrade, delete previous job before creating new one
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   # Keep successful job for 30 minutes for debugging
   ttlSecondsAfterFinished: 1800

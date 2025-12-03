@@ -1,10 +1,15 @@
 """Temporal client service for managing shared Temporal client state."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from loguru import logger
-from temporalio.client import Client, TLSConfig
-from temporalio.contrib.pydantic import pydantic_data_converter
 
 from src.app.runtime.context import get_config
+
+if TYPE_CHECKING:
+    from temporalio.client import Client
 
 
 class TemporalClientService:
@@ -85,6 +90,9 @@ class TemporalClientService:
         Raises:
             Exception: If connection fails after max retries
         """
+        from temporalio.client import Client, TLSConfig
+        from temporalio.contrib.pydantic import pydantic_data_converter
+
         last_exception = None
 
         for attempt in range(1, self._max_retry_attempts + 1):
