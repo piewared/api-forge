@@ -21,6 +21,9 @@ requires_redis = pytest.mark.skipif(
     not REDIS_AVAILABLE, reason="Redis is not running or not accessible"
 )
 
+# Mark Redis tests to run in same xdist group to avoid shared state issues
+redis_xdist_group = pytest.mark.xdist_group("redis_rate_limiter")
+
 
 class TestRateLimiting:
     """Test rate limiting functionality."""
@@ -37,7 +40,7 @@ class TestRateLimiting:
             "local",
             pytest.param(
                 "redis",
-                marks=requires_redis,
+                marks=[requires_redis, redis_xdist_group],
             ),
         ]
     )
