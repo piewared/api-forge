@@ -1,13 +1,12 @@
 """Keycloak user management CLI commands."""
 
 import typer
-from rich.console import Console
 from rich.prompt import Confirm
 from rich.table import Table
 
 from src.dev.keycloak_client import KeycloakClient
 
-console = Console()
+from .shared import console
 
 # Create the users subcommand app
 users_app = typer.Typer(help="Manage Keycloak users in development environment")

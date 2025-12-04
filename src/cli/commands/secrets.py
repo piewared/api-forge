@@ -7,7 +7,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from .utils import confirm_destructive_action, console, get_project_root
+from .shared import confirm_destructive_action, console, get_project_root
 
 # Create the secrets command group
 secrets_app = typer.Typer(help="🔐 Secrets management commands")
