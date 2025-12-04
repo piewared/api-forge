@@ -80,7 +80,7 @@ postgres:
 # Redis Cache/Sessions
 # =============================================================================
 redis:
-  enabled: false
+  enabled: true
   image:
     repository: app_data_redis_image
     tag: latest
@@ -122,7 +122,7 @@ redis:
 # Temporal Workflow Engine
 # =============================================================================
 temporal:
-  enabled: false
+  enabled: true
   image:
     repository: my-temporal-server
     tag: latest
@@ -217,16 +217,92 @@ app:
   service:
     type: ClusterIP
     port: 8000
+  # ---------------------------------------------------------------------------
+  # Ingress Configuration
+  # ---------------------------------------------------------------------------
+  # Exposes the API externally via an Ingress controller.
+  # 
+  # Prerequisites:
+  #   - An Ingress controller must be installed in the cluster
+  #   - For Minikube: minikube addons enable ingress
+  #   - For cloud: Use provider's ingress controller or install nginx-ingress
+  #
+  # Example configurations:
+  #
+  # Minikube (local development):
+  #   ingress:
+  #     enabled: true
+  #     className: nginx
+  #     hosts:
+  #       - host: api.local
+  #         paths:
+  #           - path: /
+  #             pathType: Prefix
+  #   # Add to /etc/hosts: $(minikube ip) api.local
+  #
+  # AWS ALB:
+  #   ingress:
+  #     enabled: true
+  #     className: alb
+  #     annotations:
+  #       alb.ingress.kubernetes.io/scheme: internet-facing
+  #       alb.ingress.kubernetes.io/target-type: ip
+  #       alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:...
+  #     hosts:
+  #       - host: api.example.com
+  #         paths:
+  #           - path: /
+  #             pathType: Prefix
+  #     tls:
+  #       - hosts:
+  #           - api.example.com
+  #
+  # GKE with Google Cloud Load Balancer:
+  #   ingress:
+  #     enabled: true
+  #     className: gce
+  #     annotations:
+  #       kubernetes.io/ingress.global-static-ip-name: api-ip
+  #       networking.gke.io/managed-certificates: api-cert
+  #     hosts:
+  #       - host: api.example.com
+  #         paths:
+  #           - path: /
+  #             pathType: Prefix
+  #
+  # NGINX with cert-manager TLS:
+  #   ingress:
+  #     enabled: true
+  #     className: nginx
+  #     annotations:
+  #       cert-manager.io/cluster-issuer: letsencrypt-prod
+  #       nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  #     hosts:
+  #       - host: api.example.com
+  #         paths:
+  #           - path: /
+  #             pathType: Prefix
+  #     tls:
+  #       - secretName: api-tls
+  #         hosts:
+  #           - api.example.com
+  # ---------------------------------------------------------------------------
   ingress:
     enabled: false
     className: nginx
     annotations: {}
+      # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      # nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
     hosts:
-    - host: api-forge.local
-      paths:
-      - path: /
-        pathType: Prefix
+      - host: api-forge.local
+        paths:
+          - path: /
+            pathType: Prefix
     tls: []
+      # - secretName: api-forge-tls
+      #   hosts:
+      #     - api-forge.local
   # Horizontal Pod Autoscaler
   autoscaling:
     enabled: false

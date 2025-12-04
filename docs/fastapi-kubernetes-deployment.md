@@ -863,34 +863,17 @@ spec:
 
 ### Ingress
 
-Expose your FastAPI application via Ingress:
+API Forge includes built-in Ingress support via CLI flags. Enable external access with:
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: app-ingress
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - api.example.com
-      secretName: app-tls
-  rules:
-    - host: api.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: app
-                port:
-                  number: 8000
+```bash
+# Basic ingress (HTTP)
+uv run api-forge-cli deploy up k8s --ingress
+
+# Custom hostname with TLS
+uv run api-forge-cli deploy up k8s --ingress --ingress-host api.example.com --ingress-tls-secret api-tls
 ```
+
+For comprehensive Ingress documentation including TLS setup, cloud provider configurations, and troubleshooting, see the **[Ingress Configuration Guide](./fastapi-kubernetes-ingress.md)**.
 
 ### NetworkPolicies
 
@@ -1350,6 +1333,7 @@ kubectl apply -f argocd-application.yaml
 
 ## Related Documentation
 
+- [Ingress Configuration](./fastapi-kubernetes-ingress.md) - External access, TLS, and routing
 - [Docker Dev Environment](./fastapi-docker-dev-environment.md) - Local testing before deployment
 - [Docker Compose Production](./fastapi-production-deployment-docker-compose.md) - Alternative deployment
 - [Testing Strategy](./fastapi-testing-strategy.md) - Test before deploying

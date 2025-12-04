@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml  # type: ignore[import-untyped]
 
@@ -55,12 +55,18 @@ class HelmReleaseManager:
         self,
         image_tag: str,
         registry: str | None = None,
+        ingress_enabled: bool = False,
+        ingress_host: str | None = None,
+        ingress_tls_secret: str | None = None,
     ) -> Path:
-        """Create a temporary values file to override image tags.
+        """Create a temporary values file to override image tags and ingress.
 
         Args:
             image_tag: The unique image tag to use for all images
             registry: Optional container registry prefix for remote clusters
+            ingress_enabled: Whether to enable Ingress for external access
+            ingress_host: Hostname for Ingress (e.g., api.example.com)
+            ingress_tls_secret: TLS secret name for HTTPS
 
         Returns:
             Path to the temporary override file
@@ -77,7 +83,7 @@ class HelmReleaseManager:
             redis_repo = self.constants.REDIS_IMAGE_NAME
             temporal_repo = self.constants.TEMPORAL_IMAGE_NAME
 
-        override_values = {
+        override_values: dict[str, Any] = {
             "app": {"image": {"repository": app_repo, "tag": image_tag}},
             "worker": {"image": {"repository": app_repo, "tag": image_tag}},
             # Use content-based tags for infra images to avoid stale image issues
@@ -85,6 +91,29 @@ class HelmReleaseManager:
             "redis": {"image": {"repository": redis_repo, "tag": image_tag}},
             "temporal": {"image": {"repository": temporal_repo, "tag": image_tag}},
         }
+
+        # Add ingress configuration if enabled
+        if ingress_enabled:
+            ingress_config: dict[str, Any] = {"enabled": True}
+
+            # Set hostname if provided
+            host = ingress_host or "api.local"
+            ingress_config["hosts"] = [
+                {"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]}
+            ]
+
+            # Add TLS configuration if secret is provided
+            if ingress_tls_secret:
+                ingress_config["tls"] = [
+                    {"secretName": ingress_tls_secret, "hosts": [host]}
+                ]
+
+            override_values["app"]["ingress"] = ingress_config
+
+            self.console.print(
+                f"[bold cyan]🌐 Ingress enabled:[/bold cyan] {host}"
+                + (f" (TLS: {ingress_tls_secret})" if ingress_tls_secret else "")
+            )
 
         temp_file = Path(tempfile.mktemp(suffix=".yaml", prefix="helm-image-override-"))
         with open(temp_file, "w") as f:

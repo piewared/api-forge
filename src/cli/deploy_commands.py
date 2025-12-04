@@ -57,6 +57,21 @@ def up(
         "-r",
         help="Container registry for remote k8s clusters (e.g., ghcr.io/myuser)",
     ),
+    ingress: bool = typer.Option(
+        False,
+        "--ingress/--no-ingress",
+        help="Enable Ingress for external access (k8s only)",
+    ),
+    ingress_host: str = typer.Option(
+        None,
+        "--ingress-host",
+        help="Ingress hostname (k8s only, e.g., api.example.com)",
+    ),
+    ingress_tls_secret: str = typer.Option(
+        None,
+        "--ingress-tls-secret",
+        help="TLS secret name for HTTPS (k8s only)",
+    ),
 ) -> None:
     """
     🚀 Deploy the application to the specified environment.
@@ -101,6 +116,9 @@ def up(
                 no_wait=no_wait,
                 force_recreate=force_recreate,
                 registry=registry,
+                ingress_enabled=ingress,
+                ingress_host=ingress_host,
+                ingress_tls_secret=ingress_tls_secret,
             )
 
     except DeploymentError as e:
