@@ -228,9 +228,53 @@ uv run api-forge-cli deploy up k8s \
 
 ### Option 2: Cert-Manager (Recommended for Production)
 
-Use [cert-manager](https://cert-manager.io/) for automatic Let's Encrypt certificates:
+Use [cert-manager](https://cert-manager.io/) for automatic Let's Encrypt certificates.
 
-**1. Install cert-manager:**
+> **Note:** The existing self-signed certificate mechanism (used for PostgreSQL, Redis) won't work for Ingress TLS. Browsers and external clients don't trust the internal CA, OAuth providers reject self-signed certificates, and there's no way to install the CA on all public clients. Use cert-manager with Let's Encrypt for production, or skip TLS for local development.
+
+#### Understanding Cert-Manager Architecture
+
+Cert-manager consists of **two parts**:
+
+1. **The Deployment** (pods that do the work) - Installed via Helm
+2. **ClusterIssuer** (configuration) - Tells cert-manager HOW to obtain certificates
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  cert-manager namespace                                             │
+│  ┌─────────────────────┐                                            │
+│  │ cert-manager pod    │◄─── The actual controller (deployment)     │
+│  │ (watches Ingresses) │                                            │
+│  └──────────┬──────────┘                                            │
+│             │                                                       │
+│             │ Reads configuration from:                             │
+│             ▼                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ ClusterIssuer: letsencrypt-prod (cluster-scoped config)     │   │
+│  │   - ACME server: Let's Encrypt                              │   │
+│  │   - Solver: HTTP-01 via nginx ingress                       │   │
+│  │   - Account key: stored in Secret                           │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ When Ingress has annotation:
+                              │ cert-manager.io/cluster-issuer: letsencrypt-prod
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  api-forge-prod namespace                                           │
+│  ┌─────────────────────┐         ┌─────────────────────┐           │
+│  │ Ingress: app        │────────▶│ Secret: api-tls     │           │
+│  │ (your config)       │         │ (created by         │           │
+│  │                     │         │  cert-manager)      │           │
+│  └─────────────────────┘         └─────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+The `ClusterIssuer` is **not a deployment** - it's a Custom Resource (configuration object) that cert-manager reads. You create it once per cluster, and any Ingress in any namespace can reference it.
+
+#### Step-by-Step Setup
+
+**1. Install cert-manager (the deployment):**
 ```bash
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
@@ -239,21 +283,38 @@ helm install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
   --set installCRDs=true
+
+# Wait for pods to be ready
+kubectl wait --namespace cert-manager \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/instance=cert-manager \
+  --timeout=120s
 ```
 
-**2. Create a ClusterIssuer:**
+This creates:
+- `cert-manager` pod - the controller that obtains certificates
+- `cert-manager-webhook` pod - validates custom resources
+- `cert-manager-cainjector` pod - injects CA bundles
+- Custom Resource Definitions (CRDs) for `ClusterIssuer`, `Certificate`, etc.
+
+**2. Create a ClusterIssuer (configuration only - no new pods):**
 ```yaml
 # cluster-issuer.yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-prod
+  # No namespace - ClusterIssuer is cluster-scoped
 spec:
   acme:
+    # Email for Let's Encrypt expiry notifications
     email: your-email@example.com
+    # Production ACME server
     server: https://acme-v02.api.letsencrypt.org/directory
+    # Secret to store your ACME account private key (created automatically)
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
+    # How to prove domain ownership
     solvers:
       - http01:
           ingress:
@@ -262,7 +323,14 @@ spec:
 
 ```bash
 kubectl apply -f cluster-issuer.yaml
+
+# Verify it's ready
+kubectl get clusterissuer letsencrypt-prod
+# NAME               READY   AGE
+# letsencrypt-prod   True    30s
 ```
+
+> **About `privateKeySecretRef`:** The `letsencrypt-prod-account-key` secret is created automatically by cert-manager on first use. It stores your Let's Encrypt account private key - you don't create it manually.
 
 **3. Configure Ingress in values.yaml:**
 ```yaml
@@ -283,13 +351,69 @@ app:
           - api.example.com
 ```
 
-**How it works:**
-1. Deploy the Ingress with the annotation and non-existent TLS secret
-2. Cert-manager detects the `cert-manager.io/cluster-issuer` annotation
-3. Cert-manager contacts Let's Encrypt, proves domain ownership via HTTP-01 challenge
-4. Cert-manager creates the `api-tls` secret with the certificate
-5. NGINX Ingress loads the certificate and serves HTTPS
-6. Cert-manager auto-renews before expiry
+#### Certificate Issuance Flow
+
+When you deploy with the above configuration:
+
+1. **Ingress created** with `cert-manager.io/cluster-issuer` annotation
+2. **Cert-manager detects** the annotation (it watches all Ingresses)
+3. **Cert-manager creates** a temporary Ingress for the HTTP-01 challenge
+4. **Let's Encrypt calls** `http://api.example.com/.well-known/acme-challenge/<token>`
+5. **Cert-manager responds** with proof of domain ownership
+6. **Let's Encrypt issues** the certificate
+7. **Cert-manager stores** it in the `api-tls` Secret
+8. **NGINX Ingress loads** the certificate and serves HTTPS
+9. **Cert-manager auto-renews** before expiry (default: 30 days before)
+
+#### Verify Certificate Status
+
+```bash
+# Check ClusterIssuer is ready
+kubectl get clusterissuer letsencrypt-prod
+
+# Check Certificate resource (created automatically from Ingress)
+kubectl get certificate -n api-forge-prod
+kubectl describe certificate -n api-forge-prod
+
+# Check the TLS secret was created
+kubectl get secret api-tls -n api-forge-prod
+
+# If issues, check cert-manager logs
+kubectl logs -n cert-manager -l app.kubernetes.io/component=controller --tail=100
+```
+
+#### ClusterIssuer vs Issuer
+
+| Type | Scope | Use Case |
+|------|-------|----------|
+| `ClusterIssuer` | Cluster-wide | One issuer, all namespaces can use it |
+| `Issuer` | Single namespace | Per-namespace control, multi-tenant clusters |
+
+For most setups, `ClusterIssuer` is simpler - create once, reference from any namespace.
+
+#### Staging vs Production
+
+Let's Encrypt has [rate limits](https://letsencrypt.org/docs/rate-limits/). Use staging for testing:
+
+```yaml
+# cluster-issuer-staging.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: your-email@example.com
+    server: https://acme-staging-v02.api.letsencrypt.org/directory  # Staging server
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+```
+
+Staging certificates are **not trusted by browsers** but let you test the full flow without hitting rate limits.
 
 ## Cloud Provider Examples
 
