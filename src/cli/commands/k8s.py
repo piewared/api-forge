@@ -40,6 +40,143 @@ def _get_deployer() -> "HelmDeployer":
 
 
 # ---------------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------------
+
+
+def _check_cluster_issuer_ready(issuer_name: str) -> bool:
+    """Check if a ClusterIssuer exists and is ready.
+
+    Args:
+        issuer_name: Name of the ClusterIssuer to check
+
+    Returns:
+        True if the ClusterIssuer exists and is ready, False otherwise
+    """
+    import subprocess
+
+    result = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            "clusterissuer",
+            issuer_name,
+            "-o",
+            "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    return result.returncode == 0 and result.stdout.strip() == "True"
+
+
+def _check_cert_manager_installed() -> bool:
+    """Check if cert-manager is installed in the cluster.
+
+    Returns:
+        True if cert-manager pods are running, False otherwise
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "cert-manager", "-o", "name"],
+        capture_output=True,
+        text=True,
+    )
+
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _install_cert_manager() -> bool:
+    """Install cert-manager using Helm.
+
+    Returns:
+        True if installation succeeded, False otherwise
+    """
+    import subprocess
+
+    console.print("[cyan]Installing cert-manager via Helm...[/cyan]")
+
+    # Add Helm repo
+    subprocess.run(
+        ["helm", "repo", "add", "jetstack", "https://charts.jetstack.io"],
+        capture_output=True,
+        check=False,
+    )
+    subprocess.run(
+        ["helm", "repo", "update"],
+        capture_output=True,
+        check=False,
+    )
+
+    # Install cert-manager
+    result = subprocess.run(
+        [
+            "helm",
+            "install",
+            "cert-manager",
+            "jetstack/cert-manager",
+            "--namespace",
+            "cert-manager",
+            "--create-namespace",
+            "--set",
+            "installCRDs=true",
+            "--wait",
+            "--timeout",
+            "5m",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        console.print("[red]Failed to install cert-manager[/red]")
+        if result.stderr:
+            console.print(f"[dim]{result.stderr}[/dim]")
+        return False
+
+    console.print("[green]✓[/green] cert-manager installed successfully")
+    return True
+
+
+def _wait_for_cluster_issuer(issuer_name: str, timeout: int = 60) -> bool:
+    """Wait for a ClusterIssuer to become ready.
+
+    Args:
+        issuer_name: Name of the ClusterIssuer
+        timeout: Maximum seconds to wait
+
+    Returns:
+        True if issuer became ready, False if timeout
+    """
+    import subprocess
+    import time
+
+    console.print(
+        f"[dim]Waiting for ClusterIssuer '{issuer_name}' to be ready...[/dim]"
+    )
+
+    start = time.time()
+    while time.time() - start < timeout:
+        if _check_cluster_issuer_ready(issuer_name):
+            return True
+        time.sleep(2)
+
+    # Check if it exists but isn't ready
+    result = subprocess.run(
+        ["kubectl", "get", "clusterissuer", issuer_name, "-o", "yaml"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        console.print("[yellow]ClusterIssuer exists but not ready yet[/yellow]")
+        console.print(f"[dim]{result.stdout}[/dim]")
+
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Typer App
 # ---------------------------------------------------------------------------
 
@@ -92,9 +229,23 @@ def up(
         str | None,
         typer.Option(
             "--ingress-tls-secret",
-            help="TLS secret name for HTTPS",
+            help="TLS secret name for HTTPS (manual certificate)",
         ),
     ] = None,
+    ingress_tls_auto: Annotated[
+        bool,
+        typer.Option(
+            "--ingress-tls-auto",
+            help="Auto-provision TLS via cert-manager (requires setup-tls first)",
+        ),
+    ] = False,
+    ingress_tls_staging: Annotated[
+        bool,
+        typer.Option(
+            "--ingress-tls-staging",
+            help="Use Let's Encrypt staging (with --ingress-tls-auto)",
+        ),
+    ] = False,
 ) -> None:
     """Deploy to Kubernetes cluster using Helm.
 
@@ -112,8 +263,42 @@ def up(
         uv run api-forge-cli k8s up -n my-namespace
         uv run api-forge-cli k8s up --registry ghcr.io/myuser
         uv run api-forge-cli k8s up --ingress --ingress-host api.example.com
+        uv run api-forge-cli k8s up --ingress --ingress-host api.example.com --ingress-tls-auto
     """
     print_header("Deploying to Kubernetes")
+
+    # Validate TLS options
+    if ingress_tls_auto and ingress_tls_secret:
+        console.print(
+            "[red]Cannot use both --ingress-tls-auto and --ingress-tls-secret[/red]"
+        )
+        raise typer.Exit(1)
+
+    if ingress_tls_auto and not ingress:
+        console.print(
+            "[yellow]--ingress-tls-auto implies --ingress, enabling it[/yellow]"
+        )
+        ingress = True
+
+    if ingress_tls_staging and not ingress_tls_auto:
+        console.print("[red]--ingress-tls-staging requires --ingress-tls-auto[/red]")
+        raise typer.Exit(1)
+
+    # Check cert-manager is ready if using auto TLS
+    if ingress_tls_auto:
+        issuer_name = (
+            "letsencrypt-staging" if ingress_tls_staging else "letsencrypt-prod"
+        )
+        if not _check_cluster_issuer_ready(issuer_name):
+            console.print(
+                f"[red]ClusterIssuer '{issuer_name}' not found or not ready.[/red]"
+            )
+            console.print("\n[dim]Run setup-tls first:[/dim]")
+            staging_flag = " --staging" if ingress_tls_staging else ""
+            console.print(
+                f"  [cyan]uv run api-forge-cli k8s setup-tls --email your@email.com{staging_flag}[/cyan]"
+            )
+            raise typer.Exit(1)
 
     deployer = _get_deployer()
     deployer.deploy(
@@ -122,6 +307,8 @@ def up(
         ingress_enabled=ingress,
         ingress_host=ingress_host,
         ingress_tls_secret=ingress_tls_secret,
+        ingress_tls_auto=ingress_tls_auto,
+        ingress_tls_staging=ingress_tls_staging,
     )
 
 
@@ -518,20 +705,12 @@ def logs(
 @k8s_app.command(name="setup-tls")
 @with_error_handling
 def setup_tls(
-    namespace: Annotated[
-        str,
-        typer.Option(
-            "--namespace",
-            "-n",
-            help="Kubernetes namespace",
-        ),
-    ] = "api-forge-prod",
     email: Annotated[
         str | None,
         typer.Option(
             "--email",
             "-e",
-            help="Email for Let's Encrypt certificate notifications",
+            help="Email for Let's Encrypt certificate notifications (required)",
         ),
     ] = None,
     staging: Annotated[
@@ -541,15 +720,27 @@ def setup_tls(
             help="Use Let's Encrypt staging server (for testing)",
         ),
     ] = False,
+    install_cert_manager: Annotated[
+        bool,
+        typer.Option(
+            "--install-cert-manager",
+            help="Automatically install cert-manager if not present",
+        ),
+    ] = True,
 ) -> None:
     """Set up TLS with cert-manager and Let's Encrypt.
 
-    Creates a ClusterIssuer for automatic TLS certificate provisioning.
-    Requires cert-manager to be installed in the cluster.
+    This command:
+    1. Checks if cert-manager is installed (installs via Helm if not)
+    2. Creates a ClusterIssuer for Let's Encrypt
+    3. Waits for the ClusterIssuer to be ready
+
+    After setup, use --ingress-tls-auto with 'k8s up' for automatic certificates.
 
     Examples:
         uv run api-forge-cli k8s setup-tls --email admin@example.com
         uv run api-forge-cli k8s setup-tls --email admin@example.com --staging
+        uv run api-forge-cli k8s up --ingress --ingress-host api.example.com --ingress-tls-auto
     """
     import subprocess
 
@@ -557,30 +748,36 @@ def setup_tls(
 
     if not email:
         console.print("[red]Email is required for Let's Encrypt registration.[/red]")
+        console.print("\n[dim]Example:[/dim]")
         console.print(
-            "[dim]Use: uv run api-forge-cli k8s setup-tls --email admin@example.com[/dim]"
+            "  [cyan]uv run api-forge-cli k8s setup-tls --email admin@example.com[/cyan]"
         )
         raise typer.Exit(1)
 
-    # Check if cert-manager is installed
-    console.print("[cyan]Checking cert-manager installation...[/cyan]")
-    result = subprocess.run(
-        ["kubectl", "get", "pods", "-n", "cert-manager", "-o", "name"],
-        capture_output=True,
-        text=True,
-    )
+    # Step 1: Check/install cert-manager
+    console.print("\n[bold]Step 1/3:[/bold] Checking cert-manager installation...")
 
-    if result.returncode != 0 or not result.stdout.strip():
-        console.print("[red]cert-manager is not installed.[/red]")
-        console.print("\n[dim]Install cert-manager first:[/dim]")
-        console.print(
-            "  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml"
-        )
-        raise typer.Exit(1)
+    if _check_cert_manager_installed():
+        console.print("[green]✓[/green] cert-manager is already installed")
+    else:
+        if install_cert_manager:
+            console.print("[yellow]cert-manager not found, installing...[/yellow]")
+            if not _install_cert_manager():
+                raise typer.Exit(1)
+        else:
+            console.print("[red]cert-manager is not installed.[/red]")
+            console.print(
+                "\n[dim]Run with --install-cert-manager or install manually:[/dim]"
+            )
+            console.print(
+                "  helm install cert-manager jetstack/cert-manager "
+                "--namespace cert-manager --create-namespace --set installCRDs=true"
+            )
+            raise typer.Exit(1)
 
-    console.print("[green]✓[/green] cert-manager is installed")
+    # Step 2: Create ClusterIssuer
+    console.print("\n[bold]Step 2/3:[/bold] Creating ClusterIssuer...")
 
-    # Determine which server to use
     if staging:
         server = "https://acme-staging-v02.api.letsencrypt.org/directory"
         issuer_name = "letsencrypt-staging"
@@ -592,8 +789,14 @@ def setup_tls(
         issuer_name = "letsencrypt-prod"
         console.print("[cyan]Using Let's Encrypt production server[/cyan]")
 
-    # Create ClusterIssuer manifest
-    cluster_issuer_yaml = f"""apiVersion: cert-manager.io/v1
+    # Check if issuer already exists and is ready
+    if _check_cluster_issuer_ready(issuer_name):
+        console.print(
+            f"[green]✓[/green] ClusterIssuer '{issuer_name}' already exists and is ready"
+        )
+    else:
+        # Create ClusterIssuer manifest
+        cluster_issuer_yaml = f"""apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: {issuer_name}
@@ -609,38 +812,59 @@ spec:
           class: nginx
 """
 
-    console.print(f"\n[cyan]Creating ClusterIssuer '{issuer_name}'...[/cyan]")
+        console.print(f"[dim]Creating ClusterIssuer '{issuer_name}'...[/dim]")
 
-    # Apply the manifest
-    result = subprocess.run(
-        ["kubectl", "apply", "-f", "-"],
-        input=cluster_issuer_yaml,
-        capture_output=True,
-        text=True,
-    )
+        result = subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=cluster_issuer_yaml,
+            capture_output=True,
+            text=True,
+        )
 
-    if result.returncode != 0:
-        console.print("[red]Failed to create ClusterIssuer[/red]")
-        if result.stderr:
-            console.print(Panel(result.stderr, title="Error", border_style="red"))
-        raise typer.Exit(1)
+        if result.returncode != 0:
+            console.print("[red]Failed to create ClusterIssuer[/red]")
+            if result.stderr:
+                console.print(Panel(result.stderr, title="Error", border_style="red"))
+            raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] ClusterIssuer '{issuer_name}' created")
+        console.print(f"[green]✓[/green] ClusterIssuer '{issuer_name}' created")
 
-    # Show next steps
-    console.print("\n[bold cyan]Next Steps:[/bold cyan]")
-    console.print("  1. Deploy with Ingress enabled:")
+    # Step 3: Wait for ClusterIssuer to be ready
+    console.print("\n[bold]Step 3/3:[/bold] Waiting for ClusterIssuer to be ready...")
+
+    if _wait_for_cluster_issuer(issuer_name, timeout=60):
+        console.print(f"[green]✓[/green] ClusterIssuer '{issuer_name}' is ready")
+    else:
+        console.print(
+            f"[yellow]⚠ ClusterIssuer '{issuer_name}' created but not ready yet[/yellow]"
+        )
+        console.print(
+            "[dim]This is normal - it will become ready when you create your first certificate.[/dim]"
+        )
+
+    # Success message with next steps
+    console.print("\n" + "=" * 60)
+    console.print("[bold green]✅ TLS setup complete![/bold green]")
+    console.print("=" * 60)
+
+    console.print("\n[bold cyan]Deploy with automatic TLS:[/bold cyan]")
+    staging_flag = " --ingress-tls-staging" if staging else ""
     console.print(
-        "     [dim]uv run api-forge-cli k8s up --ingress --ingress-host api.example.com[/dim]"
+        f"  [cyan]uv run api-forge-cli k8s up --ingress --ingress-host api.example.com --ingress-tls-auto{staging_flag}[/cyan]"
     )
-    console.print("  2. Add the annotation to your Ingress:")
-    console.print(f"     [dim]cert-manager.io/cluster-issuer: {issuer_name}[/dim]")
-    console.print("  3. cert-manager will automatically provision a certificate")
+
+    console.print("\n[bold cyan]What happens next:[/bold cyan]")
+    console.print("  1. Ingress is created with cert-manager annotation")
+    console.print("  2. cert-manager detects the annotation and requests a certificate")
+    console.print("  3. Let's Encrypt validates domain ownership via HTTP-01 challenge")
+    console.print("  4. Certificate is stored in a Kubernetes secret")
+    console.print("  5. NGINX Ingress serves HTTPS automatically")
+    console.print("  6. cert-manager auto-renews before expiry")
 
     if staging:
         console.print(
-            "\n[yellow]Note: Staging certificates are not trusted by browsers.[/yellow]"
+            "\n[yellow]⚠ Staging certificates are not trusted by browsers.[/yellow]"
         )
         console.print(
-            "[yellow]Use --no-staging for production once testing is complete.[/yellow]"
+            "[yellow]  Run without --staging for production certificates.[/yellow]"
         )

@@ -58,6 +58,8 @@ class HelmReleaseManager:
         ingress_enabled: bool = False,
         ingress_host: str | None = None,
         ingress_tls_secret: str | None = None,
+        ingress_tls_auto: bool = False,
+        ingress_tls_staging: bool = False,
     ) -> Path:
         """Create a temporary values file to override image tags and ingress.
 
@@ -66,7 +68,9 @@ class HelmReleaseManager:
             registry: Optional container registry prefix for remote clusters
             ingress_enabled: Whether to enable Ingress for external access
             ingress_host: Hostname for Ingress (e.g., api.example.com)
-            ingress_tls_secret: TLS secret name for HTTPS
+            ingress_tls_secret: TLS secret name for HTTPS (manual certificate)
+            ingress_tls_auto: Auto-provision TLS via cert-manager
+            ingress_tls_staging: Use staging Let's Encrypt (with ingress_tls_auto)
 
         Returns:
             Path to the temporary override file
@@ -102,17 +106,34 @@ class HelmReleaseManager:
                 {"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]}
             ]
 
-            # Add TLS configuration if secret is provided
-            if ingress_tls_secret:
+            tls_info = ""
+
+            # Handle automatic TLS via cert-manager
+            if ingress_tls_auto:
+                issuer_name = (
+                    "letsencrypt-staging" if ingress_tls_staging else "letsencrypt-prod"
+                )
+                # Add cert-manager annotation
+                ingress_config["annotations"] = {
+                    "cert-manager.io/cluster-issuer": issuer_name
+                }
+                # Generate secret name from hostname (sanitize for K8s naming)
+                auto_secret_name = host.replace(".", "-") + "-tls"
+                ingress_config["tls"] = [
+                    {"secretName": auto_secret_name, "hosts": [host]}
+                ]
+                tls_info = f" (TLS: auto via {issuer_name})"
+            # Add TLS configuration if manual secret is provided
+            elif ingress_tls_secret:
                 ingress_config["tls"] = [
                     {"secretName": ingress_tls_secret, "hosts": [host]}
                 ]
+                tls_info = f" (TLS: {ingress_tls_secret})"
 
             override_values["app"]["ingress"] = ingress_config
 
             self.console.print(
-                f"[bold cyan]🌐 Ingress enabled:[/bold cyan] {host}"
-                + (f" (TLS: {ingress_tls_secret})" if ingress_tls_secret else "")
+                f"[bold cyan]🌐 Ingress enabled:[/bold cyan] {host}{tls_info}"
             )
 
         temp_file = Path(tempfile.mktemp(suffix=".yaml", prefix="helm-image-override-"))
