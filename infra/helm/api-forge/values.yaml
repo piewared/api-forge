@@ -80,7 +80,7 @@ postgres:
 # Redis Cache/Sessions
 # =============================================================================
 redis:
-  enabled: false
+  enabled: true
   image:
     repository: app_data_redis_image
     tag: latest
@@ -122,7 +122,7 @@ redis:
 # Temporal Workflow Engine
 # =============================================================================
 temporal:
-  enabled: false
+  enabled: true
   image:
     repository: my-temporal-server
     tag: latest

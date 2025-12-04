@@ -182,11 +182,13 @@ class DeploymentValidator:
                 "[yellow]Recommended: Run the following command to clean up:[/yellow]"
             )
             self.console.print(
-                "[bold cyan]  uv run api-forge-cli deploy down k8s --volumes[/bold cyan]\n"
+                "[bold cyan]  uv run api-forge-cli deploy down k8s[/bold cyan]\n"
             )
             self.console.print(
-                "[dim]This will delete all resources and persistent volumes, "
-                "allowing a fresh deployment.[/dim]\n"
+                "[dim]This will delete the Helm release and allow a fresh deployment.[/dim]"
+            )
+            self.console.print(
+                "[dim]Add --volumes only if you need to wipe persistent data (databases, etc).[/dim]\n"
             )
 
             # Prompt user
@@ -203,11 +205,8 @@ class DeploymentValidator:
             self.console.print(
                 "[bold yellow]Errors detected that may cause deployment issues.[/bold yellow]\n"
             )
-            self.console.print("[yellow]Consider running cleanup first:[/yellow]")
-            self.console.print(
-                "[bold cyan]  uv run api-forge-cli deploy down k8s --volumes[/bold cyan]\n"
-            )
 
+            # Prompt user
             try:
                 response = (
                     input("Proceed with deployment anyway? [y/N]: ").strip().lower()
@@ -290,25 +289,46 @@ class DeploymentValidator:
         return any(r.name == self.constants.HELM_RELEASE_NAME for r in releases)
 
     def _check_failed_jobs(self, namespace: str, result: ValidationResult) -> None:
-        """Check for failed jobs in the namespace."""
+        """Check for failed jobs in the namespace.
+
+        Only flags jobs that have actually failed (exhausted retries with no
+        success). Jobs that are still running or have completed successfully
+        are not flagged, even if they had previous failed attempts.
+
+        Failed jobs are flagged as warnings since Kubernetes will often retry
+        them, and they may succeed on subsequent attempts as dependencies
+        come online.
+        """
         jobs = self.commands.kubectl.get_jobs(namespace)
 
         for job in jobs:
-            if job.get("status") == "Failed":
+            job_name = job["name"]
+            job_status = job.get("status")
+
+            # If job succeeded, it's fine - ignore any previous failures
+            if job_status == "Complete":
+                continue
+
+            # If job is still running, don't flag it
+            if job_status == "Running":
+                continue
+
+            # Job failed - flag as warning (may be transient)
+            if job_status == "Failed":
                 result.issues.append(
                     ValidationIssue(
-                        severity=ValidationSeverity.ERROR,
-                        title=f"Failed job: {job['name']}",
+                        severity=ValidationSeverity.WARNING,
+                        title=f"Job has failures: {job_name}",
                         description=(
-                            f"Job '{job['name']}' failed. This may indicate "
-                            "initialization or configuration problems."
+                            f"Job '{job_name}' has failed attempts. This may be "
+                            "transient during startup while dependencies initialize."
                         ),
                         recovery_hint=(
-                            "Delete the failed job and redeploy, or run full cleanup "
-                            "with 'deploy down k8s --volumes'"
+                            f"Check logs: 'kubectl logs job/{job_name} -n {namespace}'. "
+                            f"Delete job to retry: 'kubectl delete job {job_name} -n {namespace}'"
                         ),
                         resource_type="Job",
-                        resource_name=job["name"],
+                        resource_name=job_name,
                     )
                 )
 
@@ -318,21 +338,22 @@ class DeploymentValidator:
 
         for pod in pods:
             if pod.get("status") == "CrashLoopBackOff":
+                pod_name = str(pod["name"])
                 restarts = pod.get("restarts", 0)
                 result.issues.append(
                     ValidationIssue(
                         severity=ValidationSeverity.ERROR,
-                        title=f"Pod in CrashLoopBackOff: {pod['name']}",
+                        title=f"Pod in CrashLoopBackOff: {pod_name}",
                         description=(
-                            f"Pod '{pod['name']}' is crash-looping ({restarts} restarts). "
+                            f"Pod '{pod_name}' is crash-looping ({restarts} restarts). "
                             "This usually indicates configuration or dependency issues."
                         ),
                         recovery_hint=(
-                            "Check pod logs with 'kubectl logs {name} -n {namespace}', "
+                            f"Check pod logs with 'kubectl logs {pod_name} -n {namespace}', "
                             "then fix the issue or run cleanup"
-                        ).format(name=pod["name"], namespace=namespace),
+                        ),
                         resource_type="Pod",
-                        resource_name=pod["name"],
+                        resource_name=pod_name,
                     )
                 )
 
@@ -342,44 +363,102 @@ class DeploymentValidator:
 
         for pod in pods:
             if pod.get("status") == "Pending":
+                pod_name = str(pod["name"])
                 # Check if it's been pending for a while (ignore recently created)
                 # For now, treat all Pending as warnings
                 result.issues.append(
                     ValidationIssue(
                         severity=ValidationSeverity.WARNING,
-                        title=f"Pod pending: {pod['name']}",
+                        title=f"Pod pending: {pod_name}",
                         description=(
-                            f"Pod '{pod['name']}' is stuck in Pending state. "
+                            f"Pod '{pod_name}' is stuck in Pending state. "
                             "This may indicate resource constraints or scheduling issues."
                         ),
                         recovery_hint=(
-                            "Check events with 'kubectl describe pod {name} -n {namespace}'"
-                        ).format(name=pod["name"], namespace=namespace),
+                            f"Check events with 'kubectl describe pod {pod_name} -n {namespace}'"
+                        ),
                         resource_type="Pod",
-                        resource_name=pod["name"],
+                        resource_name=pod_name,
                     )
                 )
 
     def _check_error_pods(self, namespace: str, result: ValidationResult) -> None:
-        """Check for pods in Error state."""
+        """Check for pods in Error state.
+
+        For pods owned by Jobs, only considers the most recent pod per job.
+        This avoids flagging old failed attempts when the job has since
+        succeeded or has a newer attempt in progress.
+        """
         pods = self.commands.kubectl.get_pods(namespace)
 
+        # Group job-owned pods by their job name
+        job_pods: dict[str, list[dict[str, str | int]]] = {}
+        non_job_pods: list[dict[str, str | int]] = []
+
         for pod in pods:
+            job_owner = str(pod.get("jobOwner", ""))
+            if job_owner:
+                if job_owner not in job_pods:
+                    job_pods[job_owner] = []
+                job_pods[job_owner].append(pod)
+            else:
+                non_job_pods.append(pod)
+
+        # Check non-job pods for errors (these are always relevant)
+        for pod in non_job_pods:
             if pod.get("status") == "Error":
+                pod_name = str(pod["name"])
                 result.issues.append(
                     ValidationIssue(
                         severity=ValidationSeverity.ERROR,
-                        title=f"Pod in Error state: {pod['name']}",
+                        title=f"Pod in Error state: {pod_name}",
                         description=(
-                            f"Pod '{pod['name']}' is in Error state. "
+                            f"Pod '{pod_name}' is in Error state. "
                             "Check logs to determine the cause."
                         ),
                         recovery_hint=(
-                            "Check pod logs with 'kubectl logs {name} -n {namespace}', "
+                            f"Check pod logs with 'kubectl logs {pod_name} -n {namespace}', "
                             "then fix the issue or run cleanup"
-                        ).format(name=pod["name"], namespace=namespace),
+                        ),
                         resource_type="Pod",
-                        resource_name=pod["name"],
+                        resource_name=pod_name,
+                    )
+                )
+
+        # For job-owned pods, only check the most recent pod per job
+        for job_name, pods_list in job_pods.items():
+            # Sort by creation timestamp (newest first)
+            # ISO 8601 timestamps sort correctly as strings
+            sorted_pods = sorted(
+                pods_list,
+                key=lambda p: str(p.get("creationTimestamp", "")),
+                reverse=True,
+            )
+
+            if not sorted_pods:
+                continue
+
+            most_recent_pod = sorted_pods[0]
+            pod_status = most_recent_pod.get("status")
+
+            # Only flag if the most recent pod is in Error state
+            # Completed/Succeeded pods are fine, older failed pods are irrelevant
+            if pod_status == "Error":
+                pod_name = str(most_recent_pod["name"])
+                result.issues.append(
+                    ValidationIssue(
+                        severity=ValidationSeverity.WARNING,
+                        title=f"Job pod in Error state: {pod_name}",
+                        description=(
+                            f"Most recent pod for job '{job_name}' is in Error state. "
+                            "This may be transient if the job will retry."
+                        ),
+                        recovery_hint=(
+                            f"Check logs: 'kubectl logs {pod_name} -n {namespace}'. "
+                            f"Delete job to retry: 'kubectl delete job {job_name} -n {namespace}'"
+                        ),
+                        resource_type="Pod",
+                        resource_name=pod_name,
                     )
                 )
 

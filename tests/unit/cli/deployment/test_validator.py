@@ -160,7 +160,11 @@ class TestDeploymentValidator:
     def test_validate_detects_failed_jobs(
         self, validator: DeploymentValidator, mock_commands: MagicMock
     ) -> None:
-        """Validation should detect failed Kubernetes jobs."""
+        """Validation should detect failed Kubernetes jobs.
+
+        Init jobs like postgres-verifier are expected to have transient failures
+        during startup, so they should be flagged as warnings, not errors.
+        """
         mock_commands.kubectl.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = [
@@ -172,8 +176,29 @@ class TestDeploymentValidator:
 
         assert result.is_clean is False
         assert len(result.issues) == 1
-        assert result.issues[0].severity == ValidationSeverity.ERROR
+        # Init jobs like postgres-verifier are expected to have transient failures
+        # during startup, so they should be WARNING not ERROR
+        assert result.issues[0].severity == ValidationSeverity.WARNING
         assert "postgres-verifier" in result.issues[0].title
+
+    def test_validate_any_failed_job_is_warning(
+        self, validator: DeploymentValidator, mock_commands: MagicMock
+    ) -> None:
+        """All failed jobs should be flagged as warnings (may be transient)."""
+        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_commands.helm.list_releases.return_value = []
+        mock_commands.kubectl.get_jobs.return_value = [
+            {"name": "migration-job", "status": "Failed"},
+        ]
+        mock_commands.kubectl.get_pods.return_value = []
+
+        result = validator.validate("api-forge-prod")
+
+        assert result.is_clean is False
+        assert len(result.issues) == 1
+        # All failed jobs are warnings since they may be transient
+        assert result.issues[0].severity == ValidationSeverity.WARNING
+        assert "migration-job" in result.issues[0].title
 
     def test_validate_detects_crashloop_pods(
         self, validator: DeploymentValidator, mock_commands: MagicMock
@@ -231,6 +256,72 @@ class TestDeploymentValidator:
         assert result.issues[0].severity == ValidationSeverity.ERROR
         assert "Error" in result.issues[0].title
 
+    def test_validate_job_pods_only_checks_most_recent(
+        self, validator: DeploymentValidator, mock_commands: MagicMock
+    ) -> None:
+        """For job-owned pods, only the most recent pod should be checked.
+
+        If old pods from a job are in Error state but a newer pod succeeded,
+        we should not flag the old errors.
+        """
+        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_commands.helm.list_releases.return_value = []
+        mock_commands.kubectl.get_jobs.return_value = []
+        mock_commands.kubectl.get_pods.return_value = [
+            # Old pod from first attempt - failed
+            {
+                "name": "postgres-verifier-abc",
+                "status": "Error",
+                "jobOwner": "postgres-verifier",
+                "creationTimestamp": "2025-01-01T10:00:00Z",
+            },
+            # Newer pod from second attempt - succeeded
+            {
+                "name": "postgres-verifier-def",
+                "status": "Succeeded",
+                "jobOwner": "postgres-verifier",
+                "creationTimestamp": "2025-01-01T10:05:00Z",
+            },
+        ]
+
+        result = validator.validate("api-forge-prod")
+
+        # Should be clean - the most recent pod succeeded
+        assert result.is_clean is True
+        assert len(result.issues) == 0
+
+    def test_validate_job_pods_flags_if_most_recent_failed(
+        self, validator: DeploymentValidator, mock_commands: MagicMock
+    ) -> None:
+        """If the most recent job pod is in Error state, flag it as a warning."""
+        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_commands.helm.list_releases.return_value = []
+        mock_commands.kubectl.get_jobs.return_value = []
+        mock_commands.kubectl.get_pods.return_value = [
+            # Old pod succeeded
+            {
+                "name": "postgres-verifier-abc",
+                "status": "Succeeded",
+                "jobOwner": "postgres-verifier",
+                "creationTimestamp": "2025-01-01T10:00:00Z",
+            },
+            # Newer pod failed
+            {
+                "name": "postgres-verifier-def",
+                "status": "Error",
+                "jobOwner": "postgres-verifier",
+                "creationTimestamp": "2025-01-01T10:05:00Z",
+            },
+        ]
+
+        result = validator.validate("api-forge-prod")
+
+        # Should flag the most recent failed pod as a warning
+        assert result.is_clean is False
+        assert len(result.issues) == 1
+        assert result.issues[0].severity == ValidationSeverity.WARNING
+        assert "postgres-verifier-def" in result.issues[0].title
+
     def test_validate_detects_multiple_issues(
         self, validator: DeploymentValidator, mock_commands: MagicMock
     ) -> None:
@@ -249,10 +340,11 @@ class TestDeploymentValidator:
 
         assert result.is_clean is False
         assert len(result.issues) == 3
-        # Should have 2 ERRORs (failed job + crashloop), 1 WARNING (pending)
+        # Should have 1 ERROR (crashloop), 2 WARNINGs (init job + pending)
+        # postgres-verifier is an init job so it's a WARNING, not ERROR
         severities = [issue.severity for issue in result.issues]
-        assert severities.count(ValidationSeverity.ERROR) == 2
-        assert ValidationSeverity.WARNING in severities
+        assert severities.count(ValidationSeverity.ERROR) == 1
+        assert severities.count(ValidationSeverity.WARNING) == 2
 
     def test_display_results_clean(
         self,

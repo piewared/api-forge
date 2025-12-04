@@ -486,14 +486,15 @@ class KubectlCommands:
             capture_output=False,
         )
 
-    def get_pods(self, namespace: str) -> list[dict[str, str]]:
+    def get_pods(self, namespace: str) -> list[dict[str, str | int]]:
         """Get all pods in a namespace with their status.
 
         Args:
             namespace: Kubernetes namespace
 
         Returns:
-            List of dicts with pod name, status, and restarts
+            List of dicts with pod name, status, restarts, creation timestamp,
+            and job owner (if pod is owned by a Job)
         """
         result = self._runner.run(
             ["kubectl", "get", "pods", "-n", namespace, "-o", "json"],
@@ -507,8 +508,17 @@ class KubectlCommands:
             pods = []
 
             for pod in data.get("items", []):
-                name = pod.get("metadata", {}).get("name", "")
+                metadata = pod.get("metadata", {})
+                name = metadata.get("name", "")
+                creation_timestamp = metadata.get("creationTimestamp", "")
                 status = pod.get("status", {})
+
+                # Check if pod is owned by a Job
+                job_owner = ""
+                for owner_ref in metadata.get("ownerReferences", []):
+                    if owner_ref.get("kind") == "Job":
+                        job_owner = owner_ref.get("name", "")
+                        break
 
                 # Determine pod status
                 phase = status.get("phase", "Unknown")
@@ -535,6 +545,8 @@ class KubectlCommands:
                         "name": name,
                         "status": pod_status,
                         "restarts": restarts,
+                        "creationTimestamp": creation_timestamp,
+                        "jobOwner": job_owner,
                     }
                 )
 
