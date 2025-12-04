@@ -164,6 +164,9 @@ class HelmDeployer(BaseDeployer):
         self,
         namespace: str | None = None,
         registry: str | None = None,
+        ingress_enabled: bool = False,
+        ingress_host: str | None = None,
+        ingress_tls_secret: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Deploy to Kubernetes cluster.
@@ -182,6 +185,9 @@ class HelmDeployer(BaseDeployer):
         Args:
             namespace: Kubernetes namespace (default: api-forge-prod)
             registry: Container registry for remote clusters
+            ingress_enabled: Whether to enable Ingress for external access
+            ingress_host: Hostname for Ingress (e.g., api.example.com)
+            ingress_tls_secret: TLS secret name for HTTPS
             **kwargs: Reserved for future options
         """
         if not self.check_env_file():
@@ -244,7 +250,11 @@ class HelmDeployer(BaseDeployer):
 
         # Phase 4: Deploy via Helm
         image_override_file = self.helm_release.create_image_override_file(
-            image_tag, registry
+            image_tag,
+            registry,
+            ingress_enabled=ingress_enabled,
+            ingress_host=ingress_host,
+            ingress_tls_secret=ingress_tls_secret,
         )
         self.helm_release.deploy_release(namespace, image_override_file)
 
