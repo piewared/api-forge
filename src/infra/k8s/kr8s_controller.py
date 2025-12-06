@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import kr8s
 from kr8s.asyncio.objects import (
@@ -32,25 +32,32 @@ from .controller import (
     ServiceInfo,
 )
 
-if TYPE_CHECKING:
-    from kr8s._api import Api as Kr8sApi
-
 
 class Kr8sController(KubernetesController):
     """Kubernetes controller using kr8s library.
 
     All methods are natively async, leveraging kr8s's async API.
+
+    Note: The kr8s API client is NOT cached because it's tied to the event loop
+    that was running when created. When using run_sync() which calls asyncio.run(),
+    each call creates a new event loop, making the cached API unusable.
     """
 
     def __init__(self) -> None:
         """Initialize the kr8s controller."""
-        self._api: Kr8sApi | None = None
+        # Note: We don't cache the API because kr8s clients are tied to
+        # the event loop they were created in. Since run_sync() uses
+        # asyncio.run() which creates/closes event loops, we need a fresh
+        # API client each time.
+        pass
 
     async def _get_api(self) -> Any:  # Returns kr8s._api.Api
-        """Get or create the kr8s API client."""
-        if self._api is None:
-            self._api = await kr8s.asyncio.api()
-        return self._api
+        """Get or create the kr8s API client.
+
+        Creates a new API client each call because kr8s clients are bound
+        to the event loop they were created in.
+        """
+        return await kr8s.asyncio.api()
 
     # =========================================================================
     # Cluster Context
