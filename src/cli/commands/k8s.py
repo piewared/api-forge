@@ -10,17 +10,25 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
+from src.infra.k8s import KubectlController, run_sync
+
 from .shared import (
     confirm_action,
     console,
     get_project_root,
-    handle_error,
     print_header,
     with_error_handling,
 )
 
 if TYPE_CHECKING:
     from src.cli.deployment.helm_deployer.deployer import HelmDeployer
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes Controller (module-level singleton)
+# ---------------------------------------------------------------------------
+
+_controller = KubectlController()
 
 
 # ---------------------------------------------------------------------------
@@ -53,22 +61,8 @@ def _check_cluster_issuer_ready(issuer_name: str) -> bool:
     Returns:
         True if the ClusterIssuer exists and is ready, False otherwise
     """
-    import subprocess
-
-    result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "clusterissuer",
-            issuer_name,
-            "-o",
-            "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    return result.returncode == 0 and result.stdout.strip() == "True"
+    status = run_sync(_controller.get_cluster_issuer_status(issuer_name))
+    return status.exists and status.ready
 
 
 def _check_cert_manager_installed() -> bool:
@@ -77,15 +71,7 @@ def _check_cert_manager_installed() -> bool:
     Returns:
         True if cert-manager pods are running, False otherwise
     """
-    import subprocess
-
-    result = subprocess.run(
-        ["kubectl", "get", "pods", "-n", "cert-manager", "-o", "name"],
-        capture_output=True,
-        text=True,
-    )
-
-    return result.returncode == 0 and bool(result.stdout.strip())
+    return run_sync(_controller.check_cert_manager_installed())
 
 
 def _install_cert_manager() -> bool:
@@ -150,7 +136,6 @@ def _wait_for_cluster_issuer(issuer_name: str, timeout: int = 60) -> bool:
     Returns:
         True if issuer became ready, False if timeout
     """
-    import subprocess
     import time
 
     console.print(
@@ -164,14 +149,10 @@ def _wait_for_cluster_issuer(issuer_name: str, timeout: int = 60) -> bool:
         time.sleep(2)
 
     # Check if it exists but isn't ready
-    result = subprocess.run(
-        ["kubectl", "get", "clusterissuer", issuer_name, "-o", "yaml"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
+    yaml_output = run_sync(_controller.get_cluster_issuer_yaml(issuer_name))
+    if yaml_output:
         console.print("[yellow]ClusterIssuer exists but not ready yet[/yellow]")
-        console.print(f"[dim]{result.stdout}[/dim]")
+        console.print(f"[dim]{yaml_output}[/dim]")
 
     return False
 
@@ -669,35 +650,27 @@ def logs(
         uv run api-forge-cli k8s logs -f                 # Follow logs
         uv run api-forge-cli k8s logs --previous         # Previous container
     """
-    import subprocess
-
-    # Build kubectl logs command
-    cmd = ["kubectl", "logs", "-n", namespace]
-
-    if pod:
-        cmd.append(pod)
-    else:
-        # Use label selector to get all app pods
-        cmd.extend(["-l", "app=api-forge", "--all-containers=true"])
-
-    if container:
-        cmd.extend(["-c", container])
-
-    if follow:
-        cmd.append("-f")
-
-    cmd.extend([f"--tail={tail}"])
-
-    if previous:
-        cmd.append("--previous")
-
     console.print(f"[dim]Namespace: {namespace}[/dim]\n")
 
+    # Determine label selector for non-specific pod requests
+    label_selector = "app=api-forge" if not pod else None
+
     try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        handle_error(f"Failed to retrieve logs: {e}")
-        raise typer.Exit(1) from e
+        result = run_sync(
+            _controller.get_pod_logs(
+                namespace=namespace,
+                pod=pod,
+                container=container,
+                label_selector=label_selector,
+                follow=follow,
+                tail=tail,
+                previous=previous,
+            )
+        )
+        if result.stdout:
+            console.print(result.stdout)
+        if not result.success and result.stderr:
+            console.print(f"[red]{result.stderr}[/red]")
     except KeyboardInterrupt:
         console.print("\n[dim]Log streaming stopped[/dim]")
 
@@ -742,8 +715,6 @@ def setup_tls(
         uv run api-forge-cli k8s setup-tls --email admin@example.com --staging
         uv run api-forge-cli k8s up --ingress --ingress-host api.example.com --ingress-tls-auto
     """
-    import subprocess
-
     print_header("TLS Setup with cert-manager")
 
     if not email:
@@ -837,13 +808,9 @@ spec:
         # Apply the manifest
         console.print(f"[dim]Applying ClusterIssuer '{issuer_name}'...[/dim]")
 
-        result = subprocess.run(
-            ["kubectl", "apply", "-f", str(issuer_file)],
-            capture_output=True,
-            text=True,
-        )
+        result = run_sync(_controller.apply_manifest(issuer_file))
 
-        if result.returncode != 0:
+        if not result.success:
             console.print("[red]Failed to create ClusterIssuer[/red]")
             if result.stderr:
                 console.print(Panel(result.stderr, title="Error", border_style="red"))

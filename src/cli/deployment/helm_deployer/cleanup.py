@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..shell_commands import ReplicaSetInfo, calculate_replicaset_age_hours
+from src.infra.k8s.controller import ReplicaSetInfo
+
+from ..shell_commands import calculate_replicaset_age_hours
 from .constants import DeploymentConstants
 
 if TYPE_CHECKING:

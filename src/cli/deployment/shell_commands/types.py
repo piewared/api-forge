@@ -2,6 +2,9 @@
 
 This module contains all dataclasses and type definitions used across
 the shell command modules.
+
+Note: CommandResult and ReplicaSetInfo are re-exported from src.infra.k8s.controller
+for backward compatibility. New code should import directly from there.
 """
 
 from __future__ import annotations
@@ -9,22 +12,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+# Re-export Kubernetes types from canonical location
+from src.infra.k8s.controller import CommandResult, ReplicaSetInfo
 
-@dataclass
-class CommandResult:
-    """Result of a shell command execution.
-
-    Attributes:
-        success: Whether the command completed successfully (exit code 0)
-        stdout: Standard output from the command
-        stderr: Standard error from the command
-        returncode: The exit code of the command
-    """
-
-    success: bool
-    stdout: str
-    stderr: str
-    returncode: int
+__all__ = [
+    "CommandResult",
+    "ReplicaSetInfo",
+    "HelmRelease",
+    "GitStatus",
+    "calculate_replicaset_age_hours",
+]
 
 
 @dataclass
@@ -42,25 +39,6 @@ class HelmRelease:
     namespace: str
     status: str
     revision: str
-
-
-@dataclass
-class ReplicaSetInfo:
-    """Information about a Kubernetes ReplicaSet.
-
-    Attributes:
-        name: ReplicaSet name
-        replicas: Desired replica count
-        revision: Deployment revision annotation
-        created_at: Creation timestamp
-        owner_deployment: Name of the owning Deployment (if any)
-    """
-
-    name: str
-    replicas: int
-    revision: str
-    created_at: datetime | None
-    owner_deployment: str | None
 
 
 @dataclass

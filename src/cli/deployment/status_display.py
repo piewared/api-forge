@@ -1,7 +1,6 @@
 """Status display utilities for deployment environments."""
 
 import os
-import subprocess
 
 import requests  # type: ignore
 from dotenv.main import load_dotenv
@@ -15,9 +14,13 @@ from src.dev.dev_utils import (
     check_redis_status,
     check_temporal_status,
 )
+from src.infra.k8s import KubectlController, run_sync
 
 from .health_checks import HealthChecker
 from .service_config import get_production_services, is_temporal_enabled
+
+# Module-level controller singleton
+_controller = KubectlController()
 
 
 class StatusDisplay:
@@ -96,26 +99,16 @@ class StatusDisplay:
         )
 
         # Get pod status
-        result = subprocess.run(
-            ["kubectl", "get", "pods", "-n", namespace, "-o", "wide"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
+        pods_output = run_sync(_controller.get_pods_wide(namespace))
+        if pods_output:
             self.console.print("\n[bold cyan]Pods:[/bold cyan]")
-            self.console.print(result.stdout)
+            self.console.print(pods_output)
 
         # Get service status
-        result = subprocess.run(
-            ["kubectl", "get", "svc", "-n", namespace],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
+        services_output = run_sync(_controller.get_services_output(namespace))
+        if services_output:
             self.console.print("\n[bold cyan]Services:[/bold cyan]")
-            self.console.print(result.stdout)
+            self.console.print(services_output)
 
         self._show_k8s_access_instructions(namespace)
 
