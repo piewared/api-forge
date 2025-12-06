@@ -10,7 +10,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from src.infra.k8s import KubectlController, run_sync
+from src.infra.k8s import Kr8sController, run_sync
 
 from .shared import (
     confirm_action,
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 # Kubernetes Controller (module-level singleton)
 # ---------------------------------------------------------------------------
 
-_controller = KubectlController()
+_controller = Kr8sController()
 
 
 # ---------------------------------------------------------------------------

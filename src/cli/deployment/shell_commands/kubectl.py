@@ -1,9 +1,9 @@
 """Kubectl command abstractions.
 
 This module provides commands for Kubernetes resource management via kubectl,
-delegating to KubectlController for the actual operations.
+delegating to Kr8sController for the actual operations.
 
-This is a sync wrapper around the async KubectlController for backward
+This is a sync wrapper around the async Kr8sController for backward
 compatibility with existing code.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.infra.k8s import KubectlController, run_sync
+from src.infra.k8s import Kr8sController, run_sync
 from src.infra.k8s.controller import (
     CommandResult,
     JobInfo,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 class KubectlCommands:
     """Kubectl-related shell commands.
 
-    This is a sync wrapper around KubectlController that provides backward
+    This is a sync wrapper around Kr8sController that provides backward
     compatibility with existing code. All methods delegate to the async
     controller using run_sync().
 
@@ -48,7 +48,7 @@ class KubectlCommands:
         # Keep runner reference for interface compatibility
         self._runner = runner
         # Delegate to the async controller
-        self._controller = KubectlController()
+        self._controller = Kr8sController()
 
     # =========================================================================
     # Cluster Context

@@ -14,13 +14,13 @@ from src.dev.dev_utils import (
     check_redis_status,
     check_temporal_status,
 )
-from src.infra.k8s import KubectlController, run_sync
+from src.infra.k8s import Kr8sController, run_sync
 
 from .health_checks import HealthChecker
 from .service_config import get_production_services, is_temporal_enabled
 
 # Module-level controller singleton
-_controller = KubectlController()
+_controller = Kr8sController()
 
 
 class StatusDisplay:
@@ -91,24 +91,27 @@ class StatusDisplay:
         Args:
             namespace: Kubernetes namespace to check
         """
-        self.console.print(
-            Panel.fit(
-                "[bold magenta]Kubernetes Deployment Status[/bold magenta]",
-                border_style="magenta",
-            )
-        )
+        # Note: Header is printed by the calling command, don't duplicate
 
         # Get pod status
         pods_output = run_sync(_controller.get_pods_wide(namespace))
         if pods_output:
             self.console.print("\n[bold cyan]Pods:[/bold cyan]")
             self.console.print(pods_output)
+        else:
+            self.console.print("\n[bold cyan]Pods:[/bold cyan]")
+            self.console.print(f"  [dim]No pods found in namespace {namespace}[/dim]")
 
         # Get service status
         services_output = run_sync(_controller.get_services_output(namespace))
         if services_output:
             self.console.print("\n[bold cyan]Services:[/bold cyan]")
             self.console.print(services_output)
+        else:
+            self.console.print("\n[bold cyan]Services:[/bold cyan]")
+            self.console.print(
+                f"  [dim]No services found in namespace {namespace}[/dim]"
+            )
 
         self._show_k8s_access_instructions(namespace)
 
