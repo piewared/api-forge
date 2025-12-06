@@ -12,6 +12,12 @@ Example:
     # Use async methods in sync context
     exists = run_sync(controller.namespace_exists("my-namespace"))
     pods = run_sync(controller.get_pods("my-namespace"))
+
+    # Or use the kr8s-based controller for native async operations
+    from src.infra.k8s import Kr8sController
+
+    kr8s_controller = Kr8sController()
+    pods = run_sync(kr8s_controller.get_pods("my-namespace"))
 """
 
 from .controller import (
@@ -23,6 +29,7 @@ from .controller import (
     ReplicaSetInfo,
     ServiceInfo,
 )
+from .kr8s_controller import Kr8sController
 from .kubectl_controller import KubectlController
 from .utils import run_sync
 
@@ -30,6 +37,7 @@ __all__ = [
     # Controller classes
     "KubernetesController",
     "KubectlController",
+    "Kr8sController",
     # Data classes
     "CommandResult",
     "PodInfo",
