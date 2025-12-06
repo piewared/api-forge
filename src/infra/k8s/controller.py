@@ -394,25 +394,6 @@ class KubernetesController(ABC):
         ...
 
     @abstractmethod
-    async def check_pods_ready(
-        self,
-        pod_selector: str,
-        namespace: str,
-        timeout: int = 60,
-    ) -> bool:
-        """Check if Kubernetes pods matching selector are ready.
-
-        Args:
-            pod_selector: Label selector or pod name
-            namespace: Kubernetes namespace
-            timeout: Maximum time to wait in seconds
-
-        Returns:
-            True if all matching pods are ready, False otherwise
-        """
-        ...
-
-    @abstractmethod
     async def get_pod_logs(
         self,
         namespace: str,

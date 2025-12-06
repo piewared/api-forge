@@ -410,37 +410,6 @@ class KubectlController(KubernetesController):
             capture_output=False,
         )
 
-    async def check_pods_ready(
-        self,
-        pod_selector: str,
-        namespace: str,
-        timeout: int = 60,
-    ) -> bool:
-        """Check if Kubernetes pods matching selector are ready."""
-        elapsed = 0
-        interval = 5
-
-        while elapsed < timeout:
-            result = await self._run_kubectl(
-                [
-                    "get",
-                    "pod",
-                    pod_selector,
-                    "-n",
-                    namespace,
-                    "-o",
-                    "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
-                ]
-            )
-
-            if result.success and result.stdout.strip() == "True":
-                return True
-
-            await asyncio.sleep(interval)
-            elapsed += interval
-
-        return False
-
     async def get_pod_logs(
         self,
         namespace: str,

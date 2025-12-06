@@ -532,51 +532,6 @@ class Kr8sController(KubernetesController):
 
         return await asyncio.to_thread(_run)
 
-    async def check_pods_ready(
-        self,
-        pod_selector: str,
-        namespace: str,
-        timeout: int = 60,
-    ) -> bool:
-        """Check if Kubernetes pods matching selector are ready."""
-        elapsed = 0
-        interval = 5
-
-        while elapsed < timeout:
-            try:
-                api = await self._get_api()
-                pods = [
-                    pod
-                    async for pod in Pod.list(
-                        namespace=namespace,
-                        label_selector=pod_selector,
-                        api=api,
-                    )
-                ]
-
-                if pods:
-                    all_ready = True
-                    for pod in pods:
-                        conditions = pod.status.get("conditions", [])
-                        ready = False
-                        for condition in conditions:
-                            if condition.get("type") == "Ready":
-                                ready = condition.get("status") == "True"
-                                break
-                        if not ready:
-                            all_ready = False
-                            break
-                    if all_ready:
-                        return True
-
-            except Exception:
-                pass
-
-            await asyncio.sleep(interval)
-            elapsed += interval
-
-        return False
-
     async def get_pod_logs(
         self,
         namespace: str,
