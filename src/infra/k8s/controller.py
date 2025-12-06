@@ -454,34 +454,6 @@ class KubernetesController(ABC):
         ...
 
     # =========================================================================
-    # Status Display (raw output for display purposes)
-    # =========================================================================
-
-    @abstractmethod
-    async def get_pods_wide(self, namespace: str) -> str:
-        """Get pods in wide format for display.
-
-        Args:
-            namespace: Kubernetes namespace
-
-        Returns:
-            Raw kubectl output in wide format
-        """
-        ...
-
-    @abstractmethod
-    async def get_services_output(self, namespace: str) -> str:
-        """Get services output for display.
-
-        Args:
-            namespace: Kubernetes namespace
-
-        Returns:
-            Raw kubectl output for services
-        """
-        ...
-
-    # =========================================================================
     # Cert-Manager Operations
     # =========================================================================
 

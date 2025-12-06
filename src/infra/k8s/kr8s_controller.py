@@ -659,44 +659,6 @@ class Kr8sController(KubernetesController):
             return []
 
     # =========================================================================
-    # Status Display
-    # =========================================================================
-
-    async def get_pods_wide(self, namespace: str) -> str:
-        """Get pods in wide format for display.
-
-        Note: Uses kubectl for formatted output.
-        """
-        import subprocess
-
-        def _run() -> str:
-            result = subprocess.run(
-                ["kubectl", "get", "pods", "-n", namespace, "-o", "wide"],
-                capture_output=True,
-                text=True,
-            )
-            return result.stdout if result.returncode == 0 else ""
-
-        return await asyncio.to_thread(_run)
-
-    async def get_services_output(self, namespace: str) -> str:
-        """Get services output for display.
-
-        Note: Uses kubectl for formatted output.
-        """
-        import subprocess
-
-        def _run() -> str:
-            result = subprocess.run(
-                ["kubectl", "get", "svc", "-n", namespace],
-                capture_output=True,
-                text=True,
-            )
-            return result.stdout if result.returncode == 0 else ""
-
-        return await asyncio.to_thread(_run)
-
-    # =========================================================================
     # Cert-Manager Operations
     # =========================================================================
 

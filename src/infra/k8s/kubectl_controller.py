@@ -529,20 +529,6 @@ class KubectlController(KubernetesController):
             return []
 
     # =========================================================================
-    # Status Display
-    # =========================================================================
-
-    async def get_pods_wide(self, namespace: str) -> str:
-        """Get pods in wide format for display."""
-        result = await self._run_kubectl(["get", "pods", "-n", namespace, "-o", "wide"])
-        return result.stdout if result.success else ""
-
-    async def get_services_output(self, namespace: str) -> str:
-        """Get services output for display."""
-        result = await self._run_kubectl(["get", "svc", "-n", namespace])
-        return result.stdout if result.success else ""
-
-    # =========================================================================
     # Cert-Manager Operations
     # =========================================================================
 
