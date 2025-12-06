@@ -13,6 +13,7 @@ from src.cli.deployment.helm_deployer.validator import (
     ValidationResult,
     ValidationSeverity,
 )
+from src.infra.k8s.controller import JobInfo, PodInfo
 
 
 class TestValidationResult:
@@ -168,7 +169,7 @@ class TestDeploymentValidator:
         mock_commands.kubectl.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = [
-            {"name": "postgres-verifier", "status": "Failed"},
+            JobInfo(name="postgres-verifier", status="Failed"),
         ]
         mock_commands.kubectl.get_pods.return_value = []
 
@@ -188,7 +189,7 @@ class TestDeploymentValidator:
         mock_commands.kubectl.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = [
-            {"name": "migration-job", "status": "Failed"},
+            JobInfo(name="migration-job", status="Failed"),
         ]
         mock_commands.kubectl.get_pods.return_value = []
 
@@ -208,7 +209,7 @@ class TestDeploymentValidator:
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = []
         mock_commands.kubectl.get_pods.return_value = [
-            {"name": "api-forge-app-xyz", "status": "CrashLoopBackOff"},
+            PodInfo(name="api-forge-app-xyz", status="CrashLoopBackOff"),
         ]
 
         result = validator.validate("api-forge-prod")
@@ -227,7 +228,7 @@ class TestDeploymentValidator:
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = []
         mock_commands.kubectl.get_pods.return_value = [
-            {"name": "api-forge-app-xyz", "status": "Pending"},
+            PodInfo(name="api-forge-app-xyz", status="Pending"),
         ]
 
         result = validator.validate("api-forge-prod")
@@ -246,7 +247,7 @@ class TestDeploymentValidator:
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = []
         mock_commands.kubectl.get_pods.return_value = [
-            {"name": "api-forge-app-xyz", "status": "Error"},
+            PodInfo(name="api-forge-app-xyz", status="Error"),
         ]
 
         result = validator.validate("api-forge-prod")
@@ -269,19 +270,19 @@ class TestDeploymentValidator:
         mock_commands.kubectl.get_jobs.return_value = []
         mock_commands.kubectl.get_pods.return_value = [
             # Old pod from first attempt - failed
-            {
-                "name": "postgres-verifier-abc",
-                "status": "Error",
-                "jobOwner": "postgres-verifier",
-                "creationTimestamp": "2025-01-01T10:00:00Z",
-            },
+            PodInfo(
+                name="postgres-verifier-abc",
+                status="Error",
+                job_owner="postgres-verifier",
+                creation_timestamp="2025-01-01T10:00:00Z",
+            ),
             # Newer pod from second attempt - succeeded
-            {
-                "name": "postgres-verifier-def",
-                "status": "Succeeded",
-                "jobOwner": "postgres-verifier",
-                "creationTimestamp": "2025-01-01T10:05:00Z",
-            },
+            PodInfo(
+                name="postgres-verifier-def",
+                status="Succeeded",
+                job_owner="postgres-verifier",
+                creation_timestamp="2025-01-01T10:05:00Z",
+            ),
         ]
 
         result = validator.validate("api-forge-prod")
@@ -299,19 +300,19 @@ class TestDeploymentValidator:
         mock_commands.kubectl.get_jobs.return_value = []
         mock_commands.kubectl.get_pods.return_value = [
             # Old pod succeeded
-            {
-                "name": "postgres-verifier-abc",
-                "status": "Succeeded",
-                "jobOwner": "postgres-verifier",
-                "creationTimestamp": "2025-01-01T10:00:00Z",
-            },
+            PodInfo(
+                name="postgres-verifier-abc",
+                status="Succeeded",
+                job_owner="postgres-verifier",
+                creation_timestamp="2025-01-01T10:00:00Z",
+            ),
             # Newer pod failed
-            {
-                "name": "postgres-verifier-def",
-                "status": "Error",
-                "jobOwner": "postgres-verifier",
-                "creationTimestamp": "2025-01-01T10:05:00Z",
-            },
+            PodInfo(
+                name="postgres-verifier-def",
+                status="Error",
+                job_owner="postgres-verifier",
+                creation_timestamp="2025-01-01T10:05:00Z",
+            ),
         ]
 
         result = validator.validate("api-forge-prod")
@@ -329,11 +330,11 @@ class TestDeploymentValidator:
         mock_commands.kubectl.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
         mock_commands.kubectl.get_jobs.return_value = [
-            {"name": "postgres-verifier", "status": "Failed"},
+            JobInfo(name="postgres-verifier", status="Failed"),
         ]
         mock_commands.kubectl.get_pods.return_value = [
-            {"name": "api-forge-app-xyz", "status": "CrashLoopBackOff"},
-            {"name": "api-forge-worker-abc", "status": "Pending"},
+            PodInfo(name="api-forge-app-xyz", status="CrashLoopBackOff"),
+            PodInfo(name="api-forge-worker-abc", status="Pending"),
         ]
 
         result = validator.validate("api-forge-prod")

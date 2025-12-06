@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from src.infra.k8s.controller import PodInfo
+
 if TYPE_CHECKING:
     from rich.console import Console
 
@@ -302,8 +304,8 @@ class DeploymentValidator:
         jobs = self.commands.kubectl.get_jobs(namespace)
 
         for job in jobs:
-            job_name = job["name"]
-            job_status = job.get("status")
+            job_name = job.name
+            job_status = job.status
 
             # If job succeeded, it's fine - ignore any previous failures
             if job_status == "Complete":
@@ -337,9 +339,9 @@ class DeploymentValidator:
         pods = self.commands.kubectl.get_pods(namespace)
 
         for pod in pods:
-            if pod.get("status") == "CrashLoopBackOff":
-                pod_name = str(pod["name"])
-                restarts = pod.get("restarts", 0)
+            if pod.status == "CrashLoopBackOff":
+                pod_name = pod.name
+                restarts = pod.restarts
                 result.issues.append(
                     ValidationIssue(
                         severity=ValidationSeverity.ERROR,
@@ -362,8 +364,8 @@ class DeploymentValidator:
         pods = self.commands.kubectl.get_pods(namespace)
 
         for pod in pods:
-            if pod.get("status") == "Pending":
-                pod_name = str(pod["name"])
+            if pod.status == "Pending":
+                pod_name = pod.name
                 # Check if it's been pending for a while (ignore recently created)
                 # For now, treat all Pending as warnings
                 result.issues.append(
@@ -392,11 +394,11 @@ class DeploymentValidator:
         pods = self.commands.kubectl.get_pods(namespace)
 
         # Group job-owned pods by their job name
-        job_pods: dict[str, list[dict[str, str | int]]] = {}
-        non_job_pods: list[dict[str, str | int]] = []
+        job_pods: dict[str, list[PodInfo]] = {}
+        non_job_pods: list[PodInfo] = []
 
         for pod in pods:
-            job_owner = str(pod.get("jobOwner", ""))
+            job_owner = pod.job_owner
             if job_owner:
                 if job_owner not in job_pods:
                     job_pods[job_owner] = []
@@ -406,8 +408,8 @@ class DeploymentValidator:
 
         # Check non-job pods for errors (these are always relevant)
         for pod in non_job_pods:
-            if pod.get("status") == "Error":
-                pod_name = str(pod["name"])
+            if pod.status == "Error":
+                pod_name = pod.name
                 result.issues.append(
                     ValidationIssue(
                         severity=ValidationSeverity.ERROR,
@@ -431,7 +433,7 @@ class DeploymentValidator:
             # ISO 8601 timestamps sort correctly as strings
             sorted_pods = sorted(
                 pods_list,
-                key=lambda p: str(p.get("creationTimestamp", "")),
+                key=lambda p: p.creation_timestamp,
                 reverse=True,
             )
 
@@ -439,12 +441,12 @@ class DeploymentValidator:
                 continue
 
             most_recent_pod = sorted_pods[0]
-            pod_status = most_recent_pod.get("status")
+            pod_status = most_recent_pod.status
 
             # Only flag if the most recent pod is in Error state
             # Completed/Succeeded pods are fine, older failed pods are irrelevant
             if pod_status == "Error":
-                pod_name = str(most_recent_pod["name"])
+                pod_name = most_recent_pod.name
                 result.issues.append(
                     ValidationIssue(
                         severity=ValidationSeverity.WARNING,

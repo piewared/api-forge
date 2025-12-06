@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
-from .utils import console, get_project_root
+from .shared import console, get_project_root
 
 # Create the entity command group
 entity_app = typer.Typer(help="🎭 Entity management commands")

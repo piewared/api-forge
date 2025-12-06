@@ -1,7 +1,6 @@
 """Status display utilities for deployment environments."""
 
 import os
-import subprocess
 
 import requests  # type: ignore
 from dotenv.main import load_dotenv
@@ -15,9 +14,14 @@ from src.dev.dev_utils import (
     check_redis_status,
     check_temporal_status,
 )
+from src.infra.k8s import Kr8sController, run_sync
+from src.infra.k8s.controller import PodInfo, ServiceInfo
 
 from .health_checks import HealthChecker
 from .service_config import get_production_services, is_temporal_enabled
+
+# Module-level controller singleton
+_controller = Kr8sController()
 
 
 class StatusDisplay:
@@ -88,34 +92,27 @@ class StatusDisplay:
         Args:
             namespace: Kubernetes namespace to check
         """
-        self.console.print(
-            Panel.fit(
-                "[bold magenta]Kubernetes Deployment Status[/bold magenta]",
-                border_style="magenta",
+        # Note: Header is printed by the calling command, don't duplicate
+
+        # Get and format pod status
+        pods = run_sync(_controller.get_pods(namespace))
+        self.console.print("\n[bold cyan]Pods:[/bold cyan]")
+        if pods:
+            pods_output = self._format_pods_table(pods)
+            self.console.print(pods_output)
+        else:
+            self.console.print(f"  [dim]No pods found in namespace {namespace}[/dim]")
+
+        # Get and format service status
+        services = run_sync(_controller.get_services(namespace))
+        self.console.print("\n[bold cyan]Services:[/bold cyan]")
+        if services:
+            services_output = self._format_services_table(services)
+            self.console.print(services_output)
+        else:
+            self.console.print(
+                f"  [dim]No services found in namespace {namespace}[/dim]"
             )
-        )
-
-        # Get pod status
-        result = subprocess.run(
-            ["kubectl", "get", "pods", "-n", namespace, "-o", "wide"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            self.console.print("\n[bold cyan]Pods:[/bold cyan]")
-            self.console.print(result.stdout)
-
-        # Get service status
-        result = subprocess.run(
-            ["kubectl", "get", "svc", "-n", namespace],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            self.console.print("\n[bold cyan]Services:[/bold cyan]")
-            self.console.print(result.stdout)
 
         self._show_k8s_access_instructions(namespace)
 
@@ -265,3 +262,55 @@ class StatusDisplay:
         self.console.print(
             f"  └─ View logs: kubectl logs -n {namespace} -l app.kubernetes.io/name=app -f"
         )
+
+    def _format_pods_table(self, pods: list[PodInfo]) -> str:
+        """Format pods data into a kubectl-like table string.
+
+        Args:
+            pods: List of PodInfo objects
+
+        Returns:
+            Formatted table string similar to kubectl get pods -o wide
+        """
+        if not pods:
+            return ""
+
+        # Header row
+        header = f"{'NAME':<40} {'READY':<8} {'STATUS':<16} {'RESTARTS':<8} {'AGE':<8} {'IP':<15} {'NODE':<20}"
+        rows = [header]
+
+        for pod in pods:
+            # Determine ready status (simplified)
+            ready = "1/1" if pod.status in ["Running", "Succeeded"] else "0/1"
+
+            # Format age (simplified - just show timestamp for now)
+            age = pod.creation_timestamp[:10] if pod.creation_timestamp else ""
+
+            row = f"{pod.name:<40} {ready:<8} {pod.status:<16} {pod.restarts:<8} {age:<8} {pod.ip:<15} {pod.node:<20}"
+            rows.append(row)
+
+        return "\n".join(rows)
+
+    def _format_services_table(self, services: list[ServiceInfo]) -> str:
+        """Format services data into a kubectl-like table string.
+
+        Args:
+            services: List of ServiceInfo objects
+
+        Returns:
+            Formatted table string similar to kubectl get svc
+        """
+        if not services:
+            return ""
+
+        # Header row
+        header = f"{'NAME':<30} {'TYPE':<15} {'CLUSTER-IP':<15} {'EXTERNAL-IP':<15} {'PORT(S)':<20}"
+        rows = [header]
+
+        for svc in services:
+            external_ip = svc.external_ip if svc.external_ip else "<none>"
+
+            row = f"{svc.name:<30} {svc.type:<15} {svc.cluster_ip:<15} {external_ip:<15} {svc.ports:<20}"
+            rows.append(row)
+
+        return "\n".join(rows)

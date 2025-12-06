@@ -167,6 +167,8 @@ class HelmDeployer(BaseDeployer):
         ingress_enabled: bool = False,
         ingress_host: str | None = None,
         ingress_tls_secret: str | None = None,
+        ingress_tls_auto: bool = False,
+        ingress_tls_staging: bool = False,
         **kwargs: Any,
     ) -> None:
         """Deploy to Kubernetes cluster.
@@ -187,7 +189,9 @@ class HelmDeployer(BaseDeployer):
             registry: Container registry for remote clusters
             ingress_enabled: Whether to enable Ingress for external access
             ingress_host: Hostname for Ingress (e.g., api.example.com)
-            ingress_tls_secret: TLS secret name for HTTPS
+            ingress_tls_secret: TLS secret name for HTTPS (manual)
+            ingress_tls_auto: Auto-provision TLS via cert-manager
+            ingress_tls_staging: Use staging Let's Encrypt (with ingress_tls_auto)
             **kwargs: Reserved for future options
         """
         if not self.check_env_file():
@@ -255,6 +259,8 @@ class HelmDeployer(BaseDeployer):
             ingress_enabled=ingress_enabled,
             ingress_host=ingress_host,
             ingress_tls_secret=ingress_tls_secret,
+            ingress_tls_auto=ingress_tls_auto,
+            ingress_tls_staging=ingress_tls_staging,
         )
         self.helm_release.deploy_release(namespace, image_override_file)
 

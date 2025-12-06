@@ -536,9 +536,8 @@ print("✅ All imports successful")
                     "uv",
                     "run",
                     "api-forge-cli",
-                    "deploy",
-                    "down",
                     "prod",
+                    "down",
                     "--volumes",
                     "--yes",
                 ],
@@ -638,7 +637,7 @@ print("✅ All imports successful")
             # Start production deployment
             try:
                 result = self.run_command(
-                    ["uv", "run", "api-forge-cli", "deploy", "up", "prod"],
+                    ["uv", "run", "api-forge-cli", "prod", "up"],
                     cwd=project_dir,
                     timeout=600,  # 10 minutes for building images in CI
                 )
@@ -714,7 +713,7 @@ print("✅ All imports successful")
 
             # Check deployment status
             result = self.run_command(
-                ["uv", "run", "api-forge-cli", "deploy", "status", "prod"],
+                ["uv", "run", "api-forge-cli", "prod", "status"],
                 cwd=project_dir,
             )
 
@@ -817,9 +816,8 @@ print("✅ All imports successful")
                     "uv",
                     "run",
                     "api-forge-cli",
-                    "deploy",
-                    "down",
                     "prod",
+                    "down",
                     "--volumes",
                     "--yes",
                 ],
@@ -935,7 +933,7 @@ print("✅ All imports successful")
             # Deploy to Kubernetes (with real-time output streaming)
             print("🚀 Starting K8s deployment with real-time output...")
             result = self.run_command(
-                ["uv", "run", "api-forge-cli", "deploy", "up", "k8s"],
+                ["uv", "run", "api-forge-cli", "k8s", "up"],
                 cwd=project_dir,
                 timeout=600,
                 stream_output=True,
