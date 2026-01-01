@@ -4,48 +4,18 @@ This module provides commands for deploying, managing, and monitoring
 Kubernetes deployments via Helm.
 """
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from src.infra.k8s import Kr8sController, run_sync
+from src.cli.context import get_cli_context
+from src.cli.deployment.helm_deployer.deployer import get_deployer
+from src.cli.shared.console import console, with_error_handling
+from src.utils.paths import get_project_root
 
-from .shared import (
-    confirm_action,
-    console,
-    get_project_root,
-    print_header,
-    with_error_handling,
-)
-
-if TYPE_CHECKING:
-    from src.cli.deployment.helm_deployer.deployer import HelmDeployer
-
-
-# ---------------------------------------------------------------------------
-# Kubernetes Controller (module-level singleton)
-# ---------------------------------------------------------------------------
-
-_controller = Kr8sController()
-
-
-# ---------------------------------------------------------------------------
-# Deployer Factory
-# ---------------------------------------------------------------------------
-
-
-def _get_deployer() -> "HelmDeployer":
-    """Get the Helm deployer instance.
-
-    Returns:
-        HelmDeployer instance configured for current project
-    """
-    from src.cli.deployment.helm_deployer.deployer import HelmDeployer
-
-    return HelmDeployer(console, get_project_root())
-
+from .k8s_db import k8s_db_app
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -61,8 +31,9 @@ def _check_cluster_issuer_ready(issuer_name: str) -> bool:
     Returns:
         True if the ClusterIssuer exists and is ready, False otherwise
     """
-    status = run_sync(_controller.get_cluster_issuer_status(issuer_name))
-    return status.exists and status.ready
+    controller = get_cli_context().k8s_controller
+    status = controller.get_cluster_issuer_status(issuer_name)
+    return bool(status.exists and status.ready)
 
 
 def _check_cert_manager_installed() -> bool:
@@ -71,7 +42,9 @@ def _check_cert_manager_installed() -> bool:
     Returns:
         True if cert-manager pods are running, False otherwise
     """
-    return run_sync(_controller.check_cert_manager_installed())
+    controller = get_cli_context().k8s_controller
+    result: bool = controller.check_cert_manager_installed()
+    return result
 
 
 def _install_cert_manager() -> bool:
@@ -149,7 +122,8 @@ def _wait_for_cluster_issuer(issuer_name: str, timeout: int = 60) -> bool:
         time.sleep(2)
 
     # Check if it exists but isn't ready
-    yaml_output = run_sync(_controller.get_cluster_issuer_yaml(issuer_name))
+    controller = get_cli_context().k8s_controller
+    yaml_output = controller.get_cluster_issuer_yaml(issuer_name)
     if yaml_output:
         console.print("[yellow]ClusterIssuer exists but not ready yet[/yellow]")
         console.print(f"[dim]{yaml_output}[/dim]")
@@ -227,6 +201,13 @@ def up(
             help="Use Let's Encrypt staging (with --ingress-tls-auto)",
         ),
     ] = False,
+    skip_db_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-db-check",
+            help="Skip PostgreSQL verification before deployment",
+        ),
+    ] = False,
 ) -> None:
     """Deploy to Kubernetes cluster using Helm.
 
@@ -235,6 +216,8 @@ def up(
     - Builds Docker images with content-based tagging
     - Loads images into target cluster (Minikube, Kind, or registry)
     - Deploys Kubernetes secrets
+    - Restarts postgres StatefulSet (if bundled postgres enabled)
+    - Verifies PostgreSQL is accessible (unless --skip-db-check)
     - Syncs config.yaml to Helm values
     - Deploys via Helm upgrade --install
     - Waits for rollouts to complete
@@ -245,8 +228,9 @@ def up(
         uv run api-forge-cli k8s up --registry ghcr.io/myuser
         uv run api-forge-cli k8s up --ingress --ingress-host api.example.com
         uv run api-forge-cli k8s up --ingress --ingress-host api.example.com --ingress-tls-auto
+        uv run api-forge-cli k8s up --skip-db-check   # Skip database verification
     """
-    print_header("Deploying to Kubernetes")
+    console.print_header("Deploying to Kubernetes")
 
     # Validate TLS options
     if ingress_tls_auto and ingress_tls_secret:
@@ -256,13 +240,11 @@ def up(
         raise typer.Exit(1)
 
     if ingress_tls_auto and not ingress:
-        console.print(
-            "[yellow]--ingress-tls-auto implies --ingress, enabling it[/yellow]"
-        )
+        console.info("--ingress-tls-auto implies --ingress, enabling it")
         ingress = True
 
     if ingress_tls_staging and not ingress_tls_auto:
-        console.print("[red]--ingress-tls-staging requires --ingress-tls-auto[/red]")
+        console.error("--ingress-tls-staging requires --ingress-tls-auto")
         raise typer.Exit(1)
 
     # Check cert-manager is ready if using auto TLS
@@ -280,8 +262,7 @@ def up(
                 f"  [cyan]uv run api-forge-cli k8s setup-tls --email your@email.com{staging_flag}[/cyan]"
             )
             raise typer.Exit(1)
-
-    deployer = _get_deployer()
+    deployer = get_deployer()
     deployer.deploy(
         namespace=namespace,
         registry=registry,
@@ -290,6 +271,7 @@ def up(
         ingress_tls_secret=ingress_tls_secret,
         ingress_tls_auto=ingress_tls_auto,
         ingress_tls_staging=ingress_tls_staging,
+        skip_db_check=skip_db_check,
     )
 
 
@@ -322,10 +304,10 @@ def down(
         uv run api-forge-cli k8s down -n my-namespace
         uv run api-forge-cli k8s down -y  # Skip confirmation
     """
-    print_header("Removing Kubernetes Deployment")
+    console.print_header("Removing Kubernetes Deployment")
 
     if not yes:
-        if not confirm_action(
+        if not console.confirm_action(
             "Remove Kubernetes deployment",
             f"This will:\n"
             f"  • Uninstall the Helm release\n"
@@ -335,7 +317,7 @@ def down(
             console.print("[dim]Operation cancelled[/dim]")
             raise typer.Exit(0)
 
-    deployer = _get_deployer()
+    deployer = get_deployer()
     deployer.teardown(namespace=namespace)
 
 
@@ -359,9 +341,9 @@ def status(
         uv run api-forge-cli k8s status
         uv run api-forge-cli k8s status -n my-namespace
     """
-    print_header("Kubernetes Deployment Status")
+    console.print_header("Kubernetes Deployment Status")
 
-    deployer = _get_deployer()
+    deployer = get_deployer()
     deployer.show_status(namespace=namespace)
 
 
@@ -395,9 +377,9 @@ def history(
         uv run api-forge-cli k8s history
         uv run api-forge-cli k8s history --max 5
     """
-    print_header("Release History")
+    console.print_header("Release History")
 
-    deployer = _get_deployer()
+    deployer = get_deployer()
 
     # Get release history
     history_data = deployer.commands.helm.history(
@@ -483,9 +465,9 @@ def rollback(
         uv run api-forge-cli k8s rollback 3        # Specific revision
         uv run api-forge-cli k8s history           # View history first
     """
-    print_header("Rollback Deployment")
+    console.print_header("Rollback Deployment")
 
-    deployer = _get_deployer()
+    deployer = get_deployer()
 
     # Get release history
     history_data = deployer.commands.helm.history(
@@ -493,9 +475,9 @@ def rollback(
     )
 
     if not history_data:
-        console.print(
-            f"[red]No release history found for '{deployer.constants.HELM_RELEASE_NAME}' "
-            f"in namespace '{namespace}'[/red]"
+        console.error(
+            f"No release history found for '{deployer.constants.HELM_RELEASE_NAME}' "
+            f"in namespace '{namespace}'"
         )
         console.print("\n[dim]Make sure the release exists and you have access.[/dim]")
         raise typer.Exit(1)
@@ -505,18 +487,16 @@ def rollback(
     current_revision = int(current.get("revision", 0))
 
     if current_revision <= 1:
-        console.print(
-            "[yellow]⚠ Only one revision exists. Nothing to rollback to.[/yellow]"
-        )
+        console.warn("Only one revision exists. Nothing to rollback to.")
         raise typer.Exit(0)
 
     # Determine target revision
     target_revision = revision if revision is not None else current_revision - 1
 
     if target_revision < 1 or target_revision >= current_revision:
-        console.print(
-            f"[red]Invalid revision {target_revision}. "
-            f"Must be between 1 and {current_revision - 1}.[/red]"
+        console.error(
+            f"Invalid revision {target_revision}. "
+            f"Must be between 1 and {current_revision - 1}."
         )
         raise typer.Exit(1)
 
@@ -553,7 +533,7 @@ def rollback(
 
     # Confirm
     if not yes:
-        if not confirm_action(
+        if not console.confirm_action(
             f"Rollback to revision {target_revision}",
             f"This will restore the deployment in namespace '{namespace}' "
             f"to revision {target_revision}.\n"
@@ -579,12 +559,10 @@ def rollback(
     )
 
     if result.success:
-        console.print(
-            f"\n[bold green]✅ Successfully rolled back to revision {target_revision}![/bold green]"
-        )
+        console.ok(f"\nSuccessfully rolled back to revision {target_revision}!")
         console.print("\n[dim]Run 'uv run api-forge-cli k8s status' to verify.[/dim]")
     else:
-        console.print("\n[bold red]❌ Rollback failed[/bold red]")
+        console.error("\nRollback failed")
         if result.stderr:
             console.print(Panel(result.stderr, title="Error", border_style="red"))
         raise typer.Exit(1)
@@ -656,17 +634,17 @@ def logs(
     label_selector = "app=api-forge" if not pod else None
 
     try:
-        result = run_sync(
-            _controller.get_pod_logs(
-                namespace=namespace,
-                pod=pod,
-                container=container,
-                label_selector=label_selector,
-                follow=follow,
-                tail=tail,
-                previous=previous,
-            )
+        controller = get_cli_context().k8s_controller
+        result = controller.get_pod_logs(
+            namespace=namespace,
+            pod=pod,
+            container=container,
+            label_selector=label_selector,
+            follow=follow,
+            tail=tail,
+            previous=previous,
         )
+
         if result.stdout:
             console.print(result.stdout)
         if not result.success and result.stderr:
@@ -715,7 +693,7 @@ def setup_tls(
         uv run api-forge-cli k8s setup-tls --email admin@example.com --staging
         uv run api-forge-cli k8s up --ingress --ingress-host api.example.com --ingress-tls-auto
     """
-    print_header("TLS Setup with cert-manager")
+    console.print_header("TLS Setup with cert-manager")
 
     if not email:
         console.print("[red]Email is required for Let's Encrypt registration.[/red]")
@@ -729,14 +707,14 @@ def setup_tls(
     console.print("\n[bold]Step 1/3:[/bold] Checking cert-manager installation...")
 
     if _check_cert_manager_installed():
-        console.print("[green]✓[/green] cert-manager is already installed")
+        console.ok("cert-manager is already installed")
     else:
         if install_cert_manager:
-            console.print("[yellow]cert-manager not found, installing...[/yellow]")
+            console.info("cert-manager not found, installing...")
             if not _install_cert_manager():
                 raise typer.Exit(1)
         else:
-            console.print("[red]cert-manager is not installed.[/red]")
+            console.error("cert-manager is not installed.")
             console.print(
                 "\n[dim]Run with --install-cert-manager or install manually:[/dim]"
             )
@@ -752,19 +730,15 @@ def setup_tls(
     if staging:
         server = "https://acme-staging-v02.api.letsencrypt.org/directory"
         issuer_name = "letsencrypt-staging"
-        console.print(
-            "[yellow]Using Let's Encrypt staging server (for testing)[/yellow]"
-        )
+        console.info("Using Let's Encrypt staging server (for testing)")
     else:
         server = "https://acme-v02.api.letsencrypt.org/directory"
         issuer_name = "letsencrypt-prod"
-        console.print("[cyan]Using Let's Encrypt production server[/cyan]")
+        console.info("Using Let's Encrypt production server")
 
     # Check if issuer already exists and is ready
     if _check_cluster_issuer_ready(issuer_name):
-        console.print(
-            f"[green]✓[/green] ClusterIssuer '{issuer_name}' already exists and is ready"
-        )
+        console.ok(f"ClusterIssuer '{issuer_name}' already exists and is ready")
     else:
         # Create ClusterIssuer manifest file (version-controlled, GitOps-friendly)
         project_root = get_project_root()
@@ -808,32 +782,31 @@ spec:
         # Apply the manifest
         console.print(f"[dim]Applying ClusterIssuer '{issuer_name}'...[/dim]")
 
-        result = run_sync(_controller.apply_manifest(issuer_file))
+        controller = get_cli_context().k8s_controller
+        result = controller.apply_manifest(issuer_file)
 
         if not result.success:
-            console.print("[red]Failed to create ClusterIssuer[/red]")
+            console.error("Failed to create ClusterIssuer")
             if result.stderr:
                 console.print(Panel(result.stderr, title="Error", border_style="red"))
             raise typer.Exit(1)
 
-        console.print(f"[green]✓[/green] ClusterIssuer '{issuer_name}' created")
+        console.ok(f"ClusterIssuer '{issuer_name}' created")
 
     # Step 3: Wait for ClusterIssuer to be ready
     console.print("\n[bold]Step 3/3:[/bold] Waiting for ClusterIssuer to be ready...")
 
     if _wait_for_cluster_issuer(issuer_name, timeout=60):
-        console.print(f"[green]✓[/green] ClusterIssuer '{issuer_name}' is ready")
+        console.ok(f"ClusterIssuer '{issuer_name}' is ready")
     else:
-        console.print(
-            f"[yellow]⚠ ClusterIssuer '{issuer_name}' created but not ready yet[/yellow]"
-        )
+        console.warn(f"ClusterIssuer '{issuer_name}' created but not ready yet")
         console.print(
             "[dim]This is normal - it will become ready when you create your first certificate.[/dim]"
         )
 
     # Success message with next steps
     console.print("\n" + "=" * 60)
-    console.print("[bold green]✅ TLS setup complete![/bold green]")
+    console.ok("TLS setup complete!")
     console.print("=" * 60)
 
     console.print("\n[bold cyan]Deploy with automatic TLS:[/bold cyan]")
@@ -851,15 +824,20 @@ spec:
     console.print("  6. cert-manager auto-renews before expiry")
 
     if staging:
-        console.print(
-            "\n[yellow]⚠ Staging certificates are not trusted by browsers.[/yellow]"
+        console.warn(
+            "Staging certificates are not trusted by browsers. Use only for testing."
         )
-        console.print(
-            "[yellow]  Run without --staging for production certificates.[/yellow]"
-        )
+        console.warn("  Run without --staging for production certificates.")
 
     console.print("\n[bold cyan]Manifest saved to:[/bold cyan]")
     console.print(f"  [dim]infra/helm/cert-manager/{issuer_name}.yaml[/dim]")
     console.print(
         "  [dim]Commit this file to version control for GitOps workflows.[/dim]"
     )
+
+
+# ---------------------------------------------------------------------------
+# Register Subcommands
+# ---------------------------------------------------------------------------
+
+k8s_app.add_typer(k8s_db_app, name="db")

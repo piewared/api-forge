@@ -1,12 +1,20 @@
 #!/bin/bash
 
 # Development environment setup script
-# This script sets up a local Keycloak instance with test realm and client configuration
+# Prefer the CLI as the source of truth, fall back to direct docker compose.
 
 set -e
 
 DEV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$DEV_DIR")"
+
+if command -v uv >/dev/null 2>&1; then
+    echo "🚀 Using API Forge CLI to start dev environment..."
+    (cd "$PROJECT_ROOT" && uv run api-forge-cli dev up --no-start-server)
+    exit 0
+fi
+
+echo "⚠️  uv not found; falling back to docker compose setup"
 
 echo "🚀 Setting up development environment..."
 
@@ -19,7 +27,7 @@ fi
 # Start development services
 echo "📦 Starting development services..."
 cd "$DEV_DIR"
-docker-compose up -d
+docker compose up -d
 
 # Wait for Keycloak to be ready
 echo "⏳ Waiting for Keycloak to be ready..."
@@ -60,5 +68,5 @@ echo "  - testuser1@example.com / password123"
 echo "  - testuser2@example.com / password123"
 echo ""
 echo "To stop the environment:"
-echo "  cd dev_env && docker-compose down"
+echo "  cd dev_env && docker compose down"
 echo ""

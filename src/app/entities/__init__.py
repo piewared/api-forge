@@ -15,6 +15,8 @@ This approach provides:
 
 from .core.user import User, UserRepository, UserTable
 from .core.user_identity import UserIdentity, UserIdentityRepository, UserIdentityTable
+from .service.book import Book, BookRepository, BookTable
+from .service.product import Product, ProductRepository, ProductTable
 
 __all__ = [
     "User",
@@ -23,4 +25,10 @@ __all__ = [
     "UserIdentity",
     "UserIdentityTable",
     "UserIdentityRepository",
+    "Book",
+    "BookTable",
+    "BookRepository",
+    "Product",
+    "ProductTable",
+    "ProductRepository",
 ]

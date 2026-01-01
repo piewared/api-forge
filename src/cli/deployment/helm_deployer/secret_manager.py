@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .constants import DeploymentPaths
+from src.cli.shared.console import CLIConsole
+from src.infra.constants import DeploymentPaths
 
 if TYPE_CHECKING:
-    from rich.console import Console
     from rich.progress import Progress
 
     from ..shell_commands import ShellCommands
@@ -29,7 +29,7 @@ class SecretManager:
     def __init__(
         self,
         commands: ShellCommands,
-        console: Console,
+        console: CLIConsole,
         paths: DeploymentPaths,
     ) -> None:
         """Initialize the secret manager.

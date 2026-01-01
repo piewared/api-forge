@@ -3,6 +3,7 @@
 from loguru import logger
 from sqlmodel import create_engine
 
+from src.app.entities.loader import get_metadata
 from src.app.runtime.context import get_config
 
 main_config = get_config()
@@ -17,8 +18,7 @@ class DbManageService:
         """Create all database tables."""
         from sqlmodel import SQLModel
 
-        from src.app.entities.core.user import UserTable  # noqa: F401
-        from src.app.entities.core.user_identity import UserIdentityTable  # noqa: F401
+        get_metadata()  # Ensure all tables are imported and registered
 
         SQLModel.metadata.create_all(self._engine)
         logger.info("Database initialized with tables.")

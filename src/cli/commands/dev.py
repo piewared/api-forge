@@ -11,20 +11,16 @@ Commands:
     restart - Restart a specific service
 """
 
+import subprocess
 from pathlib import Path
 
 import typer
 
 from src.cli.deployment import DevDeployer
 from src.cli.deployment.helm_deployer.image_builder import DeploymentError
-
-from .shared import (
-    confirm_action,
-    console,
-    get_project_root,
-    handle_error,
-    print_header,
-)
+from src.cli.shared.compose import ComposeRunner
+from src.cli.shared.console import console
+from src.utils.paths import get_project_root
 
 # Create the dev command group
 app = typer.Typer(
@@ -37,6 +33,15 @@ app = typer.Typer(
 def _get_deployer() -> DevDeployer:
     """Create a DevDeployer instance with current project context."""
     return DevDeployer(console, Path(get_project_root()))
+
+
+def _get_compose_runner() -> ComposeRunner:
+    """Create a ComposeRunner for the dev compose file."""
+    project_root = Path(get_project_root())
+    return ComposeRunner(
+        project_root,
+        compose_file=project_root / "docker-compose.dev.yml",
+    )
 
 
 # =============================================================================
@@ -78,13 +83,13 @@ def up(
         # Force restart all services
         api-forge-cli dev up --force
     """
-    print_header("Starting Development Environment")
+    console.print_header("Starting Development Environment")
 
     try:
         deployer = _get_deployer()
         deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
     except DeploymentError as e:
-        handle_error(f"Deployment failed: {e.message}", e.details)
+        console.handle_error(f"Deployment failed: {e.message}", e.details)
 
 
 @app.command()
@@ -123,7 +128,7 @@ def down(
             "   This includes databases, caches, and any persistent storage."
         )
 
-    if not confirm_action(
+    if not console.confirm_action(
         action="Stop development environment",
         details=details,
         extra_warning=extra_warning,
@@ -132,13 +137,13 @@ def down(
         console.print("[dim]Operation cancelled.[/dim]")
         raise typer.Exit(0)
 
-    print_header("Stopping Development Environment", style="red")
+    console.print_header("Stopping Development Environment", style="red")
 
     try:
         deployer = _get_deployer()
         deployer.teardown(volumes=volumes)
     except DeploymentError as e:
-        handle_error(f"Teardown failed: {e.message}", e.details)
+        console.handle_error(f"Teardown failed: {e.message}", e.details)
 
 
 @app.command()
@@ -189,17 +194,6 @@ def logs(
         # Follow Keycloak logs
         api-forge-cli dev logs keycloak --follow
     """
-    import subprocess
-
-    compose_file = "docker-compose.dev.yml"
-    cmd = ["docker", "compose", "-f", compose_file, "logs"]
-
-    if tail:
-        cmd.extend(["--tail", str(tail)])
-
-    if follow:
-        cmd.append("--follow")
-
     if service:
         # Map friendly names to Docker Compose service names
         service_map = {
@@ -210,12 +204,14 @@ def logs(
             "temporal-ui": "temporal-web",
         }
         compose_service = service_map.get(service.lower(), service)
-        cmd.append(compose_service)
+    else:
+        compose_service = None
 
     try:
-        subprocess.run(cmd, cwd=get_project_root(), check=True)
+        runner = _get_compose_runner()
+        runner.logs(service=compose_service, follow=follow, tail=tail)
     except subprocess.CalledProcessError as e:
-        handle_error(f"Failed to get logs: {e}")
+        console.handle_error(f"Failed to get logs: {e}")
     except KeyboardInterrupt:
         pass  # User cancelled with Ctrl+C
 
@@ -238,10 +234,6 @@ def restart(
         # Restart Keycloak
         api-forge-cli dev restart keycloak
     """
-    import subprocess
-
-    compose_file = "docker-compose.dev.yml"
-
     # Map friendly names to Docker Compose service names
     service_map = {
         "keycloak": "keycloak",
@@ -255,10 +247,9 @@ def restart(
 
     console.print(f"[bold]Restarting {service}...[/bold]")
 
-    cmd = ["docker", "compose", "-f", compose_file, "restart", compose_service]
-
     try:
-        subprocess.run(cmd, cwd=get_project_root(), check=True)
+        runner = _get_compose_runner()
+        runner.restart(service=compose_service)
         console.print(f"[green]✅ {service} restarted successfully[/green]")
     except subprocess.CalledProcessError as e:
-        handle_error(f"Failed to restart {service}: {e}")
+        console.handle_error(f"Failed to restart {service}: {e}")

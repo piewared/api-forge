@@ -24,57 +24,27 @@ global:
 # =============================================================================
 # PostgreSQL Database
 # =============================================================================
-# For production, consider using a managed PostgreSQL service (RDS, Cloud SQL)
-# instead of running PostgreSQL in-cluster for better HA and backup support.
+# PostgreSQL is now managed via a separate standalone chart:
+#   infra/helm/api-forge-bundled-postgres/
+# 
+# Deploy PostgreSQL separately using:
+#   uv run api-forge-cli k8s db create
+#
+# Or use a managed database service (AWS RDS, Google Cloud SQL, etc.) and
+# configure your application to connect to it via DATABASE_URL environment variable.
+# =============================================================================
 postgres:
+  # enabled: false means postgres is NOT deployed by this chart
+  # The app still needs database credentials via secrets
   enabled: true
-  image:
-    repository: app_data_postgres_image
-    tag: latest
-  replicas: 1
-  database: appdb
-  username: appuser
-  resources:
-    requests:
-      cpu: 500m
-      memory: 1Gi
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-  persistence:
-    data:
-      enabled: true
-      size: 20Gi
-      storageClass: ''
-    backups:
-      enabled: true
-      size: 40Gi
-      storageClass: ''
-  config:
-    maxConnections: 200
-    sharedBuffers: 256MB
-    effectiveCacheSize: 1GB
+  secrets:
+    # Reference to existing secret containing postgres credentials
+    # Created by: infra/helm/api-forge/scripts/apply-secrets.sh
+    existingSecret: postgres-secrets
   tls:
-    enabled: true
     existingSecret: postgres-tls
   ca:
     existingSecret: postgres-ca
-  secrets:
-    existingSecret: postgres-secrets
-  # PodDisruptionBudget - ensures database availability during maintenance
-  podDisruptionBudget:
-    enabled: true
-    minAvailable: 1
-  networkPolicy:
-    enabled: true
-    ingress:
-    - from:
-      - podSelector:
-          matchLabels:
-            app.kubernetes.io/component: application
-      ports:
-      - protocol: TCP
-        port: 5432
 
 # =============================================================================
 # Redis Cache/Sessions
@@ -156,11 +126,15 @@ temporal:
   jobs:
     schemaSetup:
       enabled: true
+      # Set to true to run schema setup on every upgrade (default: only on install)
+      runOnUpgrade: false
       image: temporalio/admin-tools:latest
       backoffLimit: 3
       ttlSecondsAfterFinished: 300
     namespaceInit:
       enabled: true
+      # Set to true to run namespace init on every upgrade (default: only on install)
+      runOnUpgrade: false
       image: temporalio/admin-tools:latest
       backoffLimit: 3
       ttlSecondsAfterFinished: 300
@@ -295,10 +269,10 @@ app:
       # nginx.ingress.kubernetes.io/proxy-body-size: "10m"
       # cert-manager.io/cluster-issuer: letsencrypt-prod
     hosts:
-      - host: api-forge.local
-        paths:
-          - path: /
-            pathType: Prefix
+    - host: api-forge.local
+      paths:
+      - path: /
+        pathType: Prefix
     tls: []
       # - secretName: api-forge-tls
       #   hosts:

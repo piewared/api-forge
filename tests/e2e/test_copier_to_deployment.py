@@ -126,6 +126,8 @@ class TestCopierToDeployment:
         timeout: int = 300,
         check: bool = True,
         stream_output: bool = False,
+        env: dict[str, str] | None = None,
+        silent: bool = False,
     ) -> subprocess.CompletedProcess:
         """Run a command and return the result.
 
@@ -135,13 +137,16 @@ class TestCopierToDeployment:
             timeout: Command timeout in seconds
             check: Whether to raise exception on non-zero exit
             stream_output: If True, stream output in real-time (for long-running commands)
+            env: Environment variables (defaults to os.environ with VIRTUAL_ENV removed)
+            silent: If True, suppress automatic stdout/stderr printing (useful for JSON output)
         """
         print(f"\n🔧 Running: {' '.join(cmd)}")
         print(f"   Working directory: {cwd}")
 
         # Clear VIRTUAL_ENV to avoid "does not match project environment" warnings
         # when running uv commands in the generated project directory
-        env = os.environ.copy()
+        if env is None:
+            env = os.environ.copy()
         env.pop("VIRTUAL_ENV", None)
 
         if stream_output:
@@ -203,10 +208,11 @@ class TestCopierToDeployment:
                 env=env,
             )
 
-            if result.stdout:
-                print(f"📤 stdout:\n{result.stdout}")
-            if result.stderr:
-                print(f"📤 stderr:\n{result.stderr}")
+            if not silent:
+                if result.stdout:
+                    print(f"📤 stdout:\n{result.stdout}")
+                if result.stderr:
+                    print(f"📤 stderr:\n{result.stderr}")
 
         if check and result.returncode != 0:
             raise RuntimeError(
@@ -548,18 +554,7 @@ print("✅ All imports successful")
             # Give it a moment to clean up
             time.sleep(5)
 
-            # Setup .env file (required for production deployment)
-            env_example = project_dir / ".env.example"
-            env_file = project_dir / ".env"
-
-            if env_example.exists():
-                print("📝 Creating .env from .env.example...")
-                shutil.copy(env_example, env_file)
-            else:
-                print("⚠️  .env.example not found, creating minimal .env...")
-                env_file.write_text("APP_ENVIRONMENT=production\n")
-
-            # Ensure secrets are generated (Docker Compose needs them)
+            # Ensure secrets are generated FIRST (Docker Compose and init need them)
             # If test_06 already ran, secrets will exist
             # If running test_07 alone, this ensures secrets are available
             secrets_base = project_dir / "infra" / "secrets"
@@ -634,12 +629,174 @@ print("✅ All imports successful")
             else:
                 print("✅ Secrets already exist (from test_06)")
 
+            # Debug: Verify all required password files exist
+            print("\n🔍 Verifying required password files...")
+            required_password_files = [
+                "postgres_password.txt",
+                "postgres_app_user_pw.txt",
+                "postgres_app_ro_pw.txt",
+                "postgres_app_owner_pw.txt",
+                "postgres_temporal_pw.txt",
+                "redis_password.txt",
+                "session_signing_secret.txt",
+                "csrf_signing_secret.txt",
+            ]
+            for password_file in required_password_files:
+                file_path = keys_dir / password_file
+                if file_path.exists():
+                    size = file_path.stat().st_size
+                    print(f"  ✓ {password_file} ({size} bytes)")
+                else:
+                    print(f"  ✗ {password_file} MISSING!")
+                    raise AssertionError(
+                        f"Required password file missing: {password_file}"
+                    )
+            print("✅ All required password files exist")
+
+            # Setup .env file AFTER secrets generation (so password paths are available)
+            env_example = project_dir / ".env.example"
+            env_file = project_dir / ".env"
+
+            if env_example.exists():
+                print("📝 Creating .env from .env.example...")
+                shutil.copy(env_example, env_file)
+                # Override environment to production for Docker Compose deployment
+                env_content = env_file.read_text()
+                print(
+                    f"🔍 Before modification - APP_ENVIRONMENT line: {[line for line in env_content.split('\\n') if 'APP_ENVIRONMENT' in line]}"
+                )
+
+                if "APP_ENVIRONMENT=" in env_content:
+                    env_content = "\n".join(
+                        "APP_ENVIRONMENT=production"
+                        if line.startswith("APP_ENVIRONMENT=")
+                        else line
+                        for line in env_content.split("\n")
+                    )
+                else:
+                    env_content = f"APP_ENVIRONMENT=production\n{env_content}"
+                env_file.write_text(env_content)
+
+                # Verify the change was written
+                verification = env_file.read_text()
+                print(
+                    f"🔍 After modification - APP_ENVIRONMENT line: {[line for line in verification.split('\\n') if 'APP_ENVIRONMENT' in line]}"
+                )
+                assert "APP_ENVIRONMENT=production" in verification, (
+                    "Failed to set APP_ENVIRONMENT=production in .env"
+                )
+                print("✅ .env updated with APP_ENVIRONMENT=production")
+            else:
+                print("⚠️  .env.example not found, creating minimal .env...")
+                env_file.write_text("APP_ENVIRONMENT=production\n")
+
+            # Debug: Show password-related env vars in .env
+            print("\n🔍 Checking .env for password file references...")
+            if env_file.exists():
+                env_content = env_file.read_text()
+                password_vars = [
+                    line
+                    for line in env_content.split("\n")
+                    if "PASSWORD" in line and not line.strip().startswith("#")
+                ]
+                for var in password_vars[:5]:  # Show first 5
+                    print(f"  {var}")
+                if len(password_vars) > 5:
+                    print(f"  ... and {len(password_vars) - 5} more")
+            print("✅ .env file configured")
+
+            # Debug: Check healthcheck configuration in docker-compose.prod.yml
+            print("\n🔍 Checking PostgreSQL healthcheck in docker-compose.prod.yml...")
+            compose_file = project_dir / "docker-compose.prod.yml"
+            if compose_file.exists():
+                compose_content = compose_file.read_text()
+                # Extract healthcheck section
+                import re
+
+                healthcheck_match = re.search(
+                    r"healthcheck:.*?(?=\n  [a-z_]+:|\n\n|\Z)",
+                    compose_content,
+                    re.DOTALL,
+                )
+                if healthcheck_match:
+                    print(f"  {healthcheck_match.group(0)[:200]}...")
+                else:
+                    print("  ⚠️  No healthcheck found in docker-compose.prod.yml")
+
+            # Create and initialize bundled PostgreSQL database
+            print("\n🗄️  Creating bundled PostgreSQL database...")
+            # Pass APP_ENVIRONMENT=production via environment variable to override .env
+            create_env = os.environ.copy()
+            create_env["APP_ENVIRONMENT"] = "production"
+
+            # Prevent secrets from the template repo leaking into the generated project.
+            # The generated project has its own secret files under infra/secrets/keys.
+            for key in list(create_env.keys()):
+                if key.startswith("POSTGRES_"):
+                    create_env.pop(key, None)
+
+            self.run_command(
+                ["uv", "run", "api-forge-cli", "prod", "db", "create", "--bundled"],
+                cwd=project_dir,
+                timeout=300,  # 5 minutes for database creation and init
+                env=create_env,
+            )
+
+            # Show password from file
+            password_file = project_dir / "infra/secrets/keys/postgres_password.txt"
+            if password_file.exists():
+                password_from_file = password_file.read_text().strip()
+                print(
+                    f"Password in file: {password_from_file[:4]}...{password_from_file[-4:]} ({len(password_from_file)} chars)"
+                )
+
+            # Show env var in container
+            print("\nChecking container environment:")
+            result = self.run_command(
+                [
+                    "docker",
+                    "exec",
+                    "api-forge-postgres",
+                    "printenv",
+                    "POSTGRES_PASSWORD",
+                ],
+                cwd=project_dir,
+                check=False,
+            )
+            if result.returncode == 0:
+                container_password = result.stdout.strip()
+                print(
+                    f"POSTGRES_PASSWORD in container: {container_password[:4]}...{container_password[-4:]} ({len(container_password)} chars)"
+                )
+                print(f"Passwords match: {password_from_file == container_password}")
+
+            # Try manual psql connection
+            print("\nTesting psql connection:")
+            result = self.run_command(
+                [
+                    "docker",
+                    "exec",
+                    "api-forge-postgres",
+                    "psql",
+                    "-U",
+                    "postgres",
+                    "-h",
+                    "127.0.0.1",
+                    "-c",
+                    "SELECT 1",
+                ],
+                cwd=project_dir,
+                check=False,
+            )
+            print(f"Direct psql connection result: {result.returncode}")
+
             # Start production deployment
             try:
                 result = self.run_command(
                     ["uv", "run", "api-forge-cli", "prod", "up"],
                     cwd=project_dir,
                     timeout=600,  # 10 minutes for building images in CI
+                    env=create_env,
                 )
             except RuntimeError as e:
                 print(f"\n❌ Deployment failed: {e}")
@@ -675,7 +832,6 @@ print("✅ All imports successful")
             print("⏳ Waiting for services to become healthy...")
             time.sleep(30)
 
-            # TODO: This is for debugging; remove later
             # Check if temporal-schema-setup completed successfully
             print("\n🔍 Checking temporal-schema-setup status...")
             try:
@@ -715,6 +871,7 @@ print("✅ All imports successful")
             result = self.run_command(
                 ["uv", "run", "api-forge-cli", "prod", "status"],
                 cwd=project_dir,
+                env=create_env,
             )
 
             print(f"Deployment status:\n{result.stdout}")
@@ -856,13 +1013,11 @@ print("✅ All imports successful")
             # Clean up any previous K8s deployment first
             print("\n🧹 Cleaning up any previous K8s deployment...")
             self.run_command(
-                ["kubectl", "delete", "namespace", "api-forge-prod", "--wait=false"],
+                ["kubectl", "delete", "namespace", "api-forge-prod", "--wait=true"],
                 cwd=project_dir,
-                timeout=30,
+                timeout=120,  # Wait up to 2 minutes for namespace deletion
                 check=False,
             )
-            # Give it a moment to start deleting
-            time.sleep(5)
 
             # Setup .env file (required for K8s deployment)
             env_example = project_dir / ".env.example"
@@ -930,6 +1085,26 @@ print("✅ All imports successful")
             else:
                 print("✅ Secrets already exist (from test_06)")
 
+            # Create and initialize bundled PostgreSQL database
+            print("\n🗄️  Creating bundled PostgreSQL database...")
+
+            # Sanitize environment: prevent template repo secrets from leaking
+            # into the generated project subprocess. The generated project has
+            # its own secret files under infra/secrets/keys.
+            create_env = os.environ.copy()
+            create_env["APP_ENVIRONMENT"] = "production"
+            for key in list(create_env.keys()):
+                if key.startswith("POSTGRES_"):
+                    create_env.pop(key, None)
+
+            self.run_command(
+                ["uv", "run", "api-forge-cli", "k8s", "db", "create", "--bundled"],
+                cwd=project_dir,
+                timeout=300,  # 5 minutes for database creation and init
+                env=create_env,
+            )
+            print("✅ PostgreSQL database created and initialized")
+
             # Deploy to Kubernetes (with real-time output streaming)
             print("🚀 Starting K8s deployment with real-time output...")
             result = self.run_command(
@@ -937,6 +1112,7 @@ print("✅ All imports successful")
                 cwd=project_dir,
                 timeout=600,
                 stream_output=True,
+                env=create_env,
             )
 
             # Wait for pods to be ready with retries
@@ -961,6 +1137,7 @@ print("✅ All imports successful")
                     ],
                     cwd=project_dir,
                     check=False,
+                    silent=True,
                 )
 
                 try:
@@ -1106,26 +1283,6 @@ print("✅ All imports successful")
                 )
 
             print("✅ All pods deployed")
-
-            # Check postgres-verifier job completed successfully
-            result = self.run_command(
-                [
-                    "kubectl",
-                    "get",
-                    "job",
-                    "postgres-verifier",
-                    "-n",
-                    "api-forge-prod",
-                    "-o",
-                    "jsonpath={.status.succeeded}",
-                ],
-                cwd=project_dir,
-            )
-
-            assert result.stdout == "1", (
-                "postgres-verifier job did not complete successfully"
-            )
-            print("✅ postgres-verifier job completed")
 
             # Check worker is using correct module name
             result = self.run_command(

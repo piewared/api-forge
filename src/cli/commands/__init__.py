@@ -5,8 +5,8 @@ for each deployment target (dev, prod, k8s, fly) and utilities (entity, secrets,
 
 Command Groups:
 - dev: Development environment using Docker Compose
-- prod: Production Docker Compose deployment
-- k8s: Kubernetes deployment using Helm
+- prod: Production Docker Compose deployment (includes 'prod db' subcommands)
+- k8s: Kubernetes deployment using Helm (includes 'k8s db' subcommands)
 - fly: Fly.io Kubernetes (FKS) deployment (future)
 - entity: Entity/model scaffolding
 - secrets: Secret management utilities

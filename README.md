@@ -17,7 +17,7 @@ Build your next SaaS backend, internal API gateway, or microservice with a pre-c
 * **FastAPI** – high-performance Python web framework
 * **SQLAlchemy** and **SQLModel** – ORM and typed models for data persistence
 * **Pydantic** – data validation and type safety
-* **PostgreSQL** – production-ready relational database
+* **PostgreSQL** – production-ready relational database (bundled or external)
 * **Redis** – caching, sessions, and rate limiting
 * **Temporal** – background workflows and reliable task orchestration
 * **Docker** – containerized development and deployment
@@ -195,6 +195,13 @@ api-forge-cli deploy down prod --volumes
 api-forge-cli deploy up k8s
 api-forge-cli deploy status k8s
 api-forge-cli deploy down k8s
+
+# Database management (Kubernetes)
+api-forge-cli k8s db init      # Initialize database with roles/schema
+api-forge-cli k8s db verify    # Verify database setup and credentials
+api-forge-cli k8s db sync      # Sync local password files to database
+api-forge-cli k8s db status    # Show database health metrics
+api-forge-cli k8s db backup    # Create database backup
 ```
 
 ### Entity scaffolding

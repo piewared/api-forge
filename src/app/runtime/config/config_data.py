@@ -6,10 +6,12 @@ These models handle validation and type conversion of the YAML configuration dat
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any, Literal
 
 from loguru import logger
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
+from sqlalchemy import URL
 
 
 def deep_freeze(value: Any) -> Any:
@@ -153,6 +155,10 @@ class TemporalConfig(BaseModel):
     enabled: bool = Field(default=True, description="Enable temporal service")
     url: str = Field(default="temporal:7233", description="Temporal server url")
     namespace: str = Field(default="default", description="Temporal namespace")
+    db_user: str = Field(default="temporaluser", description="Temporal database user")
+    db_owner: str = Field(
+        default="temporalowner", description="Temporal database owner"
+    )
     task_queue: str = Field(default="default", description="Temporal task queue name")
     worker: TemporalWorkerConfig = Field(
         default_factory=TemporalWorkerConfig, description="Worker configuration"
@@ -173,6 +179,14 @@ class RedisConfig(BaseModel):
     password: str | None = Field(
         default=None, description="Password for Redis authentication"
     )
+    password_file_path: str | None = Field(
+        default=None,
+        description="Path to file containing Redis password",
+    )
+    password_env_var: str | None = Field(
+        default=None,
+        description="Environment variable name containing Redis password",
+    )
     decode_responses: bool = Field(
         default=True, description="Decode Redis responses to strings"
     )
@@ -186,11 +200,35 @@ class RedisConfig(BaseModel):
         default=5, description="Socket connect timeout in seconds for Redis"
     )
 
+    def _resolve_password(self) -> str | None:
+        """Resolve password from direct value, file, or environment variable."""
+        import os
+        from pathlib import Path
+
+        # Priority 1: Direct password value
+        if self.password:
+            return self.password
+
+        # Priority 2: Password from file
+        if self.password_file_path:
+            file_path = Path(self.password_file_path)
+            if file_path.exists():
+                return file_path.read_text(encoding="utf-8").strip()
+
+        # Priority 3: Password from environment variable
+        if self.password_env_var:
+            env_password = os.environ.get(self.password_env_var)
+            if env_password:
+                return env_password
+
+        return None
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def connection_string(self) -> str:
         """Construct the Redis connection string with password if provided."""
-        if self.password:
+        resolved_password = self._resolve_password()
+        if resolved_password:
             if "@" in self.url:
                 # URL already has auth info
                 return self.url
@@ -200,7 +238,7 @@ class RedisConfig(BaseModel):
 
                 scheme, rest = parts
                 # URL-encode password to handle special characters like /, @, :, etc.
-                encoded_password = quote_plus(self.password)
+                encoded_password = quote_plus(resolved_password)
                 return f"{scheme}://:{encoded_password}@{rest}"
         return self.url
 
@@ -356,6 +394,22 @@ class LoggingConfig(BaseModel):
     )
 
 
+class BundledPostgresConfig(BaseModel):
+    """Configuration for bundled PostgreSQL setup."""
+
+    enabled: bool = Field(
+        default=False, description="Enable bundled PostgreSQL configuration"
+    )
+    password_file_path: str | None = Field(
+        default=None,
+        description="Path to file containing database password",
+    )
+    password_env_var: str | None = Field(
+        default=None,
+        description="Environment variable name containing database password",
+    )
+
+
 class DatabaseConfig(BaseModel):
     """Database configuration model."""
 
@@ -363,10 +417,20 @@ class DatabaseConfig(BaseModel):
         default="postgresql+asyncpg://user:password@postgres:5432/app_db",
         description="Database connection URL",
     )
+    pg_superuser: str = Field(
+        default="postgres", description="Database superuser username"
+    )
+    pg_db: str = Field(default="postgres", description="PostgreSQL database name")
     owner_user: str = Field(default="appowner", description="Database owner username")
     user: str = Field(default="user", description="Database username")
     ro_user: str = Field(
         default="backupuser", description="Database read-only username"
+    )
+    temporal_user: str = Field(
+        default="temporaluser", description="Temporal database user"
+    )
+    temporal_owner: str = Field(
+        default="temporalowner", description="Temporal owner role"
     )
     app_db: str = Field(default="app_db", description="Database name")
     pool_size: int = Field(default=20, description="Connection pool size")
@@ -376,109 +440,132 @@ class DatabaseConfig(BaseModel):
     max_overflow: int = Field(default=10, description="Maximum pool overflow")
     pool_timeout: int = Field(default=30, description="Pool timeout in seconds")
     pool_recycle: int = Field(default=1800, description="Pool recycle time in seconds")
-    password_env_var: str | None = Field(
-        default=None,
-        description="Environment variable name containing database password",
+    bundled_postgres: BundledPostgresConfig = Field(
+        default_factory=BundledPostgresConfig,
+        description="Bundled PostgreSQL configuration",
     )
 
-    password_file_path: str | None = Field(
-        default=None,
-        description="Path to file containing database password",
-    )
+    @model_validator(mode="after")
+    def _clear_cached_properties(self) -> DatabaseConfig:
+        """Clear cached properties when the model is validated/modified.
+
+        This ensures cached properties like parsed_url are recomputed
+        when the url field changes.
+        """
+        # Clear the cached_property if it exists using the public API
+        try:
+            delattr(self, "parsed_url")
+        except AttributeError:
+            pass  # Not cached yet, nothing to clear
+        return self
+
+    @cached_property
+    def parsed_url(self) -> URL:
+        """Parse the database URL into its components."""
+        from sqlalchemy.engine import make_url
+
+        url_obj = make_url(self.url)
+        return url_obj
+
+    @property
+    def host(self) -> str | None:
+        """Extract host from the database URL."""
+        return self.parsed_url.host
+
+    @property
+    def port(self) -> int | None:
+        """Extract port from the database URL."""
+        return self.parsed_url.port
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def password(self) -> str | None:
         """
-        Get the database password from the appropriate source.
-        1. If in development mode, try to parse from URL
-        2. If in production mode, read from mounted secrets file specified
-            by `password_file_path` or environment variable specified by `password_env_var`
+        Resolve the database password.
+
+        Uses the password from the URL if present, otherwise attempts to read
+        from environment variable or file as specified in bundled_postgres config.
+
+        :return: The resolved database password, or None if not found.
         """
+
+        url_obj = self.parsed_url
+        if url_obj.password:
+            logger.debug("Using database password from URL")
+            return url_obj.password
+
         password = None
-        if self.environment_mode == "development" or self.environment_mode == "test":
-            # In development mode, try to parse password from URL if present
-            from sqlalchemy.engine import make_url
-
-            url_obj = make_url(self.url)
-            if url_obj.password:
-                password = url_obj.password
-
-        elif self.environment_mode == "production":
-            # In production mode, read from file or environment variable
-
+        if self.bundled_postgres.password_env_var:
             logger.debug(
-                "Attempting to read database password for production mode from environment variable {}",
-                self.password_env_var,
+                "Attempting to read database password from environment variable {}",
+                self.bundled_postgres.password_env_var,
             )
-            if self.password_env_var:
-                import os
 
-                password = os.getenv(self.password_env_var)
-                if password:
-                    return password
+            import os
 
-            if not password and self.password_file_path:
-                try:
-                    with open(self.password_file_path, encoding="utf-8") as f:
-                        password = f.read().strip()
-                except Exception as e:
-                    logger.error(
-                        "Failed to read database password from file {}: {}",
-                        self.password_file_path,
-                        e,
-                    )
-                    raise
+            password = os.getenv(self.bundled_postgres.password_env_var)
             if not password:
-                logger.error(
-                    "Database password not found in environment variable {} or file {}",
-                    self.password_env_var,
-                    self.password_file_path,
+                logger.debug(
+                    "Environment variable {} for database password is not set or empty",
+                    self.bundled_postgres.password_env_var,
                 )
+
+        if not password and self.bundled_postgres.password_file_path:
+            logger.debug(
+                "Attempting to read database password from file {}",
+                self.bundled_postgres.password_file_path,
+            )
+            try:
+                with open(
+                    self.bundled_postgres.password_file_path, encoding="utf-8"
+                ) as f:
+                    password = f.read().strip()
+            except Exception as e:
+                logger.error(
+                    "Failed to read database password from file {}: {}",
+                    self.bundled_postgres.password_file_path,
+                    e,
+                )
+
+        if not password:
+            logger.error(
+                "Database password not found in environment variable {} or file {}",
+                self.bundled_postgres.password_env_var,
+                self.bundled_postgres.password_file_path,
+            )
+
+            # Only raise error in production mode; dev/test can use passwordless SQLite
+            if self.environment_mode == "production":
                 raise ValueError("Database password not provided in production mode")
 
-        else:
-            raise ValueError(
-                "Invalid environment_mode; must be 'development', 'production', or 'test'"
-            )
         return password
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def connection_string(self) -> str:
         """Construct the database connection string with password if provided."""
-        from sqlalchemy.engine import make_url
+        base_url = self.parsed_url
 
-        base_url = make_url(self.url)
+        if self.password and base_url.password != self.password:
+            logger.warning(
+                "Database URL already contains a password that differs from the resolved password. Using password from environment variable or config."
+            )
+            base_url = base_url.set(password=self.password)
 
-        # If the URL already has a password (development mode), use it as-is
+        if self.app_db and base_url.database != self.app_db:
+            logger.warning(
+                f"Database name '{base_url.database}' in URL differs from configured app_db '{self.app_db}'. Using '{self.app_db}'."
+            )
+            base_url = base_url.set(database=self.app_db)
+
+        if self.user and base_url.username != self.user:
+            logger.warning(
+                f"Database user '{base_url.username}' in URL differs from configured user '{self.user}'. Using '{self.user}'."
+            )
+            base_url = base_url.set(username=self.user)
+
+        # URL-encode password to handle special characters
         if base_url.password:
-            # If in production mode, emit a warning if password is hardcoded
-            if self.environment_mode == "production":
-                logger.warning(
-                    "Database URL contains a password in production mode; "
-                    "consider using a secrets file or environment variable."
-                )
-
-            if self.password != base_url.password:
-                logger.warning(
-                    "Database password from environment variable does not match the one in the URL. Using password from environment variable."
-                )
-                base_url = base_url.set(password=self.password)
-
-            if self.app_db != base_url.database:
-                logger.warning(
-                    f"Database name '{self.app_db}' does not match the one in the URL '{base_url.database}'. Using '{self.app_db}'."
-                )
-                base_url = base_url.set(database=self.app_db)
-
-            if self.user != base_url.username:
-                logger.warning(
-                    f"Database user '{self.user}' does not match the one in the URL '{base_url.username}'. Using '{self.user}'."
-                )
-                base_url = base_url.set(username=self.user)
-
-            # URL-encode password to handle special characters
             from urllib.parse import quote_plus
 
             password_to_encode = base_url.password or ""
@@ -486,53 +573,28 @@ class DatabaseConfig(BaseModel):
 
             # Build base connection string
             conn_str = f"postgresql://{base_url.username}:{encoded_password}@{base_url.host}:{base_url.port}/{base_url.database}"
-
-            # Add search_path=app ONLY for PostgreSQL in production mode
-            if self.environment_mode == "production" and base_url.drivername.startswith(
-                "postgresql"
-            ):
-                conn_str += "?options=-csearch_path%3Dapp"
-
-            return conn_str
-
-        # Otherwise, use the resolved password from the computed field and
-        # the resolved user and database from the URL or config
-        resolved_password = self.password
-        # If the user or database is not set in the config, fall back to the URL
-        resolved_user = self.user or base_url.username
-        resolved_db = self.app_db or base_url.database
-
-        if resolved_user != base_url.username and self.user:
-            base_url = base_url.set(username=resolved_user)
-        if resolved_db != base_url.database and self.app_db:
-            base_url = base_url.set(database=resolved_db)
-
-        if resolved_password:
-            from urllib.parse import quote_plus
-
-            # URL-encode password to handle special characters
-            encoded_password = quote_plus(resolved_password)
-            # Build the connection string manually with encoded password
-            conn_str = f"postgresql://{resolved_user}:{encoded_password}@{base_url.host}:{base_url.port}/{resolved_db}"
-
-            # Add search_path=app ONLY for PostgreSQL in production mode
-            if self.environment_mode == "production" and base_url.drivername.startswith(
-                "postgresql"
-            ):
-                conn_str += "?options=-csearch_path%3Dapp"
-
-            return conn_str
         else:
             # Build connection string without password
             conn_str = f"postgresql://{base_url.username}@{base_url.host}:{base_url.port}/{base_url.database}"
 
-            # Add search_path=app ONLY for PostgreSQL in production mode
-            if self.environment_mode == "production" and base_url.drivername.startswith(
-                "postgresql"
-            ):
-                conn_str += "?options=-csearch_path%3Dapp"
+        # Preserve existing query parameters from original URL
+        if base_url.query:
+            from urllib.parse import urlencode
 
-            return conn_str
+            # base_url.query is an immutable mapping, convert to dict
+            existing_params = dict(base_url.query)
+            conn_str += "?" + urlencode(existing_params)
+
+        # Add search_path=app ONLY for PostgreSQL in production mode
+        if self.environment_mode == "production" and base_url.drivername in (
+            "postgresql",
+            "postgres",
+        ):
+            # Use & if query params already exist, otherwise ?
+            separator = "&" if base_url.query else "?"
+            conn_str += f"{separator}options=-csearch_path%3Dapp"
+
+        return conn_str
 
     @computed_field  # type: ignore[prop-decorator]
     @property

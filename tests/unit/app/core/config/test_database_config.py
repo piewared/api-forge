@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from src.app.runtime.config.config_data import DatabaseConfig
+from src.app.runtime.config.config_data import BundledPostgresConfig, DatabaseConfig
 
 
 class TestDatabaseConfigPasswordResolution:
@@ -70,7 +70,9 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                password_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(
+                    enabled=True, password_file_path=temp_file_path
+                ),
             )
 
             assert config.password == "production_secret_password"
@@ -87,26 +89,32 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                password_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(
+                    enabled=True, password_file_path=temp_file_path
+                ),
             )
 
             assert config.password == "production_password_with_spaces"
         finally:
             os.unlink(temp_file_path)
 
-    def test_production_mode_password_file_not_found_raises_error(self):
-        """Test that non-existent password file raises ValueError."""
+    def test_production_mode_password_file_not_found_returns_none(self):
+        """Test that non-existent password file raises ValueError in production."""
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            password_file_path="/nonexistent/password/file",
+            bundled_postgres=BundledPostgresConfig(
+                password_file_path="/non/existent/path/to/password_file"
+            ),
         )
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(
+            ValueError, match="Database password not provided in production mode"
+        ):
             _ = config.password
 
     def test_production_mode_password_file_permission_error(self):
-        """Test handling of file permission errors."""
+        """Test handling of file permission errors raises ValueError in production."""
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             temp_file.write(b"secret")
             temp_file_path = temp_file.name
@@ -118,10 +126,14 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                password_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(
+                    password_file_path=temp_file_path
+                ),
             )
 
-            with pytest.raises(PermissionError):
+            with pytest.raises(
+                ValueError, match="Database password not provided in production mode"
+            ):
                 _ = config.password
         finally:
             # Restore permissions for cleanup
@@ -134,7 +146,9 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            password_env_var="DB_PASSWORD",
+            bundled_postgres=BundledPostgresConfig(
+                enabled=True, password_env_var="DB_PASSWORD"
+            ),
         )
 
         assert config.password == "env_secret_password"
@@ -145,7 +159,9 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            password_env_var="MISSING_DB_PASSWORD",
+            bundled_postgres=BundledPostgresConfig(
+                enabled=True, password_env_var="MISSING_DB_PASSWORD"
+            ),
         )
 
         with pytest.raises(
@@ -159,7 +175,9 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            password_env_var="DB_PASSWORD",
+            bundled_postgres=BundledPostgresConfig(
+                enabled=True, password_env_var="DB_PASSWORD"
+            ),
         )
 
         with pytest.raises(
@@ -178,8 +196,11 @@ class TestDatabaseConfigPasswordResolution:
                 config = DatabaseConfig(
                     url="postgresql+asyncpg://user@postgres:5432/appdb",
                     environment_mode="production",
-                    password_file_path=temp_file_path,
-                    password_env_var="DB_PASSWORD",
+                    bundled_postgres=BundledPostgresConfig(
+                        enabled=True,
+                        password_env_var="DB_PASSWORD",
+                        password_file_path=temp_file_path,
+                    ),
                 )
 
                 assert config.password == "env_password"
@@ -189,6 +210,7 @@ class TestDatabaseConfigPasswordResolution:
     def test_production_mode_no_password_source_raises_error(self):
         """Test that production mode without password sources raises ValueError."""
         config = DatabaseConfig(
+            bundled_postgres=BundledPostgresConfig(enabled=True),
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
         )
@@ -196,19 +218,6 @@ class TestDatabaseConfigPasswordResolution:
         with pytest.raises(
             ValueError,
             match="Database password not provided in production mode",
-        ):
-            _ = config.password
-
-    def test_invalid_environment_mode_raises_error(self):
-        """Test that invalid environment mode raises ValueError."""
-        config = DatabaseConfig(
-            url="postgresql+asyncpg://user:password@localhost:5432/testdb",
-            environment_mode="invalid_mode",
-        )
-
-        with pytest.raises(
-            ValueError,
-            match="Invalid environment_mode; must be 'development', 'production', or 'test'",
         ):
             _ = config.password
 
@@ -237,7 +246,9 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            password_env_var="PROD_DB_PASS",
+            bundled_postgres=BundledPostgresConfig(
+                enabled=True, password_env_var="PROD_DB_PASS"
+            ),
         )
 
         # Environment variables preserve newlines
@@ -253,7 +264,9 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                password_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(
+                    enabled=True, password_file_path=temp_file_path
+                ),
             )
 
             # File reading strips whitespace including newlines
@@ -290,3 +303,40 @@ class TestDatabaseConfigPasswordResolution:
         password3 = config.password
 
         assert password1 == password2 == password3 == "testpass"
+
+    def test_parsed_url_cache_cleared_on_url_change(self):
+        """Test that cached parsed_url is cleared when url field changes."""
+        # Create config with initial URL
+        config = DatabaseConfig(
+            url="postgresql+asyncpg://user:password@localhost:5432/testdb",
+            environment_mode="development",
+        )
+
+        # Access parsed_url to populate the cache
+        initial_parsed = config.parsed_url
+        assert initial_parsed.host == "localhost"
+        assert initial_parsed.port == 5432
+        assert initial_parsed.database == "testdb"
+
+        # Verify cache exists
+        assert "parsed_url" in config.__dict__
+
+        # Create a new config with updated URL
+        # This triggers validation which should clear the cache
+        updated_config = DatabaseConfig(
+            url="postgresql+asyncpg://newuser:newpass@newhost:5433/newdb",
+            environment_mode="development",
+        )
+
+        # Access parsed_url on updated config - should reflect new URL
+        updated_parsed = updated_config.parsed_url
+        assert updated_parsed.host == "newhost"
+        assert updated_parsed.port == 5433
+        assert updated_parsed.database == "newdb"
+
+        # Verify the password also reflects the new URL
+        assert updated_config.password == "newpass"
+
+        # Verify original config is unchanged (cache not shared between instances)
+        assert config.parsed_url.host == "localhost"
+        assert config.password == "password"

@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.cli.deployment.helm_deployer.constants import DeploymentConstants
 from src.cli.deployment.helm_deployer.validator import (
     DeploymentValidator,
     ValidationIssue,
     ValidationResult,
     ValidationSeverity,
 )
+from src.infra.constants import DeploymentConstants
 from src.infra.k8s.controller import JobInfo, PodInfo
 
 
@@ -122,21 +122,37 @@ class TestDeploymentValidator:
         return MagicMock()
 
     @pytest.fixture
+    def mock_controller(self) -> MagicMock:
+        """Create a mock Kubernetes controller."""
+        controller = MagicMock()
+        controller.namespace_exists = MagicMock()
+        controller.get_jobs = MagicMock()
+        controller.get_pods = MagicMock()
+        return controller
+
+    @pytest.fixture
     def validator(
-        self, mock_commands: MagicMock, mock_console: MagicMock
+        self,
+        mock_commands: MagicMock,
+        mock_console: MagicMock,
+        mock_controller: MagicMock,
     ) -> DeploymentValidator:
         """Create a validator instance with mocked dependencies."""
         return DeploymentValidator(
             commands=mock_commands,
             console=mock_console,
+            controller=mock_controller,
             constants=DeploymentConstants(),
         )
 
     def test_validate_fresh_namespace(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation of a non-existent namespace should return clean result."""
-        mock_commands.kubectl.namespace_exists.return_value = False
+        mock_controller.namespace_exists.return_value = False
 
         result = validator.validate("api-forge-prod")
 
@@ -145,13 +161,16 @@ class TestDeploymentValidator:
         assert len(result.issues) == 0
 
     def test_validate_existing_namespace_no_issues(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation of existing namespace with no issues should be clean."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = []
-        mock_commands.kubectl.get_pods.return_value = []
+        mock_controller.get_jobs.return_value = []
+        mock_controller.get_pods.return_value = []
 
         result = validator.validate("api-forge-prod")
 
@@ -159,19 +178,22 @@ class TestDeploymentValidator:
         assert result.namespace_exists is True
 
     def test_validate_detects_failed_jobs(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation should detect failed Kubernetes jobs.
 
         Init jobs like postgres-verifier are expected to have transient failures
         during startup, so they should be flagged as warnings, not errors.
         """
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = [
+        mock_controller.get_jobs.return_value = [
             JobInfo(name="postgres-verifier", status="Failed"),
         ]
-        mock_commands.kubectl.get_pods.return_value = []
+        mock_controller.get_pods.return_value = []
 
         result = validator.validate("api-forge-prod")
 
@@ -183,15 +205,18 @@ class TestDeploymentValidator:
         assert "postgres-verifier" in result.issues[0].title
 
     def test_validate_any_failed_job_is_warning(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """All failed jobs should be flagged as warnings (may be transient)."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = [
+        mock_controller.get_jobs.return_value = [
             JobInfo(name="migration-job", status="Failed"),
         ]
-        mock_commands.kubectl.get_pods.return_value = []
+        mock_controller.get_pods.return_value = []
 
         result = validator.validate("api-forge-prod")
 
@@ -202,13 +227,16 @@ class TestDeploymentValidator:
         assert "migration-job" in result.issues[0].title
 
     def test_validate_detects_crashloop_pods(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation should detect pods in CrashLoopBackOff state."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = []
-        mock_commands.kubectl.get_pods.return_value = [
+        mock_controller.get_jobs.return_value = []
+        mock_controller.get_pods.return_value = [
             PodInfo(name="api-forge-app-xyz", status="CrashLoopBackOff"),
         ]
 
@@ -221,13 +249,16 @@ class TestDeploymentValidator:
         assert "CrashLoopBackOff" in result.issues[0].title
 
     def test_validate_detects_pending_pods(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation should detect pods stuck in Pending state."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = []
-        mock_commands.kubectl.get_pods.return_value = [
+        mock_controller.get_jobs.return_value = []
+        mock_controller.get_pods.return_value = [
             PodInfo(name="api-forge-app-xyz", status="Pending"),
         ]
 
@@ -240,13 +271,16 @@ class TestDeploymentValidator:
         assert "pending" in result.issues[0].title.lower()
 
     def test_validate_detects_error_pods(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation should detect pods in Error state."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = []
-        mock_commands.kubectl.get_pods.return_value = [
+        mock_controller.get_jobs.return_value = []
+        mock_controller.get_pods.return_value = [
             PodInfo(name="api-forge-app-xyz", status="Error"),
         ]
 
@@ -258,17 +292,20 @@ class TestDeploymentValidator:
         assert "Error" in result.issues[0].title
 
     def test_validate_job_pods_only_checks_most_recent(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """For job-owned pods, only the most recent pod should be checked.
 
         If old pods from a job are in Error state but a newer pod succeeded,
         we should not flag the old errors.
         """
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = []
-        mock_commands.kubectl.get_pods.return_value = [
+        mock_controller.get_jobs.return_value = []
+        mock_controller.get_pods.return_value = [
             # Old pod from first attempt - failed
             PodInfo(
                 name="postgres-verifier-abc",
@@ -292,13 +329,16 @@ class TestDeploymentValidator:
         assert len(result.issues) == 0
 
     def test_validate_job_pods_flags_if_most_recent_failed(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """If the most recent job pod is in Error state, flag it as a warning."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = []
-        mock_commands.kubectl.get_pods.return_value = [
+        mock_controller.get_jobs.return_value = []
+        mock_controller.get_pods.return_value = [
             # Old pod succeeded
             PodInfo(
                 name="postgres-verifier-abc",
@@ -324,15 +364,18 @@ class TestDeploymentValidator:
         assert "postgres-verifier-def" in result.issues[0].title
 
     def test_validate_detects_multiple_issues(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """Validation should accumulate multiple issues."""
-        mock_commands.kubectl.namespace_exists.return_value = True
+        mock_controller.namespace_exists.return_value = True
         mock_commands.helm.list_releases.return_value = []
-        mock_commands.kubectl.get_jobs.return_value = [
+        mock_controller.get_jobs.return_value = [
             JobInfo(name="postgres-verifier", status="Failed"),
         ]
-        mock_commands.kubectl.get_pods.return_value = [
+        mock_controller.get_pods.return_value = [
             PodInfo(name="api-forge-app-xyz", status="CrashLoopBackOff"),
             PodInfo(name="api-forge-worker-abc", status="Pending"),
         ]
@@ -426,19 +469,22 @@ class TestDeploymentValidator:
         assert should_cleanup is False
 
     def test_run_cleanup_uninstalls_helm_and_deletes_resources(
-        self, validator: DeploymentValidator, mock_commands: MagicMock
+        self,
+        validator: DeploymentValidator,
+        mock_controller: MagicMock,
+        mock_commands: MagicMock,
     ) -> None:
         """run_cleanup should uninstall Helm release and delete PVCs/namespace."""
         mock_commands.helm.uninstall.return_value = MagicMock(success=True)
-        mock_commands.kubectl.delete_pvcs.return_value = MagicMock(success=True)
-        mock_commands.kubectl.delete_namespace.return_value = MagicMock(success=True)
+        mock_controller.delete_pvcs.return_value = MagicMock(success=True)
+        mock_controller.delete_namespace.return_value = MagicMock(success=True)
 
         result = validator.run_cleanup("api-forge-prod")
 
         assert result is True
         mock_commands.helm.uninstall.assert_called_once()
-        mock_commands.kubectl.delete_pvcs.assert_called_once_with("api-forge-prod")
-        mock_commands.kubectl.delete_namespace.assert_called_once()
+        mock_controller.delete_pvcs.assert_called_once_with("api-forge-prod")
+        mock_controller.delete_namespace.assert_called_once()
 
     def test_run_cleanup_handles_failure(
         self,
@@ -452,6 +498,7 @@ class TestDeploymentValidator:
         result = validator.run_cleanup("api-forge-prod")
 
         assert result is False
-        # Should print error message
-        call_args = str(mock_console.print.call_args_list)
+        # Should call error method with failure message
+        mock_console.error.assert_called_once()
+        call_args = str(mock_console.error.call_args_list)
         assert "failed" in call_args.lower() or "error" in call_args.lower()

@@ -19,7 +19,9 @@ data:
       {{- $parts := splitList "=" $line -}}
       {{- if ge (len $parts) 2 -}}
         {{- $key := index $parts 0 | trim -}}
-        {{- $value := slice $parts 1 | join "=" | trim -}}
+        {{- $rawValue := slice $parts 1 | join "=" | trim -}}
+        {{- /* Strip inline comments (everything after # with optional whitespace before it) */ -}}
+        {{- $value := regexReplaceAll "\\s*#.*$" $rawValue "" | trim -}}
         {{- if ne $key "APP_ENVIRONMENT" }}
   {{ $key }}: {{ $value | quote }}
         {{- end -}}

@@ -27,6 +27,13 @@ Deploy to production with Docker Compose:
 cd infra/secrets
 ./generate_secrets.sh
 
+# For external databases (optional): Initialize database with roles/schema
+# Note: Database management commands are primarily for Kubernetes deployments
+# For Docker Compose, the bundled PostgreSQL container handles initialization automatically
+# If using an external database, you can use the k8s db commands:
+uv run api-forge-cli k8s db init   # One-time setup for external DB
+uv run api-forge-cli k8s db verify # Verify external DB configuration
+
 # Copy deterministic secret template and fill OIDC client secrets, webhook tokens, etc.
 cp user-provided.env.example user-provided.env
 # Edit user-provided.env with production-only values (not committed to git)

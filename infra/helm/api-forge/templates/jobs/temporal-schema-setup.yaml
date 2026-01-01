@@ -1,4 +1,4 @@
-{{- if .Values.temporal.enabled }}
+{{- if and .Values.temporal.enabled .Values.temporal.jobs.schemaSetup.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,8 +9,13 @@ metadata:
     app.kubernetes.io/component: workflow-engine-setup
     app.kubernetes.io/part-of: api-forge
   annotations:
-    # Run on install and upgrade, delete previous job before creating new one
+    # Run on install only (schema setup is idempotent but only needed once)
+    # To re-run schema setup, set temporal.jobs.schemaSetup.runOnUpgrade=true
+    {{- if .Values.temporal.jobs.schemaSetup.runOnUpgrade }}
     "helm.sh/hook": post-install,post-upgrade
+    {{- else }}
+    "helm.sh/hook": post-install
+    {{- end }}
     "helm.sh/hook-weight": "5"
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
@@ -44,8 +49,6 @@ spec:
                 echo "PostgreSQL is unavailable - sleeping"
                 sleep 2
               done
-              echo "PostgreSQL is up - waiting 5 more seconds for full initialization"
-              sleep 5
               echo "PostgreSQL is ready!"
           securityContext:
             allowPrivilegeEscalation: false

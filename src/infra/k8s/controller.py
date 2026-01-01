@@ -10,6 +10,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
+
+from src.infra.k8s.utils import run_sync
 
 # =============================================================================
 # Data Types
@@ -185,6 +188,52 @@ class KubernetesController(ABC):
         ...
 
     @abstractmethod
+    async def resource_exists(
+        self,
+        resource_type: str,
+        name: str,
+        namespace: str,
+    ) -> bool:
+        """Check if a Kubernetes resource exists.
+
+        Args:
+            resource_type: Resource type (e.g., "statefulset", "deployment", "pod")
+            name: Resource name
+            namespace: Kubernetes namespace
+
+        Returns:
+            True if the resource exists, False otherwise
+        """
+        ...
+
+    @abstractmethod
+    async def delete_resource(
+        self,
+        resource_type: str,
+        name: str,
+        namespace: str,
+        *,
+        cascade: str | None = None,
+        wait: bool = True,
+    ) -> CommandResult:
+        """Delete a specific Kubernetes resource by name.
+
+        Args:
+            resource_type: Resource type (e.g., "statefulset", "deployment", "pod")
+            name: Resource name
+            namespace: Kubernetes namespace
+            cascade: Cascade deletion policy (None uses k8s default):
+                     - "background": Delete dependents in background
+                     - "foreground": Delete dependents in foreground
+                     - "orphan": Leave dependents running (don't delete)
+            wait: Whether to wait for deletion to complete
+
+        Returns:
+            CommandResult with deletion status
+        """
+        ...
+
+    @abstractmethod
     async def delete_resources_by_label(
         self,
         resource_types: str,
@@ -192,6 +241,7 @@ class KubernetesController(ABC):
         label_selector: str,
         *,
         force: bool = False,
+        cascade: str | None = None,
     ) -> CommandResult:
         """Delete Kubernetes resources matching a label selector.
 
@@ -202,6 +252,10 @@ class KubernetesController(ABC):
             label_selector: Label selector
                            (e.g., "app.kubernetes.io/instance=my-app")
             force: Whether to force delete (bypass graceful deletion)
+            cascade: Cascade deletion policy (None uses k8s default):
+                     - "background": Delete dependents in background
+                     - "foreground": Delete dependents in foreground
+                     - "orphan": Leave dependents running (don't delete)
 
         Returns:
             CommandResult with deletion status
@@ -360,11 +414,16 @@ class KubernetesController(ABC):
     # =========================================================================
 
     @abstractmethod
-    async def get_pods(self, namespace: str) -> list[PodInfo]:
+    async def get_pods(
+        self,
+        namespace: str,
+        label_selector: str | None = None,
+    ) -> list[PodInfo]:
         """Get all pods in a namespace with their status.
 
         Args:
             namespace: Kubernetes namespace
+            label_selector: Optional label selector to filter pods (e.g., "app=postgres")
 
         Returns:
             List of PodInfo objects with pod details
@@ -492,3 +551,312 @@ class KubernetesController(ABC):
             YAML string, or None if not found
         """
         ...
+
+
+class KubernetesControllerSync:
+    """Synchronous wrapper for KubernetesController.
+
+    Automatically wraps all async methods from the underlying controller
+    and exposes them as synchronous methods using run_sync().
+    """
+
+    def __init__(self, controller: KubernetesController):
+        self._controller = controller
+
+    def __getattr__(self, name: str) -> Any:
+        """Dynamically wrap async methods as sync."""
+        attr = getattr(self._controller, name)
+
+        # If it's a coroutine function, wrap it
+        if callable(attr) and hasattr(attr, "__code__"):
+            import inspect
+
+            if inspect.iscoroutinefunction(attr):
+
+                def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    return run_sync(attr(*args, **kwargs))
+
+                return sync_wrapper
+
+        # Otherwise return as-is (properties, non-async methods)
+        return attr
+
+
+# =============================================================================
+# Stub File Generation
+# =============================================================================
+
+
+def generate_sync_stubs() -> str:
+    """Generate a .pyi stub file using AST parsing.
+
+    This function automatically extracts dataclass definitions and method signatures
+    from the source file using AST parsing, ensuring the stub file stays in perfect
+    sync with the implementation without any manual updates.
+
+    Returns:
+        The complete content of the .pyi stub file as a string
+    """
+    import ast
+    import inspect
+    import re
+    from pathlib import Path
+
+    # Read and parse the source file
+    source_file = Path(__file__)
+    source_code = source_file.read_text()
+    tree = ast.parse(source_code)
+
+    # Extract dataclasses
+    dataclass_defs = []
+    dataclass_names = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            # Check if it's a dataclass
+            has_dataclass_decorator = any(
+                (isinstance(d, ast.Name) and d.id == "dataclass")
+                or (isinstance(d, ast.Attribute) and d.attr == "dataclass")
+                for d in node.decorator_list
+            )
+            if has_dataclass_decorator:
+                dataclass_names.append(node.name)
+                # Reconstruct the dataclass definition
+                fields = []
+                for item in node.body:
+                    if isinstance(item, ast.AnnAssign) and isinstance(
+                        item.target, ast.Name
+                    ):
+                        field_name = item.target.id
+                        # Get annotation as string
+                        annotation = ast.unparse(item.annotation)
+                        # Get default value if present
+                        if item.value:
+                            default = ast.unparse(item.value)
+                            fields.append(f"    {field_name}: {annotation} = {default}")
+                        else:
+                            fields.append(f"    {field_name}: {annotation}")
+
+                # Get docstring if present
+                docstring = ""
+                if (
+                    node.body
+                    and isinstance(node.body[0], ast.Expr)
+                    and isinstance(node.body[0].value, ast.Constant)
+                ):
+                    docstring = f'    """{node.body[0].value.value}"""'
+
+                dataclass_def = f"@dataclass\nclass {node.name}:\n"
+                if docstring:
+                    dataclass_def += f"{docstring}\n"
+                dataclass_def += "\n".join(fields) if fields else "    pass"
+                dataclass_defs.append(dataclass_def + "\n")
+
+    # Get methods from KubernetesController using inspect
+    methods = []
+    for name, method in inspect.getmembers(
+        KubernetesController, predicate=inspect.isfunction
+    ):
+        if name.startswith("_"):
+            continue
+
+        sig = inspect.signature(method)
+        params = []
+        seen_keyword_only_separator = False
+
+        for param_name, param in sig.parameters.items():
+            if param_name == "self":
+                continue
+
+            # Add keyword-only separator if this is the first keyword-only param
+            if (
+                param.kind == inspect.Parameter.KEYWORD_ONLY
+                and not seen_keyword_only_separator
+            ):
+                params.append("*")
+                seen_keyword_only_separator = True
+
+            param_str = param_name
+            if param.annotation != inspect.Parameter.empty:
+                annotation = param.annotation
+                if isinstance(annotation, type):
+                    annotation = annotation.__name__
+                else:
+                    annotation = str(annotation).replace("typing.", "")
+                param_str += f": {annotation}"
+
+            if param.default != inspect.Parameter.empty:
+                if param.default is None:
+                    param_str += " = None"
+                elif isinstance(param.default, str):
+                    param_str += f' = "{param.default}"'
+                elif isinstance(param.default, bool):
+                    param_str += f" = {param.default}"
+                else:
+                    param_str += f" = {param.default}"
+
+            params.append(param_str)
+
+        params_str = ", ".join(params)
+
+        return_annotation = sig.return_annotation
+        if return_annotation == inspect.Signature.empty:
+            return_type = "Any"
+        else:
+            return_type_str = str(return_annotation)
+            match = re.search(r"Coroutine\[Any, Any, (.+)\]", return_type_str)
+            if match:
+                return_type = match.group(1)
+            else:
+                return_type = return_type_str.replace("typing.", "")
+
+        method_stub = f"    def {name}(self, {params_str}) -> {return_type}: ..."
+        methods.append(method_stub)
+
+    # Build __all__ export list
+    all_exports = dataclass_names + ["KubernetesController", "KubernetesControllerSync"]
+
+    # Build async method stubs (for KubernetesController abstract class)
+    async_methods = []
+    for name, method in inspect.getmembers(
+        KubernetesController, predicate=inspect.isfunction
+    ):
+        if name.startswith("_"):
+            continue
+
+        sig = inspect.signature(method)
+        params = []
+        seen_keyword_only_separator = False
+
+        for param_name, param in sig.parameters.items():
+            if param_name == "self":
+                continue
+
+            # Add keyword-only separator if this is the first keyword-only param
+            if (
+                param.kind == inspect.Parameter.KEYWORD_ONLY
+                and not seen_keyword_only_separator
+            ):
+                params.append("*")
+                seen_keyword_only_separator = True
+
+            param_str = param_name
+            if param.annotation != inspect.Parameter.empty:
+                annotation = param.annotation
+                if isinstance(annotation, type):
+                    annotation = annotation.__name__
+                else:
+                    annotation = str(annotation).replace("typing.", "")
+                param_str += f": {annotation}"
+
+            if param.default != inspect.Parameter.empty:
+                if param.default is None:
+                    param_str += " = None"
+                elif isinstance(param.default, str):
+                    param_str += f' = "{param.default}"'
+                elif isinstance(param.default, bool):
+                    param_str += f" = {param.default}"
+                else:
+                    param_str += f" = {param.default}"
+
+            params.append(param_str)
+
+        params_str = ", ".join(params)
+
+        return_annotation = sig.return_annotation
+        if return_annotation == inspect.Signature.empty:
+            return_type = "Any"
+        else:
+            return_type_str = str(return_annotation)
+            # Keep the Coroutine wrapper for async methods
+            return_type = return_type_str.replace("typing.", "")
+
+        async_method_stub = (
+            f"    async def {name}(self, {params_str}) -> {return_type}: ..."
+        )
+        async_methods.append(async_method_stub)
+
+    # Build the complete stub file content
+    stub_content = f'''"""Type stubs for controller module.
+
+This file is AUTO-GENERATED by running:
+    python -m src.infra.k8s.controller
+
+Do not edit manually. Regenerate after updating KubernetesController.
+Dataclasses are automatically extracted from source using AST parsing.
+"""
+
+from __future__ import annotations
+
+from abc import ABC
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+__all__ = {all_exports!r}
+
+
+# =============================================================================
+# Data Types (AUTO-EXTRACTED)
+# =============================================================================
+
+{chr(10).join(dataclass_defs)}
+
+
+# =============================================================================
+# Abstract Controller
+# =============================================================================
+
+class KubernetesController(ABC):
+    """Abstract base class for Kubernetes operations.
+
+    All methods are async to support both sync (kubectl) and async (kr8s)
+    implementations. Use `run_sync()` to call from synchronous code.
+    """
+
+{chr(10).join(async_methods)}
+
+
+# =============================================================================
+# Synchronous Wrapper
+# =============================================================================
+
+class KubernetesControllerSync:
+    """Synchronous wrapper for KubernetesController with full type hints.
+
+    All async methods from KubernetesController are exposed as synchronous methods.
+    The underlying async controller is wrapped automatically using run_sync().
+    """
+
+    def __init__(self, controller: KubernetesController) -> None:
+        """Initialize the synchronous wrapper.
+
+        Args:
+            controller: The underlying async KubernetesController instance
+        """
+        ...
+
+{chr(10).join(methods)}
+'''
+
+    return stub_content
+
+
+if __name__ == "__main__":
+    """Generate KubernetesControllerSync stub file."""
+    from pathlib import Path
+
+    # Generate stub content
+    stub_content = generate_sync_stubs()
+
+    # Write to .pyi file next to this module
+    stub_path = Path(__file__).with_suffix(".pyi")
+    stub_path.write_text(stub_content)
+
+    print(f"✅ Generated type stubs: {stub_path}")
+    print(f"📝 {len(stub_content.splitlines())} lines")
+    print("\nTo use the synchronous wrapper with full type hints:")
+    print("  from src.infra.k8s.controller import KubernetesControllerSync")
+    print("  from src.infra.k8s.kubectl import KubectlController")
+    print("")
+    print("  sync_controller = KubernetesControllerSync(KubectlController())")
+    print("  pods = sync_controller.get_pods('my-namespace')  # Fully typed!")

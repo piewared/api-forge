@@ -4,9 +4,9 @@ import os
 
 import requests  # type: ignore
 from dotenv.main import load_dotenv
-from rich.console import Console
 from rich.panel import Panel
 
+from src.cli.shared.console import CLIConsole
 from src.dev.dev_utils import (
     check_container_running,
     check_docker_running,
@@ -17,8 +17,8 @@ from src.dev.dev_utils import (
 from src.infra.k8s import Kr8sController, run_sync
 from src.infra.k8s.controller import PodInfo, ServiceInfo
 
+from ...infra.utils.service_config import get_production_services, is_temporal_enabled
 from .health_checks import HealthChecker
-from .service_config import get_production_services, is_temporal_enabled
 
 # Module-level controller singleton
 _controller = Kr8sController()
@@ -27,7 +27,7 @@ _controller = Kr8sController()
 class StatusDisplay:
     """Utility class for displaying deployment status."""
 
-    def __init__(self, console: Console):
+    def __init__(self, console: CLIConsole):
         """Initialize the status display.
 
         Args:
@@ -118,23 +118,18 @@ class StatusDisplay:
 
     def _show_docker_status(self) -> None:
         """Display Docker daemon status."""
-        docker_running = check_docker_running()
-        status_text = (
-            "[green]✅ Running[/green]"
-            if docker_running
-            else "[red]❌ Not running[/red]"
-        )
-        self.console.print(f"Docker: {status_text}")
+        if check_docker_running():
+            self.console.ok("Docker daemon is running")
+        else:
+            self.console.error("Docker daemon is not running")
 
     def _show_keycloak_status(self) -> None:
         """Display Keycloak status."""
         keycloak_running = check_container_running("api-forge-keycloak-dev")
-        status_text = (
-            "[green]✅ Running[/green]"
-            if keycloak_running
-            else "[red]❌ Not running[/red]"
-        )
-        self.console.print(f"Keycloak: {status_text}")
+        if keycloak_running:
+            self.console.ok("Keycloak is running")
+        else:
+            self.console.error("Keycloak is not running")
 
         if keycloak_running:
             try:
@@ -155,12 +150,10 @@ class StatusDisplay:
     ) -> None:
         """Display PostgreSQL development status."""
         postgres_running = check_container_running("api-forge-postgres-dev")
-        status_text = (
-            "[green]✅ Running[/green]"
-            if postgres_running
-            else "[red]❌ Not running[/red]"
-        )
-        self.console.print(f"PostgreSQL: {status_text}")
+        if postgres_running:
+            self.console.ok("PostgreSQL is running")
+        else:
+            self.console.error("PostgreSQL is not running")
 
         if postgres_running and check_postgres_status():
             self.console.print("  └─ Health: [green]✅ Ready[/green]")
@@ -182,12 +175,10 @@ class StatusDisplay:
     def _show_redis_dev_status(self) -> None:
         """Display Redis development status."""
         redis_running = check_container_running("api-forge-redis-dev")
-        status_text = (
-            "[green]✅ Running[/green]"
-            if redis_running
-            else "[red]❌ Not running[/red]"
-        )
-        self.console.print(f"Redis: {status_text}")
+        if redis_running:
+            self.console.ok("Redis is running")
+        else:
+            self.console.error("Redis is not running")
 
         if redis_running and check_redis_status():
             self.console.print("  └─ Health: [green]✅ Ready[/green]")
@@ -198,12 +189,10 @@ class StatusDisplay:
         temporal_server_running = check_container_running("api-forge-temporal-dev")
         temporal_web_running = check_container_running("api-forge-temporal-ui-dev")
 
-        status_text = (
-            "[green]✅ Running[/green]"
-            if temporal_server_running
-            else "[red]❌ Not running[/red]"
-        )
-        self.console.print(f"Temporal: {status_text}")
+        if temporal_server_running:
+            self.console.ok("Temporal Server is running")
+        else:
+            self.console.error("Temporal Server is not running")
 
         if temporal_server_running and check_temporal_status():
             self.console.print("  └─ Health: [green]✅ Ready[/green]")

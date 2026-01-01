@@ -10,7 +10,7 @@ from typing import Annotated
 
 import typer
 
-from .shared import console, print_header
+from src.cli.shared.console import console
 
 # ---------------------------------------------------------------------------
 # Typer App
@@ -46,7 +46,7 @@ def up(
 
     See docs/fastapi-flyio-kubernetes.md for details.
     """
-    print_header("Fly.io Kubernetes Deployment")
+    console.print_header("Fly.io Kubernetes Deployment")
     _show_coming_soon_message()
 
 
@@ -65,7 +65,7 @@ def down(
 
     This command is a placeholder for future FKS deployment support.
     """
-    print_header("Removing Fly.io Deployment")
+    console.print_header("Removing Fly.io Deployment")
     _show_coming_soon_message()
 
 
@@ -84,7 +84,7 @@ def status(
 
     This command is a placeholder for future FKS deployment support.
     """
-    print_header("Fly.io Deployment Status")
+    console.print_header("Fly.io Deployment Status")
     _show_coming_soon_message()
 
 
@@ -94,7 +94,7 @@ def clusters() -> None:
 
     This command is a placeholder for future FKS support.
     """
-    print_header("FKS Clusters")
+    console.print_header("FKS Clusters")
     _show_coming_soon_message()
 
 

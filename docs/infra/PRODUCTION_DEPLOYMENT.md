@@ -9,7 +9,7 @@ This guide covers the deployment of the FastAPI application stack to production 
 
 ### Production Stack
 - **Application**: FastAPI with OIDC authentication, session management, and rate limiting
-- **Database**: PostgreSQL 16 with SSL, backup automation, and performance tuning
+- **Database**: PostgreSQL 16 with SSL, backup automation, and performance tuning (bundled or external)
 - **Cache/Sessions**: Redis 7 with persistence, security hardening, and memory optimization
 - **Workflows**: Temporal Server with PostgreSQL backend for reliable workflow execution
 - **Reverse Proxy**: Nginx with SSL termination, security headers, and load balancing
@@ -65,6 +65,11 @@ uv run api-forge-cli deploy status prod
 
 **Kubernetes (cluster deployment):**
 ```bash
+# For external databases: Initialize first
+uv run api-forge-cli k8s db init    # Creates roles, schemas, permissions
+uv run api-forge-cli k8s db verify  # Verifies setup and credentials
+
+# Deploy the application
 uv run api-forge-cli deploy up k8s
 
 # Check deployment status
@@ -72,6 +77,11 @@ uv run api-forge-cli deploy status k8s
 
 # View release history
 uv run api-forge-cli deploy history
+
+# Database management (Kubernetes only)
+uv run api-forge-cli k8s db sync    # Sync password files to database
+uv run api-forge-cli k8s db status  # Check database health
+uv run api-forge-cli k8s db backup  # Create backup
 ```
 
 ### 4. Verify Deployment
@@ -88,6 +98,35 @@ kubectl logs -n api-forge-prod -l app.kubernetes.io/name=app -f
 ```
 
 ## 🔧 Configuration
+
+### Database Options
+
+API Forge supports two PostgreSQL deployment modes:
+
+1. **Bundled PostgreSQL** (default for Docker Compose/Kubernetes):
+   - Automatically deployed as part of the stack
+   - Handled by Docker Compose or Helm chart
+   - No external setup required
+
+2. **External PostgreSQL** (Aiven, AWS RDS, Google Cloud SQL, Azure Database, etc.):
+   - Use managed database service for better scalability and reliability
+   - Configure with `uv run api-forge-cli k8s db create --external`
+   - Initialize with `uv run api-forge-cli k8s db init`
+   - Verify with `uv run api-forge-cli k8s db verify`
+
+**Example external database setup:**
+```bash
+# Configure external database with connection string
+uv run api-forge-cli k8s db create --external \
+    --connection-string "postgres://avnadmin@your-db.aivencloud.com:20369/defaultdb?sslmode=require"
+
+# Or with individual parameters
+uv run api-forge-cli k8s db create --external \
+    --host your-db.aivencloud.com --port 20369 \
+    --username avnadmin --password your-password \
+    --database defaultdb --sslmode require
+```
+
 
 ### Environment Variables
 

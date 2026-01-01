@@ -16,11 +16,10 @@ from typing import TYPE_CHECKING
 from ruamel.yaml import YAML
 
 from src.app.runtime.config.config_loader import load_config
-
-from .constants import DeploymentPaths
+from src.cli.shared.console import CLIConsole
+from src.infra.constants import DeploymentPaths
 
 if TYPE_CHECKING:
-    from rich.console import Console
     from rich.progress import Progress
 
 
@@ -35,7 +34,7 @@ class ConfigSynchronizer:
 
     def __init__(
         self,
-        console: Console,
+        console: CLIConsole,
         paths: DeploymentPaths,
     ) -> None:
         """Initialize the config synchronizer.
@@ -61,15 +60,13 @@ class ConfigSynchronizer:
         values_path = self.paths.values_yaml
 
         if not config_path.exists():
-            self.console.print(
-                "[yellow]⚠️  config.yaml not found, skipping sync[/yellow]"
-            )
+            self.console.warn("config.yaml not found, skipping sync")
             return
 
         try:
             changes = self._compute_config_changes(config_path, values_path)
             if changes:
-                self.console.print("[green]✓ Synced changes:[/green]")
+                self.console.ok("Synced changes:")
                 for change in changes:
                     self.console.print(f"  • {change}")
             else:
@@ -77,7 +74,7 @@ class ConfigSynchronizer:
                     "[dim]  ✓ No changes needed (values already in sync)[/dim]"
                 )
         except Exception as e:
-            self.console.print(f"[yellow]⚠️  Failed to sync config: {e}[/yellow]")
+            self.console.warn(f"Failed to sync config: {e}")
             self.console.print("[dim]  Continuing with existing values.yaml[/dim]")
 
     def _compute_config_changes(
@@ -130,6 +127,17 @@ class ConfigSynchronizer:
                     changes.append(f"temporal.enabled: {old_val} → {new_val}")
                     modified = True
 
+        # Check postgres.enabled
+        if database_config := config_data.get("config", {}).get("database"):
+            if "bundled_postgres" in database_config:
+                if "postgres" in values_data:
+                    old_val = values_data["postgres"].get("enabled", True)
+                    new_val = database_config["bundled_postgres"].get("enabled", True)
+                    if old_val != new_val:
+                        values_data["postgres"]["enabled"] = new_val
+                        changes.append(f"postgres.enabled: {old_val} → {new_val}")
+                        modified = True
+
         # Write back with preserved formatting if any changes were made
         if modified:
             with open(values_path, "w") as f:
@@ -141,7 +149,8 @@ class ConfigSynchronizer:
         """Copy configuration files to Helm staging area.
 
         Copies .env, config.yaml, PostgreSQL configs, Temporal scripts,
-        and entrypoint scripts to infra/helm/api-forge/files/.
+        and entrypoint scripts to infra/helm/api-forge/files/ and
+        infra/helm/api-forge-bundled-postgres/files/.
 
         Args:
             progress_factory: Rich Progress class for creating progress bars
@@ -150,7 +159,10 @@ class ConfigSynchronizer:
             "[bold cyan]📋 Copying config files to Helm staging area...[/bold cyan]"
         )
 
+        # Prepare both destination directories
         self.paths.helm_files.mkdir(parents=True, exist_ok=True)
+        bundled_postgres_files = self.paths.postgres_standalone_chart / "files"
+        bundled_postgres_files.mkdir(parents=True, exist_ok=True)
 
         files_to_copy = self._get_config_files_manifest()
 
@@ -159,18 +171,25 @@ class ConfigSynchronizer:
 
             for source, dest_name, description in files_to_copy:
                 if source.exists():
+                    # Copy to main api-forge chart
                     dest_path = self.paths.helm_files / dest_name
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, dest_path)
+
+                    # Also copy to bundled-postgres chart
+                    bundled_dest_path = bundled_postgres_files / dest_name
+                    bundled_dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, bundled_dest_path)
+
                     self.console.print(f"  [dim]✓ {description}[/dim]")
                 else:
-                    self.console.print(
-                        f"  [yellow]⚠ Skipped {description} (not found)[/yellow]"
-                    )
+                    self.console.warn(f"  Skipped {description} (not found)")
                 progress.update(task, advance=1)
 
         rel_path = self.paths.helm_files.relative_to(self.paths.project_root)
-        self.console.print(f"[green]✓ Config files copied to {rel_path}[/green]")
+        bundled_rel_path = bundled_postgres_files.relative_to(self.paths.project_root)
+        self.console.ok(f"Config files copied to {rel_path}")
+        self.console.ok(f"Config files copied to {bundled_rel_path}")
 
     def _get_config_files_manifest(self) -> list[tuple[Path, str, str]]:
         """Get list of config files to copy to Helm staging.

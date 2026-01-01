@@ -2,12 +2,45 @@
 set -euo pipefail
 
 # ---- Required env ----
-: "${TEMPORAL_DB:?missing DB (database name, e.g. temporal)}"
-: "${TEMPORAL_VIS_DB:?missing DB (database name, e.g. temporal_visibility)}"
-: "${TEMPORAL_DB_USER:?missing PG_USER (e.g. temporal_user)}"
+: "${TEMPORAL_DB:?missing TEMPORAL_DB (database name, e.g. temporal)}"
+: "${TEMPORAL_VIS_DB:?missing TEMPORAL_VIS_DB (database name, e.g. temporal_visibility)}"
+: "${TEMPORAL_DB_USER:?missing TEMPORAL_DB_USER (e.g. temporal_user)}"
 : "${PW_FILE:?missing PW_FILE (password file for temporal user)}"
-: "${EP:?missing EP (Postgres host, e.g. postgres)}"
 
+# ---- Parse EP (postgres host) from PRODUCTION_DATABASE_URL if not set ----
+# Supports:
+#   - postgresql://host:port/db?options (no credentials)
+#   - postgresql://host:port?options (no credentials, no db)
+#   - postgresql://user:pass@host:port/db?options (with credentials)
+if [ -z "${EP:-}" ] && [ -n "${PRODUCTION_DATABASE_URL:-}" ]; then
+    echo "Parsing database host from PRODUCTION_DATABASE_URL..."
+    
+    # Check if URL contains @ (has credentials)
+    if echo "$PRODUCTION_DATABASE_URL" | grep -q '@'; then
+        # Format: postgresql://user:pass@host:port/db
+        HOST_PORT=$(echo "$PRODUCTION_DATABASE_URL" | sed -E 's|.*@([^/?]+).*|\1|')
+    else
+        # Format: postgresql://host:port/db or postgresql://host:port?options
+        # Remove scheme (postgresql://) and everything after / or ?
+        HOST_PORT=$(echo "$PRODUCTION_DATABASE_URL" | sed -E 's|^[^:]+://([^/?]+).*|\1|')
+    fi
+    
+    # Extract just host (before :)
+    EP=$(echo "$HOST_PORT" | sed -E 's|:.*||')
+    # Extract port if present (after :), default to 5432
+    PARSED_PORT=$(echo "$HOST_PORT" | grep -oE ':[0-9]+' | tr -d ':' || echo "")
+    if [ -n "$PARSED_PORT" ]; then
+        PG_PORT="$PARSED_PORT"
+    fi
+    # Also set TLS_SERVER_NAME to match the actual host
+    if [ -z "${TLS_SERVER_NAME:-}" ]; then
+        TLS_SERVER_NAME="$EP"
+    fi
+    echo "Parsed from URL: EP=$EP, PG_PORT=${PG_PORT:-5432}, TLS_SERVER_NAME=$TLS_SERVER_NAME"
+fi
+
+# Validate EP is set
+: "${EP:?missing EP (set EP directly or provide PRODUCTION_DATABASE_URL)}"
 
 # Optional env
 PG_PORT="${PG_PORT:-5432}"
@@ -25,12 +58,12 @@ echo "Password loaded successfully."
 
 
 # TLS (defaults; override via env if needed)
-SSL_MODE="${SSL_MODE:-verify-ca}"                         # or 'require' / 'verify-full'
+SSL_MODE="${SSL_MODE:-verify-ca}"
 TLS_ENABLE="${TLS_ENABLE:-true}"
 TLS_CA_FILE="${TLS_CA_FILE:-/run/secrets/postgres_server_ca}"
 TLS_SERVER_NAME="${TLS_SERVER_NAME:-postgres}"  # MUST match a SAN in the server cert
 
-export PGSSLMODE="${SSL_MODE:-verify-ca}"
+export PGSSLMODE="${SSL_MODE}"
 
 # Verify TLS CA file exists if TLS is enabled
 if [ "$TLS_ENABLE" = "true" ]; then

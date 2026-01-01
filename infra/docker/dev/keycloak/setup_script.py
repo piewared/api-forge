@@ -5,10 +5,10 @@ import os
 import sys
 import time
 
-from src.dev.setup_keycloak import KeycloakSetup
-
 # Add the src directory to the Python path
 sys.path.insert(0, "/app/src")
+
+from src.dev.setup_keycloak import KeycloakSetup
 
 try:
     # Use the container's internal hostname for Keycloak

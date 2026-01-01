@@ -110,6 +110,76 @@ infra/helm/api-forge/
 - **Automatic Sync**: CLI synchronizes settings before each deployment
 - **Timestamp Annotations**: Forces pod recreation to ensure latest Docker images
 
+## Database Management
+
+The CLI provides comprehensive database management commands for Kubernetes deployments, supporting both bundled PostgreSQL (deployed in the cluster) and external databases (like Aiven, AWS RDS, Google Cloud SQL).
+
+### Database Setup Commands
+
+```bash
+# Initialize database with roles, schemas, and permissions
+uv run api-forge-cli k8s db init
+
+# Verify database configuration and test authentication
+uv run api-forge-cli k8s db verify
+
+# Synchronize local password files to database (after password changes)
+uv run api-forge-cli k8s db sync
+
+# Check database health and performance metrics
+uv run api-forge-cli k8s db status
+
+# Create a backup of the database
+uv run api-forge-cli k8s db backup
+
+# Reset database to clean state (DESTRUCTIVE - dev/test only)
+uv run api-forge-cli k8s db reset
+```
+
+### Using External PostgreSQL (Aiven, RDS, Cloud SQL)
+
+To use an external managed PostgreSQL database instead of the bundled one:
+
+1. **Configure the external database**:
+   ```bash
+   # Using connection string
+   uv run api-forge-cli k8s db create --external \
+       --connection-string "postgres://admin:secret@db.example.com:5432/mydb?sslmode=require"
+   
+   # Or using individual parameters
+   uv run api-forge-cli k8s db create --external \
+       --host db.aivencloud.com --port 20369 \
+       --username avnadmin --password secret \
+       --database defaultdb --sslmode require
+   ```
+   
+   This command will:
+   - Update `.env` with `PRODUCTION_DATABASE_URL`
+   - Configure database credentials in `config.yaml`
+   - Generate necessary password files in `infra/secrets/keys/`
+
+2. **Initialize the database** (creates roles, schemas, grants permissions):
+   ```bash
+   uv run api-forge-cli k8s db init
+   ```
+
+3. **Verify the setup** (tests connectivity and credentials):
+   ```bash
+   uv run api-forge-cli k8s db verify
+   ```
+
+4. **Deploy** - the application will automatically use the external database:
+   ```bash
+   uv run api-forge-cli deploy up k8s
+   ```
+
+**Important Notes:**
+- The `init` command creates application users (`appuser`, `backupuser`, `temporaluser`) and the `app` schema
+- The `verify` command now tests password authentication to catch mismatches early
+- The `sync` command updates database passwords to match your local secret files
+- In production, the app automatically uses `search_path=app` to isolate tables from the `public` schema
+- Connection strings preserve existing query parameters (like `?sslmode=require`) while adding production settings
+
 ## Deployment Steps
 
 ### Step 1: Build Docker Images

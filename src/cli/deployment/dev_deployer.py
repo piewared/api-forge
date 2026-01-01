@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.progress import Progress
 
+from src.cli.shared.console import CLIConsole
 from src.dev.dev_utils import (
     check_container_running,
     check_postgres_status,
@@ -18,6 +18,7 @@ from src.dev.dev_utils import (
 from src.utils.package_utils import get_package_module_path, get_package_root
 
 from .base import BaseDeployer
+from .constants import DEFAULT_DATA_SUBDIRS
 from .health_checks import HealthChecker
 from .status_display import StatusDisplay
 
@@ -26,17 +27,9 @@ class DevDeployer(BaseDeployer):
     """Deployer for development environment using Docker Compose."""
 
     COMPOSE_FILE = "docker-compose.dev.yml"
-    DATA_SUBDIRS = [
-        Path("postgres"),
-        Path("postgres-backups"),
-        Path("postgres-ssl"),
-        Path("redis"),
-        Path("redis-backups"),
-        Path("app-logs"),
-        Path("temporal-certs"),
-    ]
+    DATA_SUBDIRS = DEFAULT_DATA_SUBDIRS
 
-    def __init__(self, console: Console, project_root: Path):
+    def __init__(self, console: CLIConsole, project_root: Path):
         """Initialize the development deployer.
 
         Args:
@@ -127,6 +120,32 @@ class DevDeployer(BaseDeployer):
     def show_status(self) -> None:
         """Display the current status of the development deployment."""
         self.status_display.show_dev_status()
+
+    def deploy_secrets(self, **kwargs: Any) -> bool:
+        """Deploy secrets for Docker Compose development environment.
+
+        For the development environment, secrets are hardcoded in
+        docker-compose.dev.yml for convenience. This is a no-op.
+
+        Returns:
+            Always True (dev uses hardcoded credentials)
+        """
+        self.info("Development environment uses hardcoded credentials")
+        self.info("No secret deployment needed")
+        return True
+
+    def restart_resource(
+        self, label: str, resource_type: str, timeout: int = 120
+    ) -> bool:
+        """Restart a Docker Compose container by name and wait for it to be healthy.
+
+        Args:
+            label: Container name (e.g., 'api-forge-keycloak-dev', 'api-forge-postgres-dev')
+
+        Returns:
+            True if restart succeeded and container is healthy, False otherwise
+        """
+        return self.restart_container(label, self.health_checker, timeout)
 
     def _get_running_services(self) -> list[str]:
         """Get list of currently running development services.

@@ -4,9 +4,10 @@ import typer
 from rich.prompt import Confirm
 from rich.table import Table
 
+from src.cli.shared.console import (
+    console,
+)
 from src.dev.keycloak_client import KeycloakClient
-
-from .shared import console
 
 # Create the users subcommand app
 users_app = typer.Typer(help="Manage Keycloak users in development environment")

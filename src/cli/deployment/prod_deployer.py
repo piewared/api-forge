@@ -5,13 +5,16 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from src.cli.shared.console import CLIConsole, console
+from src.utils.paths import get_project_root
+
+from ...infra.utils.service_config import get_production_services
 from .base import BaseDeployer
+from .constants import DEFAULT_DATA_SUBDIRS
 from .health_checks import HealthChecker
-from .service_config import get_production_services
 from .status_display import StatusDisplay
 
 
@@ -19,17 +22,9 @@ class ProdDeployer(BaseDeployer):
     """Deployer for production environment using Docker Compose."""
 
     COMPOSE_FILE = "docker-compose.prod.yml"
-    DATA_SUBDIRS = [
-        Path("postgres"),
-        Path("postgres-backups"),
-        Path("postgres-ssl"),
-        Path("redis"),
-        Path("redis-backups"),
-        Path("app-logs"),
-        Path("temporal-certs"),
-    ]
+    DATA_SUBDIRS = DEFAULT_DATA_SUBDIRS
 
-    def __init__(self, console: Console, project_root: Path):
+    def __init__(self, console: CLIConsole, project_root: Path):
         """Initialize the production deployer.
 
         Args:
@@ -42,6 +37,10 @@ class ProdDeployer(BaseDeployer):
 
         # Build services list dynamically based on config.yaml
         self.SERVICES = get_production_services()
+
+    # =========================================================================
+    # Public Interface
+    # =========================================================================
 
     def deploy(self, **kwargs: Any) -> None:
         """Deploy the production environment.
@@ -86,116 +85,6 @@ class ProdDeployer(BaseDeployer):
             "\n[bold green]🎉 Production deployment complete![/bold green]"
         )
         self.status_display.show_prod_status()
-
-    def _ensure_required_directories(self) -> None:
-        data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
-        self.info(f"Ensured data directories exist under {data_root}")
-
-    def _validate_bind_mount_volumes(self) -> None:
-        """Validate bind-mount volumes and remove stale ones.
-
-        Docker bind-mount volumes can become stale in two ways:
-        1. The source directory was deleted while the volume metadata persists
-        2. The bind mount references a deleted inode (shows as //deleted in findmnt)
-
-        Both cases cause 'readdirent: no such file or directory' errors when trying
-        to start containers.
-
-        This method detects stale bind-mount volumes and removes them so they can be
-        recreated fresh with the correct bind mount.
-        """
-        project_name = "api-forge-prod"
-
-        # Get list of volumes for this project
-        result = self.run_command(
-            [
-                "docker",
-                "volume",
-                "ls",
-                "-q",
-                "--filter",
-                f"label=com.docker.compose.project={project_name}",
-            ],
-            capture_output=True,
-        )
-
-        if not result or not result.stdout:
-            return  # No volumes to check
-
-        volume_names = [
-            v.strip() for v in result.stdout.strip().split("\n") if v.strip()
-        ]
-        stale_volumes = []
-
-        for volume_name in volume_names:
-            # Inspect the volume to check if it's a bind mount
-            inspect_result = self.run_command(
-                ["docker", "volume", "inspect", volume_name],
-                capture_output=True,
-                check=False,
-            )
-
-            if not inspect_result or not inspect_result.stdout:
-                continue
-
-            try:
-                volume_info = json.loads(inspect_result.stdout)
-                if not volume_info:
-                    continue
-
-                options = volume_info[0].get("Options", {})
-                mount_type = options.get("type", "")
-                bind_option = options.get("o", "")
-                device = options.get("device", "")
-                mountpoint = volume_info[0].get("Mountpoint", "")
-
-                # Check if it's a bind mount
-                if mount_type == "none" and "bind" in bind_option and device:
-                    # Check 1: Verify the source directory exists
-                    source_path = Path(device)
-                    if not source_path.exists():
-                        stale_volumes.append((volume_name, device, "missing"))
-                        continue
-
-                    # Check 2: Verify the mount isn't pointing to a deleted inode
-                    # This happens when rm -rf removes the directory while mount persists
-                    if mountpoint:
-                        findmnt_result = self.run_command(
-                            ["findmnt", "-n", "-o", "SOURCE", mountpoint],
-                            capture_output=True,
-                            check=False,
-                        )
-                        if findmnt_result and findmnt_result.stdout:
-                            mount_source = findmnt_result.stdout.strip()
-                            if "deleted" in mount_source.lower():
-                                stale_volumes.append(
-                                    (volume_name, device, "deleted inode")
-                                )
-                                continue
-
-            except (json.JSONDecodeError, KeyError, IndexError):
-                continue
-
-        if stale_volumes:
-            self.console.print(
-                f"[yellow]⚠ Found {len(stale_volumes)} stale bind-mount volume(s)[/yellow]"
-            )
-            for vol_name, device, reason in stale_volumes:
-                self.console.print(f"  [dim]• {vol_name} → {device} ({reason})[/dim]")
-
-            # Stop any containers using these volumes first
-            self.info("Stopping containers to remove stale volumes...")
-            self.teardown(volumes=False)
-
-            # Remove stale volumes
-            for vol_name, _, _ in stale_volumes:
-                self.run_command(
-                    ["docker", "volume", "rm", vol_name],
-                    check=False,
-                    capture_output=True,
-                )
-
-            self.success(f"Removed {len(stale_volumes)} stale volume(s)")
 
     def teardown(self, **kwargs: Any) -> None:
         """Stop the production environment.
@@ -327,6 +216,191 @@ class ProdDeployer(BaseDeployer):
         """Display the current status of the production deployment."""
         self.status_display.show_prod_status()
 
+    def deploy_secrets(self) -> bool:
+        """Deploy secrets for Docker Compose environment.
+
+        For Docker Compose, secrets are managed via Docker secrets mounted
+        from local files. This is a no-op as secrets are automatically
+        available when containers start via the secrets: section in
+        docker-compose.prod.yml.
+
+        Returns:
+            Always True (secrets auto-mount from local files)
+        """
+        self.info("Secrets are managed via Docker Compose secrets configuration")
+        self.info("No explicit deployment needed - secrets mount automatically")
+        return True
+
+    def restart_resource(
+        self, label: str, resource_type: str, timeout: int = 120
+    ) -> bool:
+        """Restart a Docker Compose container by name and wait for it to be healthy.
+
+        Args:
+            label: Container name (e.g., 'api-forge-postgres', 'api-forge-app')
+            timeout: Maximum seconds to wait for container to be healthy
+
+        Returns:
+            True if restart succeeded and container is healthy, False otherwise
+        """
+        return self.restart_container(label, self.health_checker, timeout)
+
+    # =========================================================================
+    # Private Helpers
+    # =========================================================================
+
+    def _cleanup_stopped_containers(self) -> None:
+        """Remove stopped/stale containers from previous runs to avoid name conflicts.
+
+        This handles containers from previous runs that may have been started
+        with a different docker-compose project name.
+        """
+        # Forcibly remove any api-forge containers that aren't running
+        result = self.run_command(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "name=api-forge-",
+                "--format",
+                "{{.Names}}\t{{.State}}",
+            ],
+            capture_output=True,
+            check=False,
+        )
+
+        if result and result.stdout:
+            containers_to_remove = []
+            for line in result.stdout.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.strip().split("\t")
+                if len(parts) == 2:
+                    name, state = parts
+                    # Remove containers that aren't running
+                    if state in ("created", "exited", "dead"):
+                        containers_to_remove.append(name)
+
+            if containers_to_remove:
+                self.info(
+                    f"Removing {len(containers_to_remove)} stopped container(s): {', '.join(containers_to_remove)}"
+                )
+                self.run_command(
+                    ["docker", "rm", "-f"] + containers_to_remove,
+                    check=False,
+                )
+
+    def _ensure_required_directories(self) -> None:
+        data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
+        self.info(f"Ensured data directories exist under {data_root}")
+
+    def _validate_bind_mount_volumes(self) -> None:
+        """Validate bind-mount volumes and remove stale ones.
+
+        Docker bind-mount volumes can become stale in two ways:
+        1. The source directory was deleted while the volume metadata persists
+        2. The bind mount references a deleted inode (shows as //deleted in findmnt)
+
+        Both cases cause 'readdirent: no such file or directory' errors when trying
+        to start containers.
+
+        This method detects stale bind-mount volumes and removes them so they can be
+        recreated fresh with the correct bind mount.
+        """
+        project_name = "api-forge-prod"
+
+        # Get list of volumes for this project
+        result = self.run_command(
+            [
+                "docker",
+                "volume",
+                "ls",
+                "-q",
+                "--filter",
+                f"label=com.docker.compose.project={project_name}",
+            ],
+            capture_output=True,
+        )
+
+        if not result or not result.stdout:
+            return  # No volumes to check
+
+        volume_names = [
+            v.strip() for v in result.stdout.strip().split("\n") if v.strip()
+        ]
+        stale_volumes = []
+
+        for volume_name in volume_names:
+            # Inspect the volume to check if it's a bind mount
+            inspect_result = self.run_command(
+                ["docker", "volume", "inspect", volume_name],
+                capture_output=True,
+                check=False,
+            )
+
+            if not inspect_result or not inspect_result.stdout:
+                continue
+
+            try:
+                volume_info = json.loads(inspect_result.stdout)
+                if not volume_info:
+                    continue
+
+                options = volume_info[0].get("Options", {})
+                mount_type = options.get("type", "")
+                bind_option = options.get("o", "")
+                device = options.get("device", "")
+                mountpoint = volume_info[0].get("Mountpoint", "")
+
+                # Check if it's a bind mount
+                if mount_type == "none" and "bind" in bind_option and device:
+                    # Check 1: Verify the source directory exists
+                    source_path = Path(device)
+                    if not source_path.exists():
+                        stale_volumes.append((volume_name, device, "missing"))
+                        continue
+
+                    # Check 2: Verify the mount isn't pointing to a deleted inode
+                    # This happens when rm -rf removes the directory while mount persists
+                    if mountpoint:
+                        findmnt_result = self.run_command(
+                            ["findmnt", "-n", "-o", "SOURCE", mountpoint],
+                            capture_output=True,
+                            check=False,
+                        )
+                        if findmnt_result and findmnt_result.stdout:
+                            mount_source = findmnt_result.stdout.strip()
+                            if "deleted" in mount_source.lower():
+                                stale_volumes.append(
+                                    (volume_name, device, "deleted inode")
+                                )
+                                continue
+
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+
+        if stale_volumes:
+            self.console.print(
+                f"[yellow]⚠ Found {len(stale_volumes)} stale bind-mount volume(s)[/yellow]"
+            )
+            for vol_name, device, reason in stale_volumes:
+                self.console.print(f"  [dim]• {vol_name} → {device} ({reason})[/dim]")
+
+            # Stop any containers using these volumes first
+            self.info("Stopping containers to remove stale volumes...")
+            self.teardown(volumes=False)
+
+            # Remove stale volumes
+            for vol_name, _, _ in stale_volumes:
+                self.run_command(
+                    ["docker", "volume", "rm", vol_name],
+                    check=False,
+                    capture_output=True,
+                )
+
+            self.success(f"Removed {len(stale_volumes)} stale volume(s)")
+
     def _build_app_image(self, force: bool = False) -> None:
         """Build the application Docker image using Docker layer caching.
 
@@ -372,6 +446,9 @@ class ProdDeployer(BaseDeployer):
         Args:
             force_recreate: If True, force recreate containers (for secret rotation)
         """
+        # Clean up any stopped/exited containers first to avoid name conflicts
+        self._cleanup_stopped_containers()
+
         with self.create_progress() as progress:
             task = progress.add_task("Starting production services...", total=1)
             # Use fixed project name to avoid conflicts with old networks
@@ -489,3 +566,13 @@ class ProdDeployer(BaseDeployer):
                 "Some services may need more time to become healthy. "
                 "Check logs with: docker compose -f docker-compose.prod.yml logs [service]"
             )
+
+
+def get_deployer() -> ProdDeployer:
+    """Factory function to get the production deployer.
+
+
+    Returns:
+        An instance of ProdDeployer
+    """
+    return ProdDeployer(console, get_project_root())

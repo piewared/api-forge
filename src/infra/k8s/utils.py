@@ -30,18 +30,15 @@ def run_sync[T](coro: Coroutine[Any, Any, T]) -> T:
         pods = run_sync(controller.get_pods("my-namespace"))
     """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
+        # We're inside an async context with a running loop
+        # Create a new loop in a thread to avoid blocking
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
     except RuntimeError:
         # No running loop, create a new one
-        return asyncio.run(coro)
-    else:
-        # We're inside an async context, use run_until_complete
-        # This handles nested async calls
-        if loop.is_running():
-            # Create a new loop in a thread to avoid blocking
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result()
-        return loop.run_until_complete(coro)
+        result: T = asyncio.run(coro)
+        return result

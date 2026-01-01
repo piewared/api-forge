@@ -181,6 +181,55 @@ class Kr8sController(KubernetesController):
 
         return await asyncio.to_thread(_run)
 
+    async def resource_exists(
+        self,
+        resource_type: str,
+        name: str,
+        namespace: str,
+    ) -> bool:
+        """Check if a Kubernetes resource exists."""
+        import subprocess
+
+        def _run() -> bool:
+            result = subprocess.run(
+                ["kubectl", "get", resource_type, name, "-n", namespace],
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+
+        return await asyncio.to_thread(_run)
+
+    async def delete_resource(
+        self,
+        resource_type: str,
+        name: str,
+        namespace: str,
+        *,
+        cascade: str | None = None,
+        wait: bool = True,
+    ) -> CommandResult:
+        """Delete a specific Kubernetes resource by name."""
+        import subprocess
+
+        def _run() -> CommandResult:
+            cmd = ["kubectl", "delete", resource_type, name, "-n", namespace]
+            if cascade:
+                cmd.append(f"--cascade={cascade}")
+            if wait:
+                cmd.append("--wait=true")
+            else:
+                cmd.append("--wait=false")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return CommandResult(
+                success=result.returncode == 0,
+                stdout=result.stdout or "",
+                stderr=result.stderr or "",
+                returncode=result.returncode,
+            )
+
+        return await asyncio.to_thread(_run)
+
     async def delete_resources_by_label(
         self,
         resource_types: str,
@@ -188,6 +237,7 @@ class Kr8sController(KubernetesController):
         label_selector: str,
         *,
         force: bool = False,
+        cascade: str | None = None,
     ) -> CommandResult:
         """Delete Kubernetes resources matching a label selector.
 
@@ -206,6 +256,8 @@ class Kr8sController(KubernetesController):
         ]
         if force:
             cmd.extend(["--force", "--grace-period=0"])
+        if cascade:
+            cmd.append(f"--cascade={cascade}")
 
         def _run() -> CommandResult:
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -440,13 +492,30 @@ class Kr8sController(KubernetesController):
     # Pod Operations
     # =========================================================================
 
-    async def get_pods(self, namespace: str) -> list[PodInfo]:
-        """Get all pods in a namespace with their status."""
+    async def get_pods(
+        self,
+        namespace: str,
+        label_selector: str | None = None,
+    ) -> list[PodInfo]:
+        """Get all pods in a namespace with their status.
+
+        Args:
+            namespace: Kubernetes namespace to search
+            label_selector: Optional label selector to filter pods (e.g., "app=postgres")
+
+        Returns:
+            List of PodInfo objects matching the criteria
+        """
         try:
             api = await self._get_api()
             result = []
 
-            async for pod in Pod.list(namespace=namespace, api=api):
+            # kr8s Pod.list accepts label_selector as a dict or string
+            list_kwargs = {"namespace": namespace, "api": api}
+            if label_selector:
+                list_kwargs["label_selector"] = label_selector
+
+            async for pod in Pod.list(**list_kwargs):
                 metadata = pod.metadata
                 spec = pod.spec
                 status = pod.status
