@@ -16,7 +16,7 @@ class DbManageService:
     # Build the database URL with the resolved password
     def create_all(self) -> None:
         """Create all database tables."""
-        from sqlalchemy.exc import ProgrammingError
+        from sqlalchemy.exc import IntegrityError, ProgrammingError
         from sqlmodel import SQLModel
 
         get_metadata()  # Ensure all tables are imported and registered
@@ -24,9 +24,14 @@ class DbManageService:
         try:
             SQLModel.metadata.create_all(self._engine)
             logger.info("Database initialized with tables.")
-        except ProgrammingError as e:
+        except (ProgrammingError, IntegrityError) as e:
             # Handle race condition when multiple workers try to create tables
-            if "already exists" in str(e):
-                logger.debug("Tables already exist, skipping creation")
+            # ProgrammingError: relation already exists
+            # IntegrityError: duplicate key in pg_type catalog (partial table creation)
+            error_msg = str(e).lower()
+            if "already exists" in error_msg or "duplicate key" in error_msg:
+                logger.debug(
+                    f"Tables already exist or partially created, skipping: {type(e).__name__}"
+                )
             else:
                 raise
