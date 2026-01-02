@@ -1102,8 +1102,9 @@ print("✅ All imports successful")
                 self.run_command(
                     ["uv", "run", "api-forge-cli", "k8s", "db", "create", "--bundled"],
                     cwd=project_dir,
-                    timeout=600,  # 10 minutes - includes image build + Helm deployment
+                    timeout=720,  # 12 minutes - longer than Helm's 10m timeout to see error messages
                     env=create_env,
+                    stream_output=True,  # Show real-time output for debugging
                 )
                 print("✅ PostgreSQL database created and initialized")
             except Exception as e:
