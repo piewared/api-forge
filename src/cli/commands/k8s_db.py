@@ -278,6 +278,25 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     sync.copy_config_files(progress_factory=Progress)
     console.ok("Config files copied")
 
+    # Step 1.6: Build and load PostgreSQL image
+    console.info("Building PostgreSQL image...")
+    from src.cli.deployment.helm_deployer.image_builder import ImageBuilder
+
+    image_builder = ImageBuilder(
+        console=console,
+        commands=commands,
+        controller=controller,
+        paths=paths,
+        constants=constants,
+    )
+
+    # Build images and load into cluster (Minikube/Kind)
+    image_tag = image_builder.build_and_tag_images(
+        progress_factory=Progress,
+        registry=None,  # Local cluster, no registry needed
+    )
+    console.ok(f"PostgreSQL image built and loaded: {image_tag}")
+
     # Step 2: Deploy PostgreSQL
     # Try standalone bundled chart first, fallback to Bitnami
     standalone_chart_path = paths.postgres_standalone_chart
@@ -412,7 +431,7 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
         namespace,
         "--create-namespace",
         "--timeout",
-        "15m",  # Increased for CI environments where K8s operations can be slow
+        "10m",
     ]
 
     if values_file:
