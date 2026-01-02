@@ -227,7 +227,7 @@ jobs:
       
       - name: Run Kubernetes E2E tests (Helm deployment)
         run: |
-          uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_08_kubernetes_deployment -v -s --tb=short
+          uv run pytest tests/e2e/test_copier_to_deployment.py::TestCopierToDeployment::test_08_kubernetes_deployment -v -s --tb=short -n0
       
       - name: Get Helm and Kubernetes logs on failure
         if: failure()

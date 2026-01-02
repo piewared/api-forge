@@ -986,32 +986,39 @@ print("✅ All imports successful")
     @pytest.mark.k8s
     def test_08_kubernetes_deployment(self):
         """Test 8: Deploy to Kubernetes."""
-        print(f"\n{'=' * 80}")
-        print("TEST 8: Kubernetes Deployment")
-        print(f"{'=' * 80}")
+        import sys
+
+        print(f"\n{'=' * 80}", flush=True)
+        print("TEST 8: Kubernetes Deployment", flush=True)
+        print(f"{'=' * 80}", flush=True)
+        sys.stdout.flush()
 
         # Access class variables set by setup_project fixture
         project_dir = TestCopierToDeployment._project_dir
         project_name = TestCopierToDeployment._project_name
 
         # Check if kubectl is available
+        print("🔍 Checking for kubectl...", flush=True)
         try:
             result = self.run_command(
                 ["kubectl", "version", "--client"], cwd=project_dir
             )
+            print("✅ kubectl available", flush=True)
         except Exception as e:
             pytest.skip(f"kubectl not available: {e}")
 
         # Check if k8s cluster is available
+        print("🔍 Checking Kubernetes cluster...", flush=True)
         result = self.run_command(
             ["kubectl", "cluster-info"], cwd=project_dir, check=False
         )
         if result.returncode != 0:
             pytest.skip("Kubernetes cluster not available")
+        print("✅ Kubernetes cluster available", flush=True)
 
         try:
             # Clean up any previous K8s deployment first
-            print("\n🧹 Cleaning up any previous K8s deployment...")
+            print("\n🧹 Cleaning up any previous K8s deployment...", flush=True)
             self.run_command(
                 ["kubectl", "delete", "namespace", "api-forge-prod", "--wait=true"],
                 cwd=project_dir,
@@ -1020,19 +1027,21 @@ print("✅ All imports successful")
             )
 
             # Setup .env file (required for K8s deployment)
+            print("\n📝 Setting up .env file...", flush=True)
             env_example = project_dir / ".env.example"
             env_file = project_dir / ".env"
 
             if env_example.exists():
-                print("📝 Creating .env from .env.example...")
+                print("📝 Creating .env from .env.example...", flush=True)
                 shutil.copy(env_example, env_file)
             else:
-                print("⚠️  .env.example not found, creating minimal .env...")
+                print("⚠️  .env.example not found, creating minimal .env...", flush=True)
                 env_file.write_text("APP_ENVIRONMENT=production\n")
 
             # Ensure secrets are generated (K8s deployment needs them)
             # If test_06 already ran, secrets will exist and --force will regenerate
             # If running test_08 alone, this ensures secrets are available
+            print("\n🔐 Checking secrets...", flush=True)
             secrets_base = project_dir / "infra" / "secrets"
             keys_dir = secrets_base / "keys"
             session_secret_file = keys_dir / "session_signing_secret.txt"
@@ -1040,7 +1049,7 @@ print("✅ All imports successful")
             # Check for actual secret files, not just directory existence
             # (keys_dir may exist empty from Copier template structure)
             if not session_secret_file.exists():
-                print("🔐 Generating secrets for K8s deployment...")
+                print("🔐 Generating secrets for K8s deployment...", flush=True)
                 self.run_command(
                     [
                         "uv",
@@ -1081,12 +1090,16 @@ print("✅ All imports successful")
                         f"Actual: {actual_value}\n"
                         f"This means the secret came from environment variables instead of CLI flags."
                     )
-                print("✅ OIDC secrets verified: Correct values (from CLI, not env)")
+                print(
+                    "✅ OIDC secrets verified: Correct values (from CLI, not env)",
+                    flush=True,
+                )
             else:
-                print("✅ Secrets already exist (from test_06)")
+                print("✅ Secrets already exist (from test_06)", flush=True)
 
             # Create and initialize bundled PostgreSQL database
-            print("\n🗄️  Creating bundled PostgreSQL database...")
+            print("\n🗄️ Preparing PostgreSQL deployment...", flush=True)
+            sys.stdout.flush()
 
             # Sanitize environment: prevent template repo secrets from leaking
             # into the generated project subprocess. The generated project has
@@ -1097,7 +1110,8 @@ print("✅ All imports successful")
                 if key.startswith("POSTGRES_"):
                     create_env.pop(key, None)
 
-            print("\n🗄️  Creating bundled PostgreSQL database...")
+            print("🗄️  Starting PostgreSQL database creation...", flush=True)
+            sys.stdout.flush()
             try:
                 self.run_command(
                     ["uv", "run", "api-forge-cli", "k8s", "db", "create", "--bundled"],
