@@ -1100,7 +1100,7 @@ print("✅ All imports successful")
             self.run_command(
                 ["uv", "run", "api-forge-cli", "k8s", "db", "create", "--bundled"],
                 cwd=project_dir,
-                timeout=300,  # 5 minutes for database creation and init
+                timeout=600,  # 10 minutes for database creation in CI (K8s can be slow)
                 env=create_env,
             )
             print("✅ PostgreSQL database created and initialized")

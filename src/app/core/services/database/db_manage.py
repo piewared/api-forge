@@ -16,9 +16,17 @@ class DbManageService:
     # Build the database URL with the resolved password
     def create_all(self) -> None:
         """Create all database tables."""
+        from sqlalchemy.exc import ProgrammingError
         from sqlmodel import SQLModel
 
         get_metadata()  # Ensure all tables are imported and registered
 
-        SQLModel.metadata.create_all(self._engine)
-        logger.info("Database initialized with tables.")
+        try:
+            SQLModel.metadata.create_all(self._engine)
+            logger.info("Database initialized with tables.")
+        except ProgrammingError as e:
+            # Handle race condition when multiple workers try to create tables
+            if "already exists" in str(e):
+                logger.debug("Tables already exist, skipping creation")
+            else:
+                raise
