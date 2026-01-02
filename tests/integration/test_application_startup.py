@@ -45,6 +45,10 @@ class TestApplicationStartup:
             async def init(redis):
                 init_called["called"] = True
 
+        # Mock init_db to avoid database conflicts in parallel tests
+        def mock_init_db():
+            pass
+
         # Monkeypatch dependencies
         monkeypatch.setattr(application, "FastAPILimiter", DummyLimiter)
         monkeypatch.setattr(
@@ -52,6 +56,7 @@ class TestApplicationStartup:
             "redis_async",
             type("_m", (), {"from_url": staticmethod(fake_from_url)}),
         )
+        monkeypatch.setattr(application, "init_db", mock_init_db)
 
         # Call startup within the test context
         with with_context(config_override=test_config):
@@ -76,9 +81,14 @@ class TestApplicationStartup:
         test_config.redis.url = "redis://localhost:6379/0"
         test_config.redis.enabled = False  # Disable Redis
 
+        # Mock init_db to avoid database conflicts in parallel tests
+        def mock_init_db():
+            pass
+
         # Simulate missing dependencies
         monkeypatch.setattr(application, "FastAPILimiter", None)
         monkeypatch.setattr(application, "redis_async", None)
+        monkeypatch.setattr(application, "init_db", mock_init_db)
 
         with with_context(config_override=test_config):
             await application.startup()
