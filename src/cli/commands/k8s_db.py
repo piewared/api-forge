@@ -411,6 +411,8 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
         "-n",
         namespace,
         "--create-namespace",
+        "--timeout",
+        "15m",  # Increased for CI environments where K8s operations can be slow
     ]
 
     if values_file:
