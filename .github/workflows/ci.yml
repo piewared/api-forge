@@ -37,7 +37,7 @@ jobs:
     - name: Start dev environment services
       run: |
         # Deploy dev environment (blocks until services are ready)
-        uv run api-forge-cli deploy up --no-start-server dev
+        uv run api-forge-cli dev up --no-start-server
 
     - name: Run tests
       run: |
@@ -70,7 +70,7 @@ jobs:
     - name: Stop dev environment
       if: always()
       run: |
-        uv run api-forge-cli deploy down dev
+        uv run api-forge-cli dev down
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
