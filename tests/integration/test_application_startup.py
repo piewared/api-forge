@@ -56,7 +56,7 @@ class TestApplicationStartup:
             "redis_async",
             type("_m", (), {"from_url": staticmethod(fake_from_url)}),
         )
-        monkeypatch.setattr(application, "init_db", mock_init_db)
+        monkeypatch.setattr("src.app.runtime.init_db.init_db", mock_init_db)
 
         # Call startup within the test context
         with with_context(config_override=test_config):
@@ -88,7 +88,7 @@ class TestApplicationStartup:
         # Simulate missing dependencies
         monkeypatch.setattr(application, "FastAPILimiter", None)
         monkeypatch.setattr(application, "redis_async", None)
-        monkeypatch.setattr(application, "init_db", mock_init_db)
+        monkeypatch.setattr("src.app.runtime.init_db.init_db", mock_init_db)
 
         with with_context(config_override=test_config):
             await application.startup()
