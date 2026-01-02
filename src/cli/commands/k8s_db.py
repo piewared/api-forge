@@ -4,6 +4,7 @@ This module provides db subcommands under 'k8s' for managing PostgreSQL
 databases in Kubernetes/Helm environments.
 """
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Annotated
@@ -335,16 +336,30 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     if controller.resource_exists(
         "statefulset", constants.POSTGRES_RESOURCE_NAME, namespace
     ):
-        console.warn(f"StatefulSet '{constants.POSTGRES_RESOURCE_NAME}' already exists")
-        console.print(
-            "[yellow]⚠[/yellow]  This may cause conflicts if template changed immutable fields"
-        )
-        action = console.prompt_resource_conflict(
-            resource_type="StatefulSet",
-            resource_name=constants.POSTGRES_RESOURCE_NAME,
-            namespace=namespace,
-            data_warning=True,
-        )
+        import sys
+
+        # In CI environments (non-interactive), auto-recreate to avoid hanging
+        is_ci = not sys.stdin.isatty() or os.environ.get("CI") == "true"
+
+        if is_ci:
+            console.warn(
+                f"StatefulSet '{constants.POSTGRES_RESOURCE_NAME}' already exists "
+                "(CI mode: auto-recreating)"
+            )
+            action = "recreate"
+        else:
+            console.warn(
+                f"StatefulSet '{constants.POSTGRES_RESOURCE_NAME}' already exists"
+            )
+            console.print(
+                "[yellow]⚠[/yellow]  This may cause conflicts if template changed immutable fields"
+            )
+            action = console.prompt_resource_conflict(
+                resource_type="StatefulSet",
+                resource_name=constants.POSTGRES_RESOURCE_NAME,
+                namespace=namespace,
+                data_warning=True,
+            )
 
         if action == "abort":
             console.error("Deployment aborted by user")
