@@ -160,6 +160,18 @@ Production-ready Kubernetes manifests with:
 
 [Deploy to Kubernetes →](./fastapi-kubernetes-deployment.md)
 
+### Database Migrations
+
+Integrated Alembic migrations with automatic model discovery:
+
+- Auto-detects all SQLModel tables
+- Port-forwarding support for Kubernetes PostgreSQL
+- CLI integration for bundled and external databases
+- Autogeneration from model changes
+- Production-safe rollback support
+
+[Manage database migrations →](./database-migrations.md)
+
 ### Temporal Workflows
 
 Built-in support for distributed workflows:
@@ -181,6 +193,12 @@ uv run api-forge-cli deploy up dev       # Start Docker services
 uv run api-forge-cli deploy down dev     # Stop services
 uv run api-forge-cli deploy status dev   # Check service status
 uvicorn src_main:app --reload           # Start FastAPI server
+
+# Database migrations
+uv run api-forge-cli k8s db migrate upgrade             # Apply migrations
+uv run api-forge-cli k8s db migrate revision "message"  # Create migration
+uv run api-forge-cli k8s db migrate current             # Show current state
+uv run api-forge-cli k8s db migrate history             # View history
 
 # Entity generation
 uv run api-forge-cli entity add User     # Generate entity scaffold
@@ -251,4 +269,5 @@ MIT License - see [LICENSE](../LICENSE) for details.
 1. **[Set up your development environment](./fastapi-docker-dev-environment.md)**
 2. **[Understand authentication](./fastapi-auth-oidc-bff.md)**
 3. **[Explore the architecture](./fastapi-clean-architecture-overview.md)**
-4. **[Deploy to production](./fastapi-kubernetes-deployment.md)**
+4. **[Manage database migrations](./database-migrations.md)**
+5. **[Deploy to production](./fastapi-kubernetes-deployment.md)**

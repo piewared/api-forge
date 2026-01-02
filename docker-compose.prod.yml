@@ -9,6 +9,7 @@ x-entrypoint-common-vars: &entrypoint-common-vars
 services:
   postgres:
     container_name: api-forge-postgres
+    profiles: ["postgres"]  # Only started via db create command
     image: app_data_postgres_image
     build:
       context: ./infra/docker/prod
@@ -58,38 +59,15 @@ services:
       - ./infra/docker/prod/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./infra/docker/prod/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$APP_DB_USER $${APP_DB:+-d $$APP_DB} -h 127.0.0.1"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1"]
       interval: 5s
       timeout: 5s
       retries: 20
     networks: [backend]
 
-  postgres-verifier:
-    container_name: api-forge-postgres-verifier
-    image: postgres:15
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: no
-    env_file:
-      - .env
-    secrets:
-      - postgres_app_user_pw          # for APP_USER auth
-      - postgres_password             # ⬅️ superuser (postgres) password, used only for pg_hba checks
-    volumes:
-      - ./infra/docker/prod/postgres/verify-init.sh:/verify.sh:ro
-    entrypoint: /bin/sh
-    command:
-      - -ec
-      - |
-        set -euo pipefail
-        export PGPASSWORD="$(cat /run/secrets/postgres_app_user_pw)"      # APP_USER for most checks
-        export PGSU_PASSWORD="$(cat /run/secrets/postgres_password)"      # ⬅️ superuser just for pg_hba checks
-        exec /verify.sh
-    networks:
-      - backend
+  # NOTE: postgres-verifier has been replaced by the CLI `db verify` command.
+  # Run `uv run api-forge-cli db verify` to verify PostgreSQL setup.
 
-  
   # Redis Cache/Session Store
   redis:
     container_name: api-forge-redis
@@ -126,9 +104,6 @@ services:
     container_name: api-forge-temporal-schema-setup
     image: temporalio/admin-tools:1.29.0-tctl-1.18.4-cli-1.4.2
     user: "0:0"  # Run as root to read Docker secrets and copy them
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: "no"
     networks: [backend]
     environment:
@@ -142,13 +117,15 @@ services:
       # Temporal schema setup config
       TEMPORAL_DB: ${TEMPORAL_DB:-temporal}
       TEMPORAL_VIS_DB: ${TEMPORAL_VIS_DB:-temporal_visibility}
-      EP: postgres
+      # EP is parsed from PRODUCTION_DATABASE_URL if not set (supports bundled & external)
+      EP: ${PG_HOST:-}
+      PRODUCTION_DATABASE_URL: ${PRODUCTION_DATABASE_URL:-}
       TEMPORAL_DB_USER: ${TEMPORAL_DB_USER:-temporaluser}
       PW_FILE: /tmp/secrets/postgres_temporal_pw  # Points to copied secret
 
       # TLS settings - adjust as needed (can be overridden via .env)
       TLS_ENABLE: ${TEMPORAL_TLS_ENABLE:-true}
-      SSL_MODE: ${TEMPORAL_SSL_MODE:-verify-ca}                # or 'require' / 'verify-full'
+      SSL_MODE: ${TEMPORAL_SSL_MODE:-verify-ca}                # verify-ca validates cert against CA bundle
       TLS_CA_FILE: /tmp/certs/ca-bundle.crt  # Points to copied cert
       
       # Optional overrides:
@@ -199,8 +176,6 @@ services:
       dockerfile: ./infra/docker/prod/temporal/Dockerfile
     image: my-temporal-server:latest
     depends_on:
-      postgres:
-        condition: service_healthy
       temporal-schema-setup:
         condition: service_completed_successfully
     environment:
@@ -216,23 +191,25 @@ services:
       # Temporal server config
       SERVICES: "history,matching,worker,frontend"
       DB: 'postgres12'
-      POSTGRES_SEEDS: postgres
+      # POSTGRES_SEEDS parsed from PRODUCTION_DATABASE_URL by entrypoint if not set
+      POSTGRES_SEEDS: ${PG_HOST:-}
+      PRODUCTION_DATABASE_URL: ${PRODUCTION_DATABASE_URL:-}
       POSTGRES_USER: ${TEMPORAL_DB_USER:-temporaluser}
       POSTGRES_DB: ${TEMPORAL_DB:-temporal}
       # POSTGRES_PWD will be set by wrapper script from POSTGRES_TEMPORAL_PW
       SQL_TLS_ENABLED: "true"
       SQL_CA: /tmp/certs/ca-bundle.crt  # Points to copied cert
-      SQL_HOST_VERIFICATION: "true"
-      SQL_HOST_NAME: postgres
+      SQL_HOST_VERIFICATION: ${TEMPORAL_SQL_HOST_VERIFICATION:-true}  # Verify cert hostname matches
+      SQL_HOST_NAME: ${PG_HOST:-}  # Parsed from PRODUCTION_DATABASE_URL by entrypoint
       BIND_ON_IP: "0.0.0.0"
 
       #Performance Tuning (optional)
-      NUM_HISTORY_SHARDS: 64
+      NUM_HISTORY_SHARDS: 4
 
       # Temporal DB settings
       DBNAME: ${TEMPORAL_DB:-temporal}
       VISIBILITY_DBNAME: ${TEMPORAL_VIS_DB:-temporal_visibility}
-      DB_PORT: 5432
+      DB_PORT: ${PG_PORT:-5432}  # Parsed from PRODUCTION_DATABASE_URL by entrypoint
     healthcheck:
       # Probes Temporal's gRPC health endpoint on the frontend (7233)
       test: ["CMD", "grpc_health_probe", "-addr=127.0.0.1:7233", "-service=temporal.api.workflowservice.v1.WorkflowService"]
@@ -294,8 +271,6 @@ services:
       dockerfile: Dockerfile
     image: api-forge-app:latest
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_started
       temporal:
@@ -382,8 +357,6 @@ services:
       dockerfile: Dockerfile
     image: api-forge-app:latest
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_started
       temporal:

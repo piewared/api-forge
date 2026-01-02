@@ -24,10 +24,11 @@ Usage:
 
 from pathlib import Path
 
+from src.utils.paths import get_project_root
+
 from .docker import DockerCommands
 from .git import GitCommands
 from .helm import HelmCommands
-from .kubectl import KubectlCommands
 from .runner import CommandRunner
 from .types import (
     CommandResult,
@@ -57,20 +58,19 @@ class ShellCommands:
         ...     commands.helm.upgrade_install("my-release", chart_path, namespace)
     """
 
-    def __init__(self, project_root: Path) -> None:
+    def __init__(self, project_root: Path | None = None) -> None:
         """Initialize the shell commands executor.
 
         Args:
             project_root: Path to the project root directory.
                          Commands will be executed from this directory by default.
         """
-        self._project_root = Path(project_root)
+        self._project_root = Path(project_root) if project_root else get_project_root()
         self._runner = CommandRunner(self._project_root)
 
         # Initialize specialized command modules
         self.docker = DockerCommands(self._runner)
         self.helm = HelmCommands(self._runner)
-        self.kubectl = KubectlCommands(self._runner)
         self.git = GitCommands(self._runner)
 
     @property
@@ -104,15 +104,6 @@ class ShellCommands:
         """Push a Docker image. See docker.push_image."""
         return self.docker.push_image(image_tag)
 
-    # Cluster detection
-    def is_minikube_context(self) -> bool:
-        """Check if using Minikube. See kubectl.is_minikube_context."""
-        return self.kubectl.is_minikube_context()
-
-    def get_current_context(self) -> str:
-        """Get current kubectl context. See kubectl.get_current_context."""
-        return self.kubectl.get_current_context()
-
     # Image loading
     def minikube_load_image(self, image_tag: str) -> CommandResult:
         """Load image into Minikube. See docker.minikube_load_image."""
@@ -141,54 +132,6 @@ class ShellCommands:
         """Get stuck Helm releases. See helm.get_stuck_releases."""
         return self.helm.get_stuck_releases(*args, **kwargs)
 
-    # kubectl namespace/resource commands
-    def kubectl_delete_namespace(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Delete a namespace. See kubectl.delete_namespace."""
-        return self.kubectl.delete_namespace(*args, **kwargs)
-
-    def kubectl_delete_resources_by_label(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Delete resources by label. See kubectl.delete_resources_by_label."""
-        return self.kubectl.delete_resources_by_label(*args, **kwargs)
-
-    def kubectl_delete_helm_secrets(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Delete Helm secrets. See kubectl.delete_helm_secrets."""
-        return self.kubectl.delete_helm_secrets(*args, **kwargs)
-
-    # kubectl replicaset commands
-    def kubectl_get_replicasets(self, namespace: str) -> list[ReplicaSetInfo]:
-        """Get ReplicaSets. See kubectl.get_replicasets."""
-        return self.kubectl.get_replicasets(namespace)
-
-    def kubectl_delete_replicaset(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Delete a ReplicaSet. See kubectl.delete_replicaset."""
-        return self.kubectl.delete_replicaset(*args, **kwargs)
-
-    def kubectl_scale_replicaset(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Scale a ReplicaSet. See kubectl.scale_replicaset."""
-        return self.kubectl.scale_replicaset(*args, **kwargs)
-
-    # kubectl deployment commands
-    def kubectl_get_deployments(self, namespace: str) -> list[str]:
-        """Get deployments. See kubectl.get_deployments."""
-        return self.kubectl.get_deployments(namespace)
-
-    def kubectl_rollout_restart(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Restart a rollout. See kubectl.rollout_restart."""
-        return self.kubectl.rollout_restart(*args, **kwargs)
-
-    def kubectl_rollout_status(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Get rollout status. See kubectl.rollout_status."""
-        return self.kubectl.rollout_status(*args, **kwargs)
-
-    def kubectl_get_deployment_revision(self, *args, **kwargs) -> str | None:  # type: ignore[no-untyped-def]
-        """Get deployment revision. See kubectl.get_deployment_revision."""
-        return self.kubectl.get_deployment_revision(*args, **kwargs)
-
-    # kubectl pod commands
-    def kubectl_wait_for_pods(self, *args, **kwargs) -> CommandResult:  # type: ignore[no-untyped-def]
-        """Wait for pods. See kubectl.wait_for_pods."""
-        return self.kubectl.wait_for_pods(*args, **kwargs)
-
     # Git commands
     def git_get_status(self) -> GitStatus:
         """Get git status. See git.get_status."""
@@ -215,7 +158,6 @@ __all__ = [
     # Specialized command classes for direct usage
     "DockerCommands",
     "HelmCommands",
-    "KubectlCommands",
     "GitCommands",
     "CommandRunner",
 ]

@@ -1,0 +1,10 @@
+# Generated files copied during deployment
+# These are copied from the project root and should not be committed
+.env
+config.yaml
+postgresql.conf
+pg_hba.conf
+verify-init.sh
+01-init-app.sh
+universal-entrypoint.sh
+temporal/

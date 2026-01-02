@@ -20,22 +20,32 @@ Example:
     pods = run_sync(kr8s_controller.get_pods("my-namespace"))
 """
 
+from ..constants import DeploymentConstants, DeploymentPaths
 from .controller import (
     ClusterIssuerStatus,
     CommandResult,
     JobInfo,
     KubernetesController,
+    KubernetesControllerSync,
     PodInfo,
     ReplicaSetInfo,
     ServiceInfo,
 )
+from .helpers import (
+    get_k8s_controller,
+    get_k8s_controller_sync,
+    get_namespace,
+    get_postgres_label,
+)
 from .kr8s_controller import Kr8sController
 from .kubectl_controller import KubectlController
+from .port_forward import with_postgres_port_forward
 from .utils import run_sync
 
 __all__ = [
     # Controller classes
     "KubernetesController",
+    "KubernetesControllerSync",
     "KubectlController",
     "Kr8sController",
     # Data classes
@@ -47,4 +57,12 @@ __all__ = [
     "ClusterIssuerStatus",
     # Utilities
     "run_sync",
+    "with_postgres_port_forward",
+    "get_k8s_controller",
+    "get_k8s_controller_sync",
+    "get_namespace",
+    "get_postgres_label",
+    # Constants
+    "DeploymentConstants",
+    "DeploymentPaths",
 ]

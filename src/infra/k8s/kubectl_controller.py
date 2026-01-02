@@ -116,6 +116,35 @@ class KubectlController(KubernetesController):
         """Apply a Kubernetes manifest file."""
         return await self._run_kubectl(["apply", "-f", str(manifest_path)])
 
+    async def resource_exists(
+        self,
+        resource_type: str,
+        name: str,
+        namespace: str,
+    ) -> bool:
+        """Check if a Kubernetes resource exists."""
+        result = await self._run_kubectl(["get", resource_type, name, "-n", namespace])
+        return result.success
+
+    async def delete_resource(
+        self,
+        resource_type: str,
+        name: str,
+        namespace: str,
+        *,
+        cascade: str | None = None,
+        wait: bool = True,
+    ) -> CommandResult:
+        """Delete a specific Kubernetes resource by name."""
+        args = ["delete", resource_type, name, "-n", namespace]
+        if cascade:
+            args.append(f"--cascade={cascade}")
+        if wait:
+            args.append("--wait=true")
+        else:
+            args.append("--wait=false")
+        return await self._run_kubectl(args)
+
     async def delete_resources_by_label(
         self,
         resource_types: str,
@@ -123,6 +152,7 @@ class KubectlController(KubernetesController):
         label_selector: str,
         *,
         force: bool = False,
+        cascade: str | None = None,
     ) -> CommandResult:
         """Delete Kubernetes resources matching a label selector."""
         args = [
@@ -135,6 +165,8 @@ class KubectlController(KubernetesController):
         ]
         if force:
             args.extend(["--force", "--grace-period=0"])
+        if cascade:
+            args.append(f"--cascade={cascade}")
         return await self._run_kubectl(args)
 
     async def delete_helm_secrets(
@@ -326,9 +358,25 @@ class KubectlController(KubernetesController):
     # Pod Operations
     # =========================================================================
 
-    async def get_pods(self, namespace: str) -> list[PodInfo]:
-        """Get all pods in a namespace with their status."""
-        result = await self._run_kubectl(["get", "pods", "-n", namespace, "-o", "json"])
+    async def get_pods(
+        self,
+        namespace: str,
+        label_selector: str | None = None,
+    ) -> list[PodInfo]:
+        """Get all pods in a namespace with their status.
+
+        Args:
+            namespace: Kubernetes namespace to search
+            label_selector: Optional label selector to filter pods (e.g., "app=postgres")
+
+        Returns:
+            List of PodInfo objects matching the criteria
+        """
+        args = ["get", "pods", "-n", namespace, "-o", "json"]
+        if label_selector:
+            args.extend(["-l", label_selector])
+
+        result = await self._run_kubectl(args)
         if not result.success or not result.stdout:
             return []
 

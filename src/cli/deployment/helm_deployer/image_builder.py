@@ -14,13 +14,19 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .constants import DeploymentConstants
+from src.cli.shared.console import CLIConsole
+from src.infra.constants import DeploymentConstants, DeploymentPaths
+from src.infra.k8s import get_k8s_controller_sync
+from src.infra.k8s.controller import KubernetesControllerSync
+from src.utils.paths import get_project_root
 
 if TYPE_CHECKING:
-    from rich.console import Console
     from rich.progress import Progress
 
     from ..shell_commands import ShellCommands
+
+
+CONTROLLER = get_k8s_controller_sync()
 
 
 class DeploymentError(Exception):
@@ -48,9 +54,10 @@ class ImageBuilder:
 
     def __init__(
         self,
+        console: CLIConsole,
         commands: ShellCommands,
-        console: Console,
-        project_root: Path,
+        controller: KubernetesControllerSync = CONTROLLER,
+        paths: DeploymentPaths | None = None,
         constants: DeploymentConstants | None = None,
     ) -> None:
         """Initialize the image builder.
@@ -61,10 +68,12 @@ class ImageBuilder:
             project_root: Path to project root
             constants: Optional deployment constants (uses defaults if not provided)
         """
-        self.commands = commands
-        self.console = console
-        self.project_root = project_root
-        self.constants = constants or DeploymentConstants()
+        self._commands = commands
+        self._controller = controller
+        self._console = console
+        self._paths = paths or DeploymentPaths(get_project_root())
+        self._constants = constants or DeploymentConstants()
+        self._project_root = self._paths.project_root
 
     def build_and_tag_images(
         self,
@@ -85,14 +94,14 @@ class ImageBuilder:
         Returns:
             Content-based image tag (e.g., "git-abc1234" or "hash-def5678")
         """
-        self.console.print("[bold cyan]🔨 Building Docker images...[/bold cyan]")
+        self._console.print("[bold cyan]🔨 Building Docker images...[/bold cyan]")
 
         image_tag = self._generate_content_tag()
-        self.console.print(f"[dim]Using image tag: {image_tag}[/dim]")
+        self._console.print(f"[dim]Using image tag: {image_tag}[/dim]")
 
         # Skip rebuild only if ALL images exist with this tag
         if self._all_images_exist(image_tag):
-            self.console.print(
+            self._console.print(
                 f"[yellow]✓ All images with tag {image_tag} already exist, "
                 "skipping build[/yellow]"
             )
@@ -104,26 +113,26 @@ class ImageBuilder:
             transient=True,
         ) as progress:
             task = progress.add_task("Building images...", total=1)
-            self.commands.docker.compose_build()
+            self._commands.docker.compose_build()
             progress.update(task, completed=1)
 
         # Tag app image with content-based tag
-        self.commands.docker.tag_image(
-            f"{self.constants.APP_IMAGE_NAME}:latest",
-            f"{self.constants.APP_IMAGE_NAME}:{image_tag}",
+        self._commands.docker.tag_image(
+            f"{self._constants.APP_IMAGE_NAME}:latest",
+            f"{self._constants.APP_IMAGE_NAME}:{image_tag}",
         )
 
         # Tag infrastructure images with the same content-based tag
         # This ensures Kubernetes always pulls the correct version
-        for infra_image in self.constants.infra_image_names:
-            if self.commands.docker.image_exists(f"{infra_image}:latest"):
-                self.commands.docker.tag_image(
+        for infra_image in self._constants.infra_image_names:
+            if self._commands.docker.image_exists(f"{infra_image}:latest"):
+                self._commands.docker.tag_image(
                     f"{infra_image}:latest",
                     f"{infra_image}:{image_tag}",
                 )
-                self.console.print(f"[dim]Tagged {infra_image}:{image_tag}[/dim]")
+                self._console.print(f"[dim]Tagged {infra_image}:{image_tag}[/dim]")
 
-        self.console.print(
+        self._console.print(
             f"[green]✓ Docker images built and tagged: {image_tag}[/green]"
         )
 
@@ -142,12 +151,12 @@ class ImageBuilder:
             Tag string (e.g., "git-a1b2c3d", "hash-123456789abc", "ts-1234567890")
         """
         # Try git-based tag for clean repositories
-        git_status = self.commands.git.get_status()
+        git_status = self._commands.git.get_status()
         if git_status.is_git_repo and git_status.is_clean and git_status.short_sha:
-            self.console.print("[dim]✓ Clean git state, using commit SHA[/dim]")
+            self._console.print("[dim]✓ Clean git state, using commit SHA[/dim]")
             return f"git-{git_status.short_sha}"
         elif git_status.is_git_repo:
-            self.console.print(
+            self._console.print(
                 "[dim]⚠ Uncommitted changes detected, using content hash[/dim]"
             )
 
@@ -184,7 +193,7 @@ class ImageBuilder:
                         files_hashed += 1
 
             # Hash infrastructure files (Dockerfiles, scripts, configs)
-            infra_docker_dir = self.project_root / "infra" / "docker" / "prod"
+            infra_docker_dir = self._paths.docker_prod
             if infra_docker_dir.exists():
                 for infra_file in sorted(infra_docker_dir.rglob("*")):
                     if infra_file.is_file() and self._is_infra_source_file(infra_file):
@@ -193,7 +202,7 @@ class ImageBuilder:
 
             # Also hash the main Dockerfile and docker-compose files
             for docker_file in ["Dockerfile", "docker-compose.prod.yml"]:
-                path = self.project_root / docker_file
+                path = self._project_root / docker_file
                 if path.exists():
                     hasher.update(path.read_bytes())
                     files_hashed += 1
@@ -203,7 +212,7 @@ class ImageBuilder:
 
             return hasher.hexdigest()[:12]
         except Exception as e:
-            self.console.print(f"[dim]Could not compute content hash: {e}[/dim]")
+            self._console.print(f"[dim]Could not compute content hash: {e}[/dim]")
             return None
 
     def _is_infra_source_file(self, path: Path) -> bool:
@@ -252,7 +261,7 @@ class ImageBuilder:
         }
 
         packages = []
-        for path in self.project_root.iterdir():
+        for path in self._project_root.iterdir():
             if path.is_dir() and path.name not in excluded_dirs:
                 if (path / "__init__.py").exists():
                     packages.append(path)
@@ -269,8 +278,8 @@ class ImageBuilder:
         """
         all_images = self._get_all_images(image_tag)
         for image in all_images:
-            if not self.commands.docker.image_exists(image):
-                self.console.print(f"[dim]Image {image} not found, will rebuild[/dim]")
+            if not self._commands.docker.image_exists(image):
+                self._console.print(f"[dim]Image {image} not found, will rebuild[/dim]")
                 return False
         return True
 
@@ -283,10 +292,10 @@ class ImageBuilder:
         Returns:
             List of fully qualified image names with tags
         """
-        images = [f"{self.constants.APP_IMAGE_NAME}:{image_tag}"]
+        images = [f"{self._constants.APP_IMAGE_NAME}:{image_tag}"]
         # Use the same content-based tag for infra images to avoid stale image issues
         images.extend(
-            f"{name}:{image_tag}" for name in self.constants.infra_image_names
+            f"{name}:{image_tag}" for name in self._constants.infra_image_names
         )
         return images
 
@@ -309,10 +318,10 @@ class ImageBuilder:
             registry: Container registry URL for remote clusters
             progress_factory: Rich Progress class for creating progress bars
         """
-        context = self.commands.kubectl.get_current_context()
+        context = self._controller.get_current_context()
 
         # Determine cluster type and loading strategy
-        if self.commands.kubectl.is_minikube_context():
+        if self._controller.is_minikube_context():
             self._load_images_minikube(image_tag, progress_factory)
         elif "kind" in context.lower():
             self._load_images_kind(image_tag, progress_factory)
@@ -329,17 +338,17 @@ class ImageBuilder:
         self, image_tag: str, progress_factory: type[Progress]
     ) -> None:
         """Load Docker images into Minikube's internal registry."""
-        self.console.print("[bold cyan]📦 Loading images into Minikube...[/bold cyan]")
+        self._console.print("[bold cyan]📦 Loading images into Minikube...[/bold cyan]")
 
         images = self._get_all_images(image_tag)
 
         with progress_factory(transient=True) as progress:
             task = progress.add_task("Loading images...", total=len(images))
             for image in images:
-                self.commands.docker.minikube_load_image(image)
+                self._commands.docker.minikube_load_image(image)
                 progress.update(task, advance=1)
 
-        self.console.print(
+        self._console.print(
             f"[green]✓ Images loaded into Minikube with tag: {image_tag}[/green]"
         )
 
@@ -347,17 +356,17 @@ class ImageBuilder:
         self, image_tag: str, progress_factory: type[Progress]
     ) -> None:
         """Load Docker images into Kind cluster."""
-        self.console.print("[bold cyan]📦 Loading images into Kind...[/bold cyan]")
+        self._console.print("[bold cyan]📦 Loading images into Kind...[/bold cyan]")
 
         images = self._get_all_images(image_tag)
 
         with progress_factory(transient=True) as progress:
             task = progress.add_task("Loading images...", total=len(images))
             for image in images:
-                self.commands.docker.kind_load_image(image)
+                self._commands.docker.kind_load_image(image)
                 progress.update(task, advance=1)
 
-        self.console.print(
+        self._console.print(
             f"[green]✓ Images loaded into Kind with tag: {image_tag}[/green]"
         )
 
@@ -368,7 +377,9 @@ class ImageBuilder:
         progress_factory: type[Progress],
     ) -> None:
         """Push Docker images to a remote container registry."""
-        self.console.print(f"[bold cyan]📦 Pushing images to {registry}...[/bold cyan]")
+        self._console.print(
+            f"[bold cyan]📦 Pushing images to {registry}...[/bold cyan]"
+        )
 
         # Build list of (local_image, remote_image) pairs
         local_images = self._get_all_images(image_tag)
@@ -382,11 +393,11 @@ class ImageBuilder:
 
             for local_image, remote_image in image_pairs:
                 # Tag for registry
-                self.commands.docker.tag_image(local_image, remote_image)
+                self._commands.docker.tag_image(local_image, remote_image)
                 progress.update(task, advance=1)
 
                 # Push to registry
-                self.commands.docker.push_image(remote_image)
+                self._commands.docker.push_image(remote_image)
                 progress.update(task, advance=1)
 
-        self.console.print(f"[green]✓ Images pushed to {registry}[/green]")
+        self._console.print(f"[green]✓ Images pushed to {registry}[/green]")

@@ -1,0 +1,81 @@
+# =============================================================================
+# API Forge Bundled PostgreSQL Helm Chart Values
+# =============================================================================
+# This is a standalone PostgreSQL chart extracted from the main api-forge chart.
+# It can be deployed independently for users who want to manage the database
+# separately from the application.
+#
+# For managed PostgreSQL services (AWS RDS, Google Cloud SQL, etc.), skip this
+# chart and configure your application to connect to the external database.
+# =============================================================================
+
+global:
+  namespace: api-forge-prod
+  namePrefix: api-forge
+  imagePullPolicy: IfNotPresent
+
+postgres:
+  image:
+    repository: app_data_postgres_image
+    tag: latest
+  
+  replicas: 1
+  
+  database: appdb
+  username: appuser
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  
+  # Persistence configuration
+  persistence:
+    data:
+      enabled: true
+      size: 20Gi
+      storageClass: ""  # Use default storage class
+    backups:
+      enabled: true
+      size: 40Gi
+      storageClass: ""
+  
+  # PostgreSQL configuration
+  config:
+    maxConnections: 200
+    sharedBuffers: 256MB
+    effectiveCacheSize: 1GB
+  
+  # TLS Configuration
+  tls:
+    enabled: true
+    existingSecret: postgres-tls
+  
+  # CA Certificate for client verification (optional)
+  ca:
+    existingSecret: postgres-ca
+  
+  # Database secrets
+  secrets:
+    existingSecret: postgres-secrets
+  
+  # Pod Disruption Budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  
+  # Network Policy - restricts database access to authorized pods only
+  # Set enabled: true in production for better security
+  networkPolicy:
+    enabled: false
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: application
+      ports:
+      - protocol: TCP
+        port: 5432

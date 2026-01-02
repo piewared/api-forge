@@ -8,14 +8,16 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+
+from src.cli.deployment.health_checks import HealthChecker
+from src.cli.shared.console import CLIConsole
 
 
 class BaseDeployer(ABC):
     """Abstract base class for all deployers."""
 
-    def __init__(self, console: Console, project_root: Path):
+    def __init__(self, console: CLIConsole, project_root: Path):
         """Initialize the deployer.
 
         Args:
@@ -49,6 +51,80 @@ class BaseDeployer(ABC):
     def show_status(self) -> None:
         """Display the current status of the deployment."""
         pass
+
+    @abstractmethod
+    def deploy_secrets(self) -> bool:
+        """Deploy secrets for the environment.
+
+        Returns:
+            True if secrets were deployed successfully, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def restart_resource(self, label: str, resource_type: str, timeout: int) -> bool:
+        """Restart a resource and wait for it to be healthy.
+
+        Args:
+            label: Resource identifier (container name or k8s resource name)
+            resource_type: Type of resource ('statefulset' or 'deployment' for k8s, 'container' for docker-compose)
+            timeout: Maximum time to wait for resource to be healthy (in seconds)
+
+        Returns:
+            True if restart succeeded and resource is healthy, False otherwise
+        """
+        pass
+
+    def restart_container(
+        self, label: str, health_checker: HealthChecker, timeout: int = 120
+    ) -> bool:
+        """Restart a Docker container and wait for it to be healthy."""
+        self.info(f"Restarting container: {label}...")
+
+        stop_result = self.run_command(
+            ["docker", "stop", label],
+            check=False,
+            capture_output=True,
+        )
+
+        if stop_result and stop_result.returncode != 0:
+            self.console.print(f"[yellow]Warning: Could not stop {label}[/yellow]")
+
+        start_result = self.run_command(
+            ["docker", "start", label],
+            check=False,
+            capture_output=True,
+        )
+
+        if not start_result or start_result.returncode != 0:
+            self.console.print(f"[red]Failed to start {label}[/red]")
+            return False
+
+        self.console.print(f"[dim]Waiting for {label} to be healthy...[/dim]")
+
+        def check_health() -> bool:
+            is_healthy, _ = health_checker.check_container_health(label)
+            return is_healthy
+
+        is_healthy = health_checker.wait_for_condition(
+            check_health, timeout=timeout, interval=3, service_name=label
+        )
+
+        if is_healthy:
+            self.success(f"Container {label} restarted and healthy")
+            return True
+
+        result = self.run_command(
+            ["docker", "inspect", "-f", "{{.State.Running}}", label],
+            capture_output=True,
+            check=False,
+        )
+        if result and result.stdout and result.stdout.strip().lower() == "true":
+            self.success(f"Container {label} restarted and running (no healthcheck)")
+            return True
+
+        self.console.print(f"[red]Container {label} failed to become healthy[/red]")
+        return False
 
     def run_command(
         self,
@@ -131,7 +207,7 @@ class BaseDeployer(ABC):
         return Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            console=self.console,
+            console=self.console.console,
             transient=transient,
         )
 
@@ -141,7 +217,7 @@ class BaseDeployer(ABC):
         Args:
             message: The message to print
         """
-        self.console.print(f"[green]✅ {message}[/green]")
+        self.console.ok(message)
 
     def error(self, message: str) -> None:
         """Print an error message.
@@ -149,7 +225,7 @@ class BaseDeployer(ABC):
         Args:
             message: The message to print
         """
-        self.console.print(f"[red]❌ {message}[/red]")
+        self.console.error(message)
 
     def warning(self, message: str) -> None:
         """Print a warning message.
@@ -157,7 +233,7 @@ class BaseDeployer(ABC):
         Args:
             message: The message to print
         """
-        self.console.print(f"[yellow]⚠️  {message}[/yellow]")
+        self.console.warn(message)
 
     def info(self, message: str) -> None:
         """Print an info message.
@@ -165,7 +241,7 @@ class BaseDeployer(ABC):
         Args:
             message: The message to print
         """
-        self.console.print(f"[blue]ℹ {message}[/blue]")
+        self.console.info(message)
 
     def ensure_data_directories(
         self,

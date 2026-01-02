@@ -6,8 +6,8 @@ rather than by operation type (up, down, status).
 
 Command Groups:
 - dev: Development Docker Compose environment
-- prod: Production Docker Compose deployment
-- k8s: Kubernetes Helm deployment
+- prod: Production Docker Compose deployment (includes 'prod db' subcommands)
+- k8s: Kubernetes Helm deployment (includes 'k8s db' subcommands)
 - fly: Fly.io Kubernetes (coming soon)
 - entity: Entity/model scaffolding
 - secrets: Secret management
@@ -25,6 +25,7 @@ from .commands import (
     secrets_app,
     users_app,
 )
+from .context import build_cli_context
 
 # Create the main CLI application
 app = typer.Typer(
@@ -32,6 +33,14 @@ app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+
+
+@app.callback()
+def _configure_context(ctx: typer.Context) -> None:
+    """Attach runtime dependencies to the CLI context."""
+    if ctx.obj is None:
+        ctx.obj = build_cli_context()
+
 
 # Register deployment target command groups
 app.add_typer(dev_app, name="dev", help="Development environment commands")

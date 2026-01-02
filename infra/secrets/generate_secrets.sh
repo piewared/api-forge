@@ -337,11 +337,21 @@ create_ca_bundle() {
     local ca_bundle="$CERTS_DIR/ca-bundle.crt"
     local int_crt="$CERTS_DIR/intermediate-ca.crt"
     local root_crt="$CERTS_DIR/root-ca.crt"
+    local external_pg_ca="$CERTS_DIR/ca-bundle-postgres-external.crt"
     
     print_info "Creating CA bundle for client certificate validation..."
     
     # Create CA bundle (intermediate CA + root CA) for ssl_ca_file
     cat "$int_crt" "$root_crt" > "$ca_bundle"
+    
+    # Include external PostgreSQL CA if it exists (for Aiven, RDS, etc.)
+    if [ -f "$external_pg_ca" ]; then
+        print_info "Including external PostgreSQL CA certificate..."
+        echo "" >> "$ca_bundle"
+        echo "# External PostgreSQL CA Certificate" >> "$ca_bundle"
+        cat "$external_pg_ca" >> "$ca_bundle"
+    fi
+    
     chmod 644 "$ca_bundle"
     print_success "Created CA bundle: certs/ca-bundle.crt"
     print_info "Use this file for PostgreSQL ssl_ca_file parameter"

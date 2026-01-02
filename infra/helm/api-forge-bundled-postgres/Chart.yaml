@@ -1,0 +1,15 @@
+apiVersion: v2
+name: api-forge-bundled-postgres
+description: Production-ready PostgreSQL database for API Forge applications
+type: application
+version: 1.0.0
+appVersion: "15"
+keywords:
+  - postgresql
+  - database
+  - api-forge
+home: https://github.com/piewared/api_project_template
+sources:
+  - https://github.com/piewared/api_project_template
+maintainers:
+  - name: API Forge Team

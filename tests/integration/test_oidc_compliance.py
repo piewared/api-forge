@@ -11,8 +11,15 @@ from src.app.runtime.context import with_context
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """Create a test client for the FastAPI app."""
+
+    # Mock init_db to avoid database conflicts in parallel tests
+    def mock_init_db():
+        pass
+
+    monkeypatch.setattr("src.app.runtime.init_db.init_db", mock_init_db)
+
     with TestClient(app) as test_client:
         yield test_client
 

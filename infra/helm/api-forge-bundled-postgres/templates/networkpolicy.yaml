@@ -1,0 +1,31 @@
+{{- if .Values.postgres.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: api-forge-bundled-postgres
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  {{- range .Values.postgres.networkPolicy.ingress }}
+  - from:
+    {{- range .from }}
+    - podSelector:
+        matchLabels:
+          {{- toYaml .podSelector.matchLabels | nindent 10 }}
+    {{- end }}
+    ports:
+    {{- range .ports }}
+    - protocol: {{ .protocol }}
+      port: {{ .port }}
+    {{- end }}
+  {{- end }}
+{{- end }}

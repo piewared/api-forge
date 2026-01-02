@@ -98,8 +98,18 @@ class DockerCommands:
             >>> if result.success:
             ...     print("Build complete")
         """
+        from src.infra.utils.service_config import is_bundled_postgres_enabled
+
+        # Determine which services to build based on configuration
+        services_to_build = ["app", "worker", "redis", "temporal", "temporal-web"]
+
+        # Only build postgres if bundled postgres is enabled
+        # (postgres service is in a profile and causes dependency errors if not needed)
+        if is_bundled_postgres_enabled():
+            services_to_build.append("postgres")
+
         return self._runner.run(
-            ["docker", "compose", "-f", compose_file, "build"],
+            ["docker", "compose", "-f", compose_file, "build"] + services_to_build,
             capture_output=False,
         )
 

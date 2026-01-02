@@ -1,4 +1,14 @@
-{{- if .Values.postgres.enabled }}
+{{/*
+NOTE: postgres-verifier has been replaced by the CLI `db verify` command.
+Run `uv run api-forge-cli db verify` to verify PostgreSQL setup before deployment.
+
+The pre-deployment database check is now enforced by the `prod up` and `k8s up` commands,
+which fail if the database is not accessible (unless --skip-db-check is used).
+
+This template is kept for reference but is disabled by default.
+To re-enable, change the condition below to: if .Values.postgres.verifier.enabled
+*/}}
+{{- if false }}
 apiVersion: batch/v1
 kind: Job
 metadata:

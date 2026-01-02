@@ -1,4 +1,4 @@
-{{- if .Values.temporal.enabled }}
+{{- if and .Values.temporal.enabled .Values.temporal.jobs.namespaceInit.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -9,9 +9,13 @@ metadata:
     app.kubernetes.io/component: workflow-engine-init
     app.kubernetes.io/part-of: api-forge
   annotations:
-    # Run on install and upgrade, delete previous job before creating new one
-    # Weight 15 ensures this runs after schema-setup (weight 5) and verifier (weight 10)
+    # Run on install only (namespace creation is idempotent but only needed once)
+    # To re-run namespace init, set temporal.jobs.namespaceInit.runOnUpgrade=true
+    {{- if .Values.temporal.jobs.namespaceInit.runOnUpgrade }}
     "helm.sh/hook": post-install,post-upgrade
+    {{- else }}
+    "helm.sh/hook": post-install
+    {{- end }}
     "helm.sh/hook-weight": "15"
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
@@ -43,10 +47,8 @@ spec:
               echo "Waiting for Temporal server to be ready..."
               until nc -z -w 2 temporal 7233; do
                 echo "Temporal is unavailable - sleeping"
-                sleep 5
+                sleep 2
               done
-              echo "Temporal is up - waiting 10 more seconds for full initialization"
-              sleep 10
               echo "Temporal is ready!"
           securityContext:
             allowPrivilegeEscalation: false

@@ -7,7 +7,8 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from .shared import confirm_destructive_action, console, get_project_root
+from src.cli.shared.console import console
+from src.utils.paths import get_project_root
 
 # Create the secrets command group
 secrets_app = typer.Typer(help="🔐 Secrets management commands")
@@ -79,10 +80,8 @@ def generate(
 
     # Check if script exists
     if not generate_script.exists():
-        console.print(
-            "[red]❌ Error: generate_secrets.sh not found at:[/red]",
-            f"   {generate_script}",
-        )
+        console.error("generate_secrets.sh not found at:")
+        console.print(f"   {generate_script}")
         raise typer.Exit(1)
 
     # Confirm if using --force (destructive overwrite)
@@ -99,7 +98,7 @@ def generate(
                 "\n  • TLS certificates (Root CA, Intermediate CA, service certs)"
             )
 
-        if not confirm_destructive_action(
+        if not console.confirm_action(
             action="Regenerate ALL secrets",
             details=details,
             extra_warning="⚠️  Existing secrets will be permanently overwritten!",
@@ -110,9 +109,11 @@ def generate(
 
     # Run generate_secrets.sh
     if pki:
-        console.print("\n[cyan]🔐 Generating secrets and PKI certificates...[/cyan]\n")
+        console.info("🔐 Generating secrets and PKI certificates...")
+        console.print()
     else:
-        console.print("\n[cyan]🔐 Generating secrets...[/cyan]\n")
+        console.info("🔐 Generating secrets...")
+        console.print()
 
     try:
         # Make script executable
@@ -142,8 +143,8 @@ def generate(
         )
 
         if result.returncode != 0:
-            console.print(
-                f"\n[red]❌ Secret generation failed with exit code {result.returncode}[/red]"
+            console.error(
+                f"Secret generation failed with exit code {result.returncode}"
             )
             raise typer.Exit(1)
 
@@ -165,10 +166,10 @@ def generate(
         )
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ Error running generate_secrets.sh: {e}[/red]")
+        console.error(f"Error running generate_secrets.sh: {e}")
         raise typer.Exit(1) from e
     except Exception as e:
-        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        console.error(f"Unexpected error: {e}")
         raise typer.Exit(1) from e
 
 
@@ -275,17 +276,13 @@ def list(
     certs_exist = certs_dir.exists() and any(certs_dir.iterdir())
 
     if keys_exist and certs_exist:
-        console.print("\n[green]✅ All secrets appear to be generated.[/green]")
+        console.ok("All secrets appear to be generated.")
     elif not keys_exist and not certs_exist:
-        console.print(
-            "\n[yellow]⚠️  No secrets found. Run:[/yellow]",
-            "   uv run api-forge-cli secrets generate",
-        )
+        console.warn("No secrets found. Run:")
+        console.print("   uv run api-forge-cli secrets generate")
     else:
-        console.print(
-            "\n[yellow]⚠️  Some secrets are missing. Run:[/yellow]",
-            "   uv run api-forge-cli secrets generate",
-        )
+        console.warn("Some secrets are missing. Run:")
+        console.print("   uv run api-forge-cli secrets generate")
 
 
 @secrets_app.command()
@@ -378,25 +375,23 @@ def verify() -> None:
 
     if missing_keys:
         has_errors = True
-        console.print("\n[red]❌ Missing key files:[/red]")
+        console.error("Missing key files:")
         for filename in missing_keys:
             console.print(f"   • {filename}")
 
     if missing_certs:
         has_errors = True
-        console.print("\n[red]❌ Missing certificate files:[/red]")
+        console.error("Missing certificate files:")
         for filename in missing_certs:
             console.print(f"   • {filename}")
 
     if unreadable:
         has_errors = True
-        console.print("\n[red]❌ Unreadable files:[/red]")
+        console.error("Unreadable files:")
         for filename in unreadable:
             console.print(f"   • {filename}")
 
     if has_errors:
-        console.print(
-            "\n[yellow]💡 To generate missing secrets, run:[/yellow]",
-            "   uv run api-forge-cli secrets generate",
-        )
+        console.warn("💡 To generate missing secrets, run:")
+        console.print("   uv run api-forge-cli secrets generate")
         raise typer.Exit(1)

@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.cli.deployment.helm_deployer.constants import DeploymentConstants
 from src.cli.deployment.helm_deployer.image_builder import DeploymentError, ImageBuilder
+from src.infra.constants import DeploymentConstants, DeploymentPaths
 
 
 class TestDeploymentError:
@@ -69,14 +69,27 @@ class TestImageBuilder:
         return MagicMock()
 
     @pytest.fixture
+    def mock_controller(self) -> MagicMock:
+        """Create a mock Kubernetes controller."""
+        controller = MagicMock()
+        controller.get_current_context = MagicMock()
+        controller.is_minikube_context = MagicMock()
+        return controller
+
+    @pytest.fixture
     def image_builder(
-        self, mock_commands: MagicMock, mock_console: MagicMock, tmp_path: Path
+        self,
+        mock_commands: MagicMock,
+        mock_console: MagicMock,
+        mock_controller: MagicMock,
+        tmp_path: Path,
     ) -> ImageBuilder:
         """Create an ImageBuilder instance with mocked dependencies."""
         return ImageBuilder(
             commands=mock_commands,
             console=mock_console,
-            project_root=tmp_path,
+            controller=mock_controller,
+            paths=DeploymentPaths(project_root=tmp_path),
             constants=DeploymentConstants(),
         )
 
@@ -112,11 +125,11 @@ class TestImageBuilder:
     def test_remote_cluster_without_registry_raises(
         self,
         image_builder: ImageBuilder,
-        mock_commands: MagicMock,
+        mock_controller: MagicMock,
     ) -> None:
         """Deploying to remote cluster without registry should raise error."""
-        mock_commands.kubectl.is_minikube_context.return_value = False
-        mock_commands.kubectl.current_context.return_value = "gke-my-cluster"
+        mock_controller.is_minikube_context.return_value = False
+        mock_controller.get_current_context.return_value = "gke-my-cluster"
 
         with pytest.raises(DeploymentError) as exc_info:
             image_builder._load_images_to_cluster(
@@ -131,10 +144,11 @@ class TestImageBuilder:
     def test_load_images_minikube(
         self,
         image_builder: ImageBuilder,
+        mock_controller: MagicMock,
         mock_commands: MagicMock,
     ) -> None:
         """Should load images into Minikube using minikube load."""
-        mock_commands.kubectl.is_minikube_context.return_value = True
+        mock_controller.is_minikube_context.return_value = True
         mock_commands.docker.minikube_load_image.return_value = None
 
         image_builder._load_images_to_cluster(
@@ -149,12 +163,12 @@ class TestImageBuilder:
     def test_load_images_kind(
         self,
         image_builder: ImageBuilder,
+        mock_controller: MagicMock,
         mock_commands: MagicMock,
     ) -> None:
         """Should load images into Kind using kind load."""
-        mock_commands.kubectl.is_minikube_context.return_value = False
-        # Need to mock get_current_context (note: without underscore)
-        mock_commands.kubectl.get_current_context.return_value = "kind-test"
+        mock_controller.is_minikube_context.return_value = False
+        mock_controller.get_current_context.return_value = "kind-test"
         mock_commands.docker.kind_load_image.return_value = None
 
         image_builder._load_images_to_cluster(
@@ -169,11 +183,12 @@ class TestImageBuilder:
     def test_push_images_to_registry(
         self,
         image_builder: ImageBuilder,
+        mock_controller: MagicMock,
         mock_commands: MagicMock,
     ) -> None:
         """Should tag and push images when registry is provided."""
-        mock_commands.kubectl.is_minikube_context.return_value = False
-        mock_commands.kubectl.current_context.return_value = "gke-prod"
+        mock_controller.is_minikube_context.return_value = False
+        mock_controller.get_current_context.return_value = "gke-prod"
         mock_commands.docker.tag_image.return_value = MagicMock(success=True)
         mock_commands.docker.push_image.return_value = MagicMock(success=True)
 
@@ -239,15 +254,20 @@ class TestImageBuilderIntegration:
         mock_commands.docker.compose_build.return_value = None
         mock_commands.docker.tag_image.return_value = MagicMock(success=True)
         mock_commands.docker.image_exists.return_value = False
-        mock_commands.kubectl.is_minikube_context.return_value = True
         mock_commands.docker.minikube_load_image.return_value = None
+
+        # Mock the controller to return minikube context
+        mock_controller = MagicMock()
+        mock_controller.is_minikube_context.return_value = True
+        mock_controller.get_current_context.return_value = "minikube"
 
         mock_console = MagicMock()
 
         builder = ImageBuilder(
             commands=mock_commands,
             console=mock_console,
-            project_root=full_project_setup,
+            controller=mock_controller,
+            paths=DeploymentPaths(project_root=full_project_setup),
         )
 
         tag = builder.build_and_tag_images(MockProgress)  # type: ignore[arg-type]

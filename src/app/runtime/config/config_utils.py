@@ -5,23 +5,21 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.utils.paths import get_project_root
+
 _SECRETS_LOADED = False
-
-
-def _get_project_root() -> Path:
-    return Path(__file__).resolve().parents[4]
 
 
 def _candidate_secret_dirs() -> Iterable[Path]:
     custom_dir = os.getenv("SECRETS_KEYS_DIR")
     if custom_dir:
         yield Path(custom_dir)
-    project_root = _get_project_root()
+    project_root = get_project_root()
     yield project_root / "infra" / "secrets" / "keys"
     yield project_root / "secrets" / "keys"
 
 
-def _load_secret_files_into_env() -> None:
+def load_secret_files_into_env() -> None:
     global _SECRETS_LOADED
     if _SECRETS_LOADED:
         return
@@ -43,7 +41,10 @@ def _load_secret_files_into_env() -> None:
             env_name = "".join(c if c.isalnum() or c == "_" else "_" for c in env_name)
 
             # Skip if empty name or already exists in environment
-            if not env_name or env_name in os.environ:
+            if not env_name:
+                continue
+
+            if env_name in os.environ:
                 continue
 
             # Check file size before reading
@@ -88,6 +89,23 @@ def _load_secret_files_into_env() -> None:
     _SECRETS_LOADED = True
 
 
+def _strip_inline_comment(value: str) -> str:
+    """
+    Strip inline comments from environment variable values.
+
+    Handles comments starting with # (ignoring escaped \\#).
+    Preserves the value before the comment and strips trailing whitespace.
+
+    Examples:
+        "3600  # Session max age" -> "3600"
+        "value # comment" -> "value"
+        "no comment here" -> "no comment here"
+    """
+    # Find first unescaped # character
+    comment_pattern = r"\s*(?<!\\)#.*$"
+    return re.sub(comment_pattern, "", value).strip()
+
+
 def substitute_env_vars(text: str) -> str:
     """
     Substitute environment variable placeholders in text.
@@ -96,9 +114,11 @@ def substitute_env_vars(text: str) -> str:
     - ${VAR_NAME} - required variable (raises error if missing)
     - ${VAR_NAME:-default} - optional with default value
     - ${VAR_NAME:?error_message} - required with custom error message
+
+    Note: Environment variable values are automatically stripped of inline comments.
     """
 
-    _load_secret_files_into_env()
+    load_secret_files_into_env()
 
     def replacer(match: re.Match[str]) -> str:
         var_expr = match.group(1)
@@ -106,7 +126,8 @@ def substitute_env_vars(text: str) -> str:
         # Handle default values: ${VAR:-default}
         if ":-" in var_expr:
             var_name, default = var_expr.split(":-", 1)
-            return os.getenv(var_name, default)
+            value = os.getenv(var_name, default)
+            return _strip_inline_comment(value)
 
         # Handle error messages: ${VAR:?message}
         elif ":?" in var_expr:
@@ -116,7 +137,7 @@ def substitute_env_vars(text: str) -> str:
                 raise ValueError(
                     f"Required environment variable {var_name}: {error_msg}"
                 )
-            return value
+            return _strip_inline_comment(value)
 
         # Handle required variables: ${VAR}
         else:
@@ -124,7 +145,7 @@ def substitute_env_vars(text: str) -> str:
             value = os.getenv(var_name)
             if value is None:
                 raise ValueError(f"Required environment variable {var_name} not set")
-            return value
+            return _strip_inline_comment(value)
 
     # Match ${...} patterns
     pattern = r"\$\{([^}]+)\}"

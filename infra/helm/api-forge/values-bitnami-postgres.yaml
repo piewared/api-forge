@@ -1,0 +1,54 @@
+# Bitnami PostgreSQL Helm Chart Values Override
+# This file customizes the Bitnami PostgreSQL chart deployment
+# to match the api-forge application requirements
+
+# Override service and resource names to match .env configuration
+fullnameOverride: "postgres"
+nameOverride: "postgres"
+
+# Primary PostgreSQL configuration
+primary:
+  service:
+    nameOverride: "postgres"
+  
+  # Resource limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# Authentication
+auth:
+  enablePostgresUser: true
+  # Use existing secret for postgres superuser password
+  existingSecret: postgres-secrets
+  secretKeys:
+    adminPasswordKey: postgres_password
+  # Note: Additional app users (appuser, appowner, etc.) are created via k8s db init
+  # username: appuser
+  # password: <set-via-secret>
+  # database: appdb
+
+# TLS/SSL Configuration
+tls:
+  enabled: true
+  certificatesSecret: postgres-tls
+  certFilename: server.crt
+  certKeyFilename: server.key
+
+# Metrics (optional)
+metrics:
+  enabled: false
+
+# Pod disruption budget
+pdb:
+  create: true
+  minAvailable: 1

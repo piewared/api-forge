@@ -14,15 +14,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
 
-from src.infra.k8s.controller import PodInfo
+from src.cli.deployment.shell_commands import ShellCommands
+from src.cli.shared.console import CLIConsole
+from src.infra.constants import DeploymentConstants, DeploymentPaths
+from src.infra.k8s import (
+    KubernetesControllerSync,
+    PodInfo,
+    get_k8s_controller_sync,
+)
+from src.utils.paths import get_project_root
 
-if TYPE_CHECKING:
-    from rich.console import Console
-
-    from ..shell_commands import ShellCommands
-    from .constants import DeploymentConstants
+CONTROLLER = get_k8s_controller_sync()
 
 
 class ValidationSeverity(Enum):
@@ -91,9 +94,11 @@ class DeploymentValidator:
 
     def __init__(
         self,
+        console: CLIConsole,
         commands: ShellCommands,
-        console: Console,
-        constants: DeploymentConstants,
+        controller: KubernetesControllerSync = CONTROLLER,
+        paths: DeploymentPaths | None = None,
+        constants: DeploymentConstants | None = None,
     ) -> None:
         """Initialize the validator.
 
@@ -102,9 +107,11 @@ class DeploymentValidator:
             console: Rich console for output
             constants: Deployment constants
         """
-        self.commands = commands
-        self.console = console
-        self.constants = constants
+        self._console = console
+        self._commands = commands
+        self._controller = controller
+        self._paths = paths or DeploymentPaths(get_project_root())
+        self._constants = constants or DeploymentConstants()
 
     def validate(self, namespace: str) -> ValidationResult:
         """Run all pre-deployment validation checks.
@@ -143,25 +150,23 @@ class DeploymentValidator:
         """
         if result.is_clean:
             if result.namespace_exists:
-                self.console.print("[dim]✓ Pre-deployment checks passed[/dim]")
+                self._console.print("[dim]✓ Pre-deployment checks passed[/dim]")
             return
 
-        self.console.print(
-            "\n[bold yellow]⚠️  Pre-deployment Issues Detected[/bold yellow]\n"
-        )
+        self._console.warn("\nPre-deployment Issues Detected\n")
 
         for issue in result.issues:
             icon = self._get_severity_icon(issue.severity)
             color = self._get_severity_color(issue.severity)
 
-            self.console.print(f"[{color}]{icon} {issue.title}[/{color}]")
-            self.console.print(f"   [dim]{issue.description}[/dim]")
+            self._console.print(f"[{color}]{icon} {issue.title}[/{color}]")
+            self._console.print(f"   [dim]{issue.description}[/dim]")
             if issue.resource_name:
-                self.console.print(
+                self._console.print(
                     f"   [dim]Resource: {issue.resource_type}/{issue.resource_name}[/dim]"
                 )
-            self.console.print(f"   [cyan]💡 {issue.recovery_hint}[/cyan]")
-            self.console.print()
+            self._console.print(f"   [cyan]💡 {issue.recovery_hint}[/cyan]")
+            self._console.print()
 
     def prompt_cleanup(self, result: ValidationResult, namespace: str) -> bool:
         """Prompt user to clean up issues before proceeding.
@@ -177,19 +182,19 @@ class DeploymentValidator:
             return True
 
         if result.requires_cleanup:
-            self.console.print(
+            self._console.print(
                 "[bold red]Critical issues detected. Cleanup required before deployment.[/bold red]\n"
             )
-            self.console.print(
+            self._console.print(
                 "[yellow]Recommended: Run the following command to clean up:[/yellow]"
             )
-            self.console.print(
+            self._console.print(
                 "[bold cyan]  uv run api-forge-cli deploy down k8s[/bold cyan]\n"
             )
-            self.console.print(
+            self._console.print(
                 "[dim]This will delete the Helm release and allow a fresh deployment.[/dim]"
             )
-            self.console.print(
+            self._console.print(
                 "[dim]Add --volumes only if you need to wipe persistent data (databases, etc).[/dim]\n"
             )
 
@@ -200,13 +205,11 @@ class DeploymentValidator:
                 )
                 return response in ("y", "yes")
             except (KeyboardInterrupt, EOFError):
-                self.console.print("\n[dim]Deployment cancelled.[/dim]")
+                self._console.print("\n[dim]Deployment cancelled.[/dim]")
                 return False
 
         elif result.has_errors:
-            self.console.print(
-                "[bold yellow]Errors detected that may cause deployment issues.[/bold yellow]\n"
-            )
+            self._console.warn("Errors detected that may cause deployment issues.\n")
 
             # Prompt user
             try:
@@ -215,12 +218,12 @@ class DeploymentValidator:
                 )
                 return response in ("y", "yes")
             except (KeyboardInterrupt, EOFError):
-                self.console.print("\n[dim]Deployment cancelled.[/dim]")
+                self._console.print("\n[dim]Deployment cancelled.[/dim]")
                 return False
 
         else:
             # Only warnings, continue with notification
-            self.console.print(
+            self._console.print(
                 "[dim]Warnings detected but proceeding with deployment.[/dim]\n"
             )
             return True
@@ -234,45 +237,41 @@ class DeploymentValidator:
         Returns:
             True if cleanup succeeded, False otherwise
         """
-        self.console.print(
+        self._console.print(
             f"\n[bold red]🧹 Cleaning up namespace {namespace}...[/bold red]"
         )
 
         try:
             # Uninstall Helm release first
-            helm_result = self.commands.helm.uninstall(
-                self.constants.HELM_RELEASE_NAME, namespace
+            helm_result = self._commands.helm.uninstall(
+                self._constants.HELM_RELEASE_NAME, namespace
             )
             if helm_result.success:
-                self.console.print(
-                    f"[green]✓ Helm release '{self.constants.HELM_RELEASE_NAME}' uninstalled[/green]"
+                self._console.ok(
+                    f"Helm release '{self._constants.HELM_RELEASE_NAME}' uninstalled"
                 )
             else:
-                self.console.print(
+                self._console.print(
                     "[dim]Helm release not found or already removed[/dim]"
                 )
 
             # Delete PVCs
-            pvc_result = self.commands.kubectl.delete_pvcs(namespace)
+            pvc_result = self._controller.delete_pvcs(namespace)
             if pvc_result.success:
-                self.console.print("[green]✓ Persistent volume claims deleted[/green]")
+                self._console.ok("Persistent volume claims deleted")
 
             # Delete namespace
-            ns_result = self.commands.kubectl.delete_namespace(
-                namespace, timeout="120s"
-            )
+            ns_result = self._controller.delete_namespace(namespace, timeout="120s")
             if ns_result.success:
-                self.console.print(f"[green]✓ Namespace {namespace} deleted[/green]")
+                self._console.ok(f"Namespace {namespace} deleted")
 
-            self.console.print(
-                "\n[bold green]✓ Cleanup complete. You can now run deployment again.[/bold green]"
-            )
+            self._console.ok("Cleanup complete. You can now run deployment again.")
             return True
 
         except Exception as e:
-            self.console.print(f"[red]✗ Cleanup failed: {e}[/red]")
-            self.console.print(
-                f"[yellow]💡 Try manual cleanup: kubectl delete namespace {namespace}[/yellow]"
+            self._console.error(f"Cleanup failed: {e}")
+            self._console.warn(
+                f"💡 Try manual cleanup: kubectl delete namespace {namespace}"
             )
             return False
 
@@ -282,13 +281,13 @@ class DeploymentValidator:
 
     def _namespace_exists(self, namespace: str) -> bool:
         """Check if the namespace exists."""
-        result = self.commands.kubectl.namespace_exists(namespace)
+        result = self._controller.namespace_exists(namespace)
         return result
 
     def _has_helm_release(self, namespace: str) -> bool:
         """Check if there's an existing Helm release."""
-        releases = self.commands.helm.list_releases(namespace)
-        return any(r.name == self.constants.HELM_RELEASE_NAME for r in releases)
+        releases = self._commands.helm.list_releases(namespace)
+        return any(r.name == self._constants.HELM_RELEASE_NAME for r in releases)
 
     def _check_failed_jobs(self, namespace: str, result: ValidationResult) -> None:
         """Check for failed jobs in the namespace.
@@ -301,7 +300,7 @@ class DeploymentValidator:
         them, and they may succeed on subsequent attempts as dependencies
         come online.
         """
-        jobs = self.commands.kubectl.get_jobs(namespace)
+        jobs = self._controller.get_jobs(namespace)
 
         for job in jobs:
             job_name = job.name
@@ -336,7 +335,7 @@ class DeploymentValidator:
 
     def _check_crashloop_pods(self, namespace: str, result: ValidationResult) -> None:
         """Check for pods in CrashLoopBackOff state."""
-        pods = self.commands.kubectl.get_pods(namespace)
+        pods = self._controller.get_pods(namespace)
 
         for pod in pods:
             if pod.status == "CrashLoopBackOff":
@@ -361,7 +360,7 @@ class DeploymentValidator:
 
     def _check_pending_pods(self, namespace: str, result: ValidationResult) -> None:
         """Check for pods stuck in Pending state."""
-        pods = self.commands.kubectl.get_pods(namespace)
+        pods = self._controller.get_pods(namespace)
 
         for pod in pods:
             if pod.status == "Pending":
@@ -391,7 +390,7 @@ class DeploymentValidator:
         This avoids flagging old failed attempts when the job has since
         succeeded or has a newer attempt in progress.
         """
-        pods = self.commands.kubectl.get_pods(namespace)
+        pods = self._controller.get_pods(namespace)
 
         # Group job-owned pods by their job name
         job_pods: dict[str, list[PodInfo]] = {}

@@ -145,11 +145,13 @@ def load_config(
             )
 
     # Clear Redis password for development environment (dev Redis has no auth)
-    if env_mode == "development" and config.redis and config.redis.password:
+    if env_mode == "development" and config.redis:
         logger.info(
             "Clearing Redis password for development environment (dev Redis has no authentication)"
         )
         config.redis.password = ""
+        config.redis.password_file_path = None
+        config.redis.password_env_var = None
 
     return config
 
