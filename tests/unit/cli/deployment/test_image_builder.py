@@ -254,14 +254,19 @@ class TestImageBuilderIntegration:
         mock_commands.docker.compose_build.return_value = None
         mock_commands.docker.tag_image.return_value = MagicMock(success=True)
         mock_commands.docker.image_exists.return_value = False
-        mock_commands.kubectl.is_minikube_context.return_value = True
         mock_commands.docker.minikube_load_image.return_value = None
+
+        # Mock the controller to return minikube context
+        mock_controller = MagicMock()
+        mock_controller.is_minikube_context.return_value = True
+        mock_controller.get_current_context.return_value = "minikube"
 
         mock_console = MagicMock()
 
         builder = ImageBuilder(
             commands=mock_commands,
             console=mock_console,
+            controller=mock_controller,
             paths=DeploymentPaths(project_root=full_project_setup),
         )
 
