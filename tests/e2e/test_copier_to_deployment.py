@@ -1097,13 +1097,37 @@ print("✅ All imports successful")
                 if key.startswith("POSTGRES_"):
                     create_env.pop(key, None)
 
-            self.run_command(
-                ["uv", "run", "api-forge-cli", "k8s", "db", "create", "--bundled"],
-                cwd=project_dir,
-                timeout=600,  # 10 minutes - includes image build + Helm deployment
-                env=create_env,
-            )
-            print("✅ PostgreSQL database created and initialized")
+            print("\n🗄️  Creating bundled PostgreSQL database...")
+            try:
+                self.run_command(
+                    ["uv", "run", "api-forge-cli", "k8s", "db", "create", "--bundled"],
+                    cwd=project_dir,
+                    timeout=600,  # 10 minutes - includes image build + Helm deployment
+                    env=create_env,
+                )
+                print("✅ PostgreSQL database created and initialized")
+            except Exception as e:
+                print(f"\n❌ PostgreSQL database creation failed: {e}")
+                # Show additional debugging info
+                print("\n📋 Checking Kubernetes resources...")
+                self.run_command(
+                    ["kubectl", "get", "all", "-n", "api-forge-prod"],
+                    cwd=project_dir,
+                    check=False,
+                )
+                print("\n📋 Checking pods...")
+                self.run_command(
+                    ["kubectl", "get", "pods", "-n", "api-forge-prod", "-o", "wide"],
+                    cwd=project_dir,
+                    check=False,
+                )
+                print("\n📋 Checking StatefulSets...")
+                self.run_command(
+                    ["kubectl", "get", "statefulsets", "-n", "api-forge-prod"],
+                    cwd=project_dir,
+                    check=False,
+                )
+                raise
 
             # Deploy to Kubernetes (with real-time output streaming)
             print("🚀 Starting K8s deployment with real-time output...")
