@@ -452,11 +452,39 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     if values_file:
         helm_args.extend(["-f", str(values_file)])
 
+    # Set the image tag to match what was built/loaded
+    # The image_builder uses content-based tags (hash-xxx or git-xxx)
+    # We must tell Helm to use this tag instead of :latest
+    helm_args.extend(["--set", f"postgres.image.tag={image_tag}"])
+
     if wait:
         helm_args.append("--wait")
 
     console.print("[cyan]ℹ[/cyan]  Installing PostgreSQL...")
-    result = subprocess.run(helm_args, capture_output=True, text=True)
+    console.print(f"[dim]Running: {' '.join(helm_args)}[/dim]")
+
+    # Stream output so we can see what Helm is doing (especially useful in CI)
+    process = subprocess.Popen(
+        helm_args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    stdout_lines = []
+    if process.stdout:
+        for line in process.stdout:
+            stdout_lines.append(line)
+            console.print(f"[dim]{line.rstrip()}[/dim]")
+
+    returncode = process.wait()
+    result = subprocess.CompletedProcess(
+        args=helm_args,
+        returncode=returncode,
+        stdout="".join(stdout_lines),
+        stderr="",
+    )
 
     if result.returncode != 0:
         # Check if this is a StatefulSet immutable field error
