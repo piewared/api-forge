@@ -13,8 +13,8 @@ from src.infra.postgres.migrations import run_migration
 def run_init(runtime: DbRuntime) -> bool:
     from src.infra.postgres import PostgresInitializer
 
-    settings = runtime.get_settings().ensure_all_passwords()
     with runtime.port_forward():
+        settings = runtime.get_settings().ensure_all_passwords()
         with runtime.connect(settings, True) as conn:
             initializer = PostgresInitializer(connection=conn)
             return initializer.initialize()
@@ -23,8 +23,8 @@ def run_init(runtime: DbRuntime) -> bool:
 def run_verify(runtime: DbRuntime, *, superuser_mode: bool) -> bool:
     from src.infra.postgres import PostgresVerifier
 
-    settings = runtime.get_settings().ensure_all_passwords()
     with runtime.port_forward():
+        settings = runtime.get_settings().ensure_all_passwords()
         with runtime.connect(settings, superuser_mode) as conn:
             verifier = PostgresVerifier(connection=conn)
             return verifier.verify_all()
@@ -41,18 +41,16 @@ def run_sync(runtime: DbRuntime) -> bool:
         with runtime.port_forward():
             with runtime.connect(settings, True) as conn:
                 sync_tool = PostgresPasswordSync(
+                    runtime=runtime,
                     connection=conn,
-                    deployer=runtime.get_deployer(),
-                    secrets_dirs=list(runtime.secrets_dirs),
                 )
                 success = sync_tool.sync_bundled_superuser_password()
 
     with runtime.port_forward():
         with runtime.connect(settings, True) as conn:
             sync_tool = PostgresPasswordSync(
+                runtime=runtime,
                 connection=conn,
-                deployer=runtime.get_deployer(),
-                secrets_dirs=list(runtime.secrets_dirs),
             )
             runtime.console.print_subheader(
                 "Syncing application database user roles and passwords"
@@ -227,9 +225,8 @@ def run_migrate(
     autogenerate: bool,
     sql: bool,
 ) -> None:
-    settings = runtime.get_settings().ensure_superuser_password()
-
     with runtime.port_forward():
+        settings = runtime.get_settings().ensure_superuser_password()
         conn = runtime.connect(settings, True)
         database_url = conn.get_connection_string()
 

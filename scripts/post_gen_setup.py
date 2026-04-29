@@ -6,6 +6,7 @@ This script runs after the template has been copied to customize files
 that can't contain Jinja2 templates (like pyproject.toml).
 """
 
+import random
 import re
 import sys
 from pathlib import Path
@@ -273,6 +274,40 @@ def update_config_yaml(project_dir: Path, answers: dict):
         print("✅ config.yaml updated (Redis disabled)")
 
 
+def update_config_seed(project_dir: Path):
+    """Update config.yaml to set a random seed value for deterministic name generation."""
+    print("📝 Updating config.yaml (generating random seed)...")
+
+    config_path = project_dir / "config.yaml"
+
+    if not config_path.exists():
+        print(f"⚠️  config.yaml not found at {config_path}")
+        return
+
+    # Read the file
+    with open(config_path) as f:
+        content = f.read()
+
+    # Generate a random 7-digit seed (matches existing format)
+    random_seed = random.randint(1000000, 9999999)
+
+    # Replace the seed value using regex (no external dependencies needed)
+    content = re.sub(
+        r"(config:\s*\n\s*seed:\s*)\d+",
+        rf"\g<1>{random_seed}",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    # Write atomically using temp file
+    temp_path = config_path.with_suffix(".tmp")
+    with open(temp_path, "w") as f:
+        f.write(content)
+    temp_path.replace(config_path)
+
+    print(f"✅ config.yaml updated (seed={random_seed})")
+
+
 def update_env_example(project_dir: Path, answers: dict):
     """Update .env.example to remove Redis variables if not wanted."""
     env_path = project_dir / ".env.example"
@@ -525,10 +560,13 @@ def main():
 
     # Run setup steps
     try:
-        # 1. Ensure infra/secrets directory structure
+        # 1. Generate random seed for deterministic name generation
+        update_config_seed(project_dir)
+
+        # 2. Ensure infra/secrets directory structure
         copy_infra_secrets(project_dir)
 
-        # 2. Rename package directory
+        # 3. Rename package directory
         rename_package_directory(project_dir, package_name)
 
         # 3. Fix ALL 'src.' references throughout the project

@@ -67,7 +67,7 @@ class ProdDeployer(BaseDeployer):
 
         # For secret rotation, we need to stop and recreate containers
         if force_recreate:
-            self.info(
+            self.console.info(
                 "Force recreate enabled - stopping containers to pick up new secrets..."
             )
             # Use teardown to stop containers properly
@@ -95,7 +95,7 @@ class ProdDeployer(BaseDeployer):
         volumes = kwargs.get("volumes", False)
 
         # Find all production containers (api-forge-* but not *-dev)
-        self.info("Finding production containers...")
+        self.console.info("Finding production containers...")
         result = self.run_command(
             [
                 "docker",
@@ -119,7 +119,9 @@ class ProdDeployer(BaseDeployer):
             ]
 
             if container_names:
-                self.info(f"Found {len(container_names)} production containers to stop")
+                self.console.info(
+                    f"Found {len(container_names)} production containers to stop"
+                )
                 with self.console.status("[bold red]Stopping containers..."):
                     for container in container_names:
                         self.run_command(
@@ -133,15 +135,17 @@ class ProdDeployer(BaseDeployer):
                             check=False,
                             capture_output=True,
                         )
-                self.success(f"Stopped and removed {len(container_names)} containers")
+                self.console.ok(
+                    f"Stopped and removed {len(container_names)} containers"
+                )
             else:
-                self.info("No production containers found to stop")
+                self.console.info("No production containers found to stop")
         else:
-            self.info("No production containers found to stop")
+            self.console.info("No production containers found to stop")
 
         # Named volumes require explicit removal (docker compose down -v only removes anonymous volumes)
         if volumes:
-            self.info("Removing named data volumes...")
+            self.console.info("Removing named data volumes...")
             # Use the same consistent project name as _start_services
             project_name = "api-forge-prod"
             # Get list of volumes for this project
@@ -165,16 +169,16 @@ class ProdDeployer(BaseDeployer):
                             check=False,
                             capture_output=True,
                         )
-                    self.success(
+                    self.console.ok(
                         f"Production services stopped and {len(volume_names)} volume objects removed"
                     )
                 else:
-                    self.success("Production services stopped (no volumes found)")
+                    self.console.ok("Production services stopped (no volumes found)")
             else:
-                self.success("Production services stopped and volumes removed")
+                self.console.ok("Production services stopped and volumes removed")
 
             # Also remove the actual data directories (since volumes use bind mounts)
-            self.info("Removing data directories...")
+            self.console.info("Removing data directories...")
             data_dir = self.project_root / "data"
             if data_dir.exists():
                 import shutil
@@ -207,10 +211,10 @@ class ProdDeployer(BaseDeployer):
                         self.run_command(
                             ["sudo", "rm", "-rf", str(dir_path)], check=False
                         )
-                self.success("Data directories removed")
+                self.console.ok("Data directories removed")
 
         else:
-            self.success("Production services stopped (volumes preserved)")
+            self.console.ok("Production services stopped (volumes preserved)")
 
     def show_status(self) -> None:
         """Display the current status of the production deployment."""
@@ -227,8 +231,10 @@ class ProdDeployer(BaseDeployer):
         Returns:
             Always True (secrets auto-mount from local files)
         """
-        self.info("Secrets are managed via Docker Compose secrets configuration")
-        self.info("No explicit deployment needed - secrets mount automatically")
+        self.console.info(
+            "Secrets are managed via Docker Compose secrets configuration"
+        )
+        self.console.info("No explicit deployment needed - secrets mount automatically")
         return True
 
     def restart_resource(
@@ -283,7 +289,7 @@ class ProdDeployer(BaseDeployer):
                         containers_to_remove.append(name)
 
             if containers_to_remove:
-                self.info(
+                self.console.info(
                     f"Removing {len(containers_to_remove)} stopped container(s): {', '.join(containers_to_remove)}"
                 )
                 self.run_command(
@@ -293,7 +299,7 @@ class ProdDeployer(BaseDeployer):
 
     def _ensure_required_directories(self) -> None:
         data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
-        self.info(f"Ensured data directories exist under {data_root}")
+        self.console.info(f"Ensured data directories exist under {data_root}")
 
     def _validate_bind_mount_volumes(self) -> None:
         """Validate bind-mount volumes and remove stale ones.
@@ -388,7 +394,7 @@ class ProdDeployer(BaseDeployer):
                 self.console.print(f"  [dim]• {vol_name} → {device} ({reason})[/dim]")
 
             # Stop any containers using these volumes first
-            self.info("Stopping containers to remove stale volumes...")
+            self.console.info("Stopping containers to remove stale volumes...")
             self.teardown(volumes=False)
 
             # Remove stale volumes
@@ -399,7 +405,7 @@ class ProdDeployer(BaseDeployer):
                     capture_output=True,
                 )
 
-            self.success(f"Removed {len(stale_volumes)} stale volume(s)")
+            self.console.ok(f"Removed {len(stale_volumes)} stale volume(s)")
 
     def _build_app_image(self, force: bool = False) -> None:
         """Build the application Docker image using Docker layer caching.
@@ -424,7 +430,7 @@ class ProdDeployer(BaseDeployer):
                     ]
                 )
                 progress.update(task, completed=1)
-                self.success("Postgres image rebuilt")
+                self.console.ok("Postgres image rebuilt")
 
             task = progress.add_task("Building application image...", total=1)
             self.run_command(
@@ -438,7 +444,7 @@ class ProdDeployer(BaseDeployer):
                 ]
             )
             progress.update(task, completed=1)
-        self.success("Application image built (using cached layers)")
+        self.console.ok("Application image built (using cached layers)")
 
     def _start_services(self, force_recreate: bool = False) -> None:
         """Start all production services.
@@ -479,7 +485,7 @@ class ProdDeployer(BaseDeployer):
                 )
                 raise typer.Exit(1)
 
-        self.success("Production services started")
+        self.console.ok("Production services started")
 
     def _monitor_health_checks(self) -> None:
         """Monitor health checks for all services."""
@@ -562,7 +568,7 @@ class ProdDeployer(BaseDeployer):
         )
 
         if not all_healthy:
-            self.warning(
+            self.console.warn(
                 "Some services may need more time to become healthy. "
                 "Check logs with: docker compose -f docker-compose.prod.yml logs [service]"
             )

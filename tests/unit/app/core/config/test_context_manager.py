@@ -481,3 +481,80 @@ class TestContextManagerEdgeCases:
             assert parent_context.app.host == "parent_host"
             assert parent_context.app.port == 8001
             assert parent_context.logging.level == "DEBUG"
+
+
+class TestDictOverrideClearing:
+    """``with_context`` must let callers clear a dict-valued config field
+    (e.g., ``oidc.providers``) by setting it to ``{}``, not silently drop the
+    override. Regression test for the dict-merge gap fixed in commit X."""
+
+    def test_empty_dict_override_clears_base_dict(self):
+        from copy import deepcopy
+
+        from src.app.runtime.config.config_data import (
+            ConfigData,
+            OIDCProviderConfig,
+        )
+
+        base = ConfigData()
+        base.oidc.providers = {
+            "p1": OIDCProviderConfig(
+                client_id="c",
+                client_secret="s",
+                authorization_endpoint="https://idp.test/auth",
+                token_endpoint="https://idp.test/token",
+                userinfo_endpoint="https://idp.test/userinfo",
+                issuer="https://idp.test",
+                jwks_uri="https://idp.test/jwks",
+                redirect_uri="http://localhost/cb",
+            )
+        }
+
+        with with_context(base):
+            override = deepcopy(base)
+            override.oidc.providers = {}
+
+            with with_context(override):
+                # Without the fix, this would still see {"p1": ...} because
+                # the recursive merge treated empty dicts as no-ops.
+                assert get_config().oidc.providers == {}
+
+    def test_partial_dict_override_still_merges(self):
+        """Non-empty dict overrides keep base keys not mentioned in the override."""
+        from copy import deepcopy
+
+        from src.app.runtime.config.config_data import (
+            ConfigData,
+            OIDCProviderConfig,
+        )
+
+        def _provider(client_id: str, issuer: str) -> OIDCProviderConfig:
+            return OIDCProviderConfig(
+                client_id=client_id,
+                client_secret="s",
+                authorization_endpoint=f"{issuer}/auth",
+                token_endpoint=f"{issuer}/token",
+                userinfo_endpoint=f"{issuer}/userinfo",
+                issuer=issuer,
+                jwks_uri=f"{issuer}/jwks",
+                redirect_uri="http://localhost/cb",
+            )
+
+        base = ConfigData()
+        base.oidc.providers = {
+            "google": _provider("google-client", "https://google"),
+            "keycloak": _provider("kc-client", "https://keycloak"),
+        }
+
+        with with_context(base):
+            override = deepcopy(base)
+            # Replace just google.
+            override.oidc.providers = {
+                "google": _provider("new-google-client", "https://google")
+            }
+
+            with with_context(override):
+                providers = get_config().oidc.providers
+                # google was overridden, keycloak inherited from base.
+                assert providers["google"].client_id == "new-google-client"
+                assert "keycloak" in providers

@@ -25,7 +25,7 @@ from .config_sync import ConfigSynchronizer
 from .deployer import DeploymentError, HelmDeployer
 from .helm_release import HelmReleaseManager
 from .image_builder import ImageBuilder
-from .secret_manager import SecretManager
+from .secret_manager import HelmDeploymentSecretManager
 from .validator import DeploymentValidator, ValidationResult, ValidationSeverity
 
 __all__ = [
@@ -33,7 +33,7 @@ __all__ = [
     "DeploymentError",
     # Component classes for testing/extension
     "ImageBuilder",
-    "SecretManager",
+    "HelmDeploymentSecretManager",
     "ConfigSynchronizer",
     "HelmReleaseManager",
     "CleanupManager",

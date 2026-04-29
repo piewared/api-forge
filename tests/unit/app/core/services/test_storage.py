@@ -327,98 +327,31 @@ class TestStorageIntegration:
 
 
 class TestStorageFactory:
-    """Test storage factory functions and backend detection/failover logic."""
+    """The factory has two real branches: Redis client present vs absent."""
 
-    def test_get_storage_with_redis_available(self):
-        """Test get_storage returns RedisStorage when Redis is available."""
-        # Mock RedisService with available client
+    def test_returns_redis_backed_storage_when_client_available(self):
         mock_redis_service = MagicMock()
-        mock_redis_client = MagicMock()
-        mock_redis_service.get_client.return_value = mock_redis_client
+        mock_redis_service.get_client.return_value = MagicMock()
 
         storage = get_session_storage(mock_redis_service)
 
-        # Should return SessionStorage wrapping RedisStorage
-        assert isinstance(storage, SessionStorage)
-        # Verify Redis client was requested
-        mock_redis_service.get_client.assert_called_once()
-
-    def test_get_storage_with_redis_unavailable(self):
-        """Test get_storage falls back to InMemoryStorage when Redis client is None."""
-        # Mock RedisService that returns None (Redis unavailable)
-        mock_redis_service = MagicMock()
-        mock_redis_service.get_client.return_value = None
-
-        storage = get_session_storage(mock_redis_service)
-
-        # Should return SessionStorage wrapping InMemoryStorage
         assert isinstance(storage, SessionStorage)
         mock_redis_service.get_client.assert_called_once()
 
-    def test_get_storage_with_no_redis_service(self):
-        """Test get_storage falls back to InMemoryStorage when RedisService is None."""
-        storage = get_session_storage(None)
+    def test_falls_back_to_in_memory_when_no_client(self):
+        """Covers all "no client" cases: service is None, get_client returns
+        None, or service is disabled — all observably the same fallback."""
+        no_service = get_session_storage(None)
+        assert isinstance(no_service, SessionStorage)
 
-        # Should return SessionStorage wrapping InMemoryStorage
-        assert isinstance(storage, SessionStorage)
-
-    def test_get_storage_with_redis_disabled(self):
-        """Test get_storage falls back when RedisService exists but is disabled."""
-        # Mock RedisService that is disabled (enabled=False)
-        mock_redis_service = MagicMock()
-        mock_redis_service.get_client.return_value = None
-
-        storage = get_session_storage(mock_redis_service)
-
-        # Should fall back to InMemoryStorage
-        assert isinstance(storage, SessionStorage)
+        unavailable_redis = MagicMock()
+        unavailable_redis.get_client.return_value = None
+        assert isinstance(get_session_storage(unavailable_redis), SessionStorage)
 
     @pytest.mark.asyncio
-    async def test_storage_failover_redis_to_memory(self):
-        """Test that operations work after Redis fails and falls back to memory."""
-        # Create a mock Redis client that will fail
-        mock_redis_client = AsyncMock()
-        mock_redis_service = MagicMock()
-
-        # First call returns Redis client
-        mock_redis_service.get_client.return_value = mock_redis_client
-
-        # Get storage with Redis
-        storage = get_session_storage(mock_redis_service)
-        assert isinstance(storage, SessionStorage)
-
-        # Now simulate Redis failure by returning None
-        mock_redis_service.get_client.return_value = None
-
-        # Get storage again - should fall back to InMemoryStorage
-        fallback_storage = get_session_storage(mock_redis_service)
-        assert isinstance(fallback_storage, SessionStorage)
-
-        # Test that fallback storage works
-        session = MockSession(
-            id="failover-test", data="test-data", created_at=int(time.time())
-        )
-        await fallback_storage.set("test-key", session, 60)
-        result = await fallback_storage.get("test-key", MockSession)
-
-        assert result is not None
-        assert result.id == "failover-test"
-
-    def test_session_storage_wrapper_delegates_to_backend(self):
-        """Test that SessionStorage properly wraps and delegates to backend storage."""
-        # Use InMemoryStorage as the backend
-        mock_backend = MagicMock()
-        storage = SessionStorage(mock_backend)
-
-        # Verify the backend is stored
-        assert storage._storage is mock_backend
-
-    @pytest.mark.asyncio
-    async def test_integration_factory_with_real_memory_storage(self):
-        """Integration test: factory returns working storage without Redis."""
+    async def test_factory_returns_working_storage_smoke(self):
+        """End-to-end smoke: storage from the factory actually round-trips data."""
         storage = get_session_storage(None)
-
-        # Test basic operations work
         session = MockSession(
             id="integration-test", data="test-data", created_at=int(time.time())
         )

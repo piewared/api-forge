@@ -1,20 +1,4 @@
-"""Consolidated authentication system tests.
-
-This module combines and consolidates tests for:
-- JWT service (claim extraction, JWKS fetching, JWT verification)
-- OIDC client service (token exchange, user claims, PKCE flow)
-- Session service (auth sessions, user sessions, JIT provisioning)
-- BFF authentication router (login initiation, callback handling, /me endpoint)
-- Authentication dependencies (require_scope, require_role authorization)
-
-Replaces:
-- tests/unit/core/test_services.py (JWT service functionality)
-- tests/unit/core/test_oidc_client_service.py
-- tests/unit/core/test_session_service.py
-- tests/unit/api/test_auth_bff_router.py (partially)
-- tests/unit/infrastructure/test_deps.py (authentication dependencies)
-- Various other auth-related tests
-"""
+"""Tests for the require_scope and require_role authorization dependencies."""
 
 from unittest.mock import Mock
 

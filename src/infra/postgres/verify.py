@@ -164,6 +164,7 @@ class PostgresVerifier:
 
         # Only verify password for roles that should be able to login
         roles_to_test = [
+            (s.superuser, s.superuser_password, "superuser"),
             (s.user, s.password, "app user"),
             (s.ro_user, s.ro_user_password, "read-only user"),
         ]
@@ -203,7 +204,7 @@ class PostgresVerifier:
                         f"Password mismatch for {role_name} ({desc})",
                         details=(
                             "The password in your local secrets file does not match what's in the database.\n"
-                            "Fix: Run 'uv run api-forge-cli k8s db sync' to update database passwords."
+                            "Fix: Run 'uv run api-forge-cli <runtime> db sync' to update database passwords."
                         ),
                     )
                 else:
@@ -389,12 +390,32 @@ class PostgresVerifier:
             self._warn("table_privileges", f"{s.user} may be missing privileges")
 
     def _verify_tls(self, conn: PostgresConnection) -> None:
-        """Verify TLS configuration."""
+        """Verify TLS configuration.
+
+        Skips check for Fly.io connections since they use WireGuard encryption
+        at the proxy level instead of PostgreSQL SSL.
+        """
+        # Skip SSL check for Fly connections - they use WireGuard encryption
+        from src.infra.flyio.postgres_connection import (
+            FlyPostgresConnection,
+            FlyPostgresConnectionWithProxy,
+        )
+
+        if isinstance(conn, (FlyPostgresConnection, FlyPostgresConnectionWithProxy)):
+            self._ok(
+                "tls",
+                "TLS verification skipped (Fly.io uses WireGuard mesh encryption)",
+            )
+            return
+
         ssl_mode = conn.scalar("SHOW ssl")
         if ssl_mode == "on":
             self._ok("tls", "SSL is enabled")
         else:
-            self._warn("tls", f"SSL is {ssl_mode} (expected 'on' for production)")
+            self._warn(
+                "tls",
+                f"SSL is {ssl_mode} (OK if using WireGuard/proxy encryption, otherwise enable for production)",
+            )
 
     def print_summary(self) -> None:
         """Print summary table of results."""

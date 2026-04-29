@@ -14,24 +14,27 @@ import typer
 from src.cli.commands.db import (
     DbRuntime,
     get_k8s_runtime,
-    run_backup,
-    run_init,
-    run_migrate,
-    run_reset,
-    run_status,
-    run_sync,
-    run_verify,
 )
-from src.cli.commands.db_utils import (
-    configure_external_database,
-    read_env_example_values,
-    update_bundled_postgres_config,
-    update_env_file,
+from src.cli.commands.db.cli_helpers import (
+    execute_backup,
+    execute_init,
+    execute_migrate,
+    execute_reset,
+    execute_status,
+    execute_sync,
+    execute_verify,
 )
+from src.cli.commands.db.runtime_k8s import resolve_statefulset_conflict
 from src.cli.context import get_cli_context
 from src.cli.deployment.helm_deployer import ConfigSynchronizer
 from src.cli.deployment.status_display import is_temporal_enabled
 from src.cli.shared.console import console, with_error_handling
+from src.cli.shared.db_utils import (
+    configure_external_database,
+    read_env_example_values,
+    update_bundled_postgres_config,
+    update_env_vars,
+)
 from src.infra.constants import DeploymentConstants, DeploymentPaths
 from src.infra.k8s import get_namespace, get_postgres_label
 from src.infra.k8s.controller import KubernetesControllerSync
@@ -229,7 +232,9 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     """Deploy bundled PostgreSQL to Kubernetes using Helm."""
     from rich.progress import Progress
 
-    from src.cli.deployment.helm_deployer.secret_manager import SecretManager
+    from src.cli.deployment.helm_deployer.secret_manager import (
+        HelmDeploymentSecretManager,
+    )
     from src.cli.deployment.shell_commands import ShellCommands
 
     constants, paths, controller = _get_components()
@@ -247,7 +252,7 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
 
     # Update .env with bundled defaults from .env.example
     console.info("Updating .env file for bundled PostgreSQL...")
-    update_env_file(bundled_defaults)
+    update_env_vars(bundled_defaults)
     console.ok(".env file updated")
 
     # Update config.yaml
@@ -259,7 +264,7 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     # Step 1: Deploy secrets required by PostgreSQL
     console.info("Deploying secrets...")
     commands = ShellCommands(project_root)
-    secret_manager = SecretManager(
+    secret_manager = HelmDeploymentSecretManager(
         commands=commands,
         console=console,
         paths=paths,
@@ -366,74 +371,13 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
             raise typer.Exit(1)
 
         if action == "recreate":
-            console.warn("Recreating PostgreSQL StatefulSet...")
-            console.print("[dim]Note: PVCs will be retained to preserve data[/dim]")
-            console.print("[dim]Note: Helm release history will be reset[/dim]")
-
-            # Step 1: Delete the StatefulSet by name (keeps PVCs with orphan cascade)
-            # Using delete_resource by name because the deployed resource may have
-            # different labels than the new template (this is why we're in this situation)
-            delete_result = controller.delete_resource(
-                "statefulset",
+            if not resolve_statefulset_conflict(
+                controller,
                 constants.POSTGRES_RESOURCE_NAME,
                 namespace,
-                cascade="orphan",
-                wait=True,
-            )
-
-            if not delete_result.success:
-                console.error(f"Failed to delete StatefulSet:\n{delete_result.stderr}")
-                raise typer.Exit(1)
-
-            # Wait for StatefulSet to actually be deleted
-            console.info("Waiting for StatefulSet deletion...")
-            import time
-
-            for _ in range(30):  # Wait up to 30 seconds
-                if not controller.resource_exists(
-                    "statefulset",
-                    constants.POSTGRES_RESOURCE_NAME,
-                    namespace,
-                ):
-                    break
-                time.sleep(1)
-            else:
-                console.error(
-                    "Timeout waiting for StatefulSet deletion. "
-                    "Please delete it manually and retry."
-                )
-                raise typer.Exit(1)
-
-            console.ok("StatefulSet deleted")
-
-            # Step 1.5: Delete orphaned pods
-            # The StatefulSet was deleted with cascade=orphan, so pods are still running
-            # We need to delete them so Helm can create fresh ones
-            console.info("Deleting orphaned PostgreSQL pods...")
-            pod_delete_result = controller.delete_resources_by_label(
-                "pod",
-                namespace,
                 constants.POSTGRES_POD_LABEL,
-                force=False,
-                cascade=None,
-            )
-            if not pod_delete_result.success:
-                console.warn(
-                    f"Failed to delete pods (may not exist): {pod_delete_result.stderr}"
-                )
-            else:
-                console.ok("Orphaned pods deleted")
-
-            # Step 2: Clear Helm's cached manifest state
-            # This is required because Helm does a 3-way merge and will
-            # still try to "update" based on its stored old manifest
-            console.info("Clearing Helm release metadata...")
-            controller.delete_helm_secrets(namespace, "postgresql")
-            console.ok("Helm release metadata cleared")
-
-            console.print(
-                "[green]✓[/green] Ready for fresh installation (PVCs retained)"
-            )
+            ):
+                raise typer.Exit(1)
 
     # Build helm command
     helm_args = [
@@ -502,58 +446,15 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
                 )
 
                 if action == "recreate":
-                    console.warn("Recreating PostgreSQL StatefulSet...")
-                    console.print(
-                        "[dim]Note: PVCs will be retained to preserve data[/dim]"
-                    )
-                    console.print("[dim]Note: Helm release history will be reset[/dim]")
-
-                    # Step 1: Delete the StatefulSet by name (keeps PVCs with orphan cascade)
-                    # Using delete_resource by name because the deployed resource may have
-                    # different labels than the new template (this is why we're in this situation)
-                    delete_result = controller.delete_resource(
-                        "statefulset",
+                    if not resolve_statefulset_conflict(
+                        controller,
                         constants.POSTGRES_RESOURCE_NAME,
                         namespace,
-                        cascade="orphan",
-                        wait=True,
-                    )
-
-                    if not delete_result.success:
-                        console.error(
-                            f"Failed to delete StatefulSet:\n{delete_result.stderr}"
-                        )
+                        constants.POSTGRES_POD_LABEL,
+                    ):
                         raise typer.Exit(1)
 
-                    # Wait for StatefulSet to actually be deleted
-                    console.info("Waiting for StatefulSet deletion...")
-                    import time
-
-                    for _ in range(30):  # Wait up to 30 seconds
-                        if not controller.resource_exists(
-                            "statefulset",
-                            constants.POSTGRES_RESOURCE_NAME,
-                            namespace,
-                        ):
-                            break
-                        time.sleep(1)
-                    else:
-                        console.error(
-                            "Timeout waiting for StatefulSet deletion. "
-                            "Please delete it manually and retry."
-                        )
-                        raise typer.Exit(1)
-
-                    console.ok("StatefulSet deleted")
-
-                    # Step 2: Clear Helm's cached manifest state
-                    # This is required because Helm does a 3-way merge and will
-                    # still try to "update" based on its stored old manifest
-                    console.info("Clearing Helm release metadata...")
-                    controller.delete_helm_secrets(namespace, "postgresql")
-                    console.ok("Helm release metadata cleared")
-
-                    # Step 3: Fresh Helm install (upgrade --install will install since
+                    # Fresh Helm install (upgrade --install will install since
                     # release metadata is gone)
                     console.info("Installing PostgreSQL...")
                     retry_result = subprocess.run(
@@ -598,12 +499,11 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     console.info("\nInitializing database...")
 
     try:
-        success = run_init(_get_runtime())
-        if not success:
-            console.error("Database initialization failed")
-            console.print("\n[dim]You can retry with:[/dim]")
-            console.print("  uv run api-forge-cli k8s db init")
-            raise typer.Exit(1)
+        execute_init(_get_runtime(), label="Kubernetes")
+    except typer.Exit:
+        console.print("\n[dim]You can retry with:[/dim]")
+        console.print("  uv run api-forge-cli k8s db init")
+        raise
     except Exception as exc:
         console.error(f"Database initialization failed: {exc}")
         console.print("\n[dim]You can retry with:[/dim]")
@@ -615,25 +515,22 @@ def _create_bundled(*, values_file: Path | None, wait: bool) -> None:
     console.print("  - Run 'uv run api-forge-cli k8s db verify' to verify setup")
 
 
+_K8S_LABEL = "Kubernetes"
+
+
 @k8s_db_app.command(name="init")
 @with_error_handling
 def init_db() -> None:
     """Initialize the PostgreSQL database with roles and schema.
 
-    This command:
-    - Creates the owner, app user, and read-only roles
-    - Creates the application database
-    - Sets up the schema with proper privileges
-    - Optionally initializes Temporal databases
+    Creates owner / app / read-only roles, the application database, and
+    sets up the schema with proper privileges. Optionally initializes
+    Temporal databases.
 
     Examples:
         uv run api-forge-cli k8s db init
     """
-    console.print_header("Initializing PostgreSQL Database (Kubernetes)")
-    success = run_init(_get_runtime())
-
-    if not success:
-        raise typer.Exit(1)
+    execute_init(_get_runtime(), label=_K8S_LABEL)
 
 
 @k8s_db_app.command()
@@ -641,23 +538,21 @@ def init_db() -> None:
 def verify() -> None:
     """Verify PostgreSQL database setup and configuration.
 
-    This command checks:
-    - Pod existence and readiness
-    - Role existence and attributes
-    - Database and schema ownership
-    - Table and sequence privileges
+    Checks pod readiness, role existence/attributes, database and schema
+    ownership, table and sequence privileges.
 
     Examples:
         uv run api-forge-cli k8s db verify
     """
-    console.print_header("Verifying PostgreSQL Configuration (Kubernetes)")
-    success = run_verify(_get_runtime(), superuser_mode=True)
-
-    if not success:
-        console.info(
-            'Please run "uv run api-forge-cli k8s db init" to re-initialize the database.'
-        )
-        raise typer.Exit(1)
+    execute_verify(
+        _get_runtime(),
+        label=_K8S_LABEL,
+        superuser_mode=True,
+        retry_hint=(
+            'Please run "uv run api-forge-cli k8s db init" to re-initialize '
+            "the database."
+        ),
+    )
 
 
 @k8s_db_app.command()
@@ -665,19 +560,13 @@ def verify() -> None:
 def sync() -> None:
     """Synchronize PostgreSQL role passwords.
 
-    This command restarts PostgreSQL to pick up new secrets, then updates
-    database role passwords to match new values.
-
-    Use after rotating secrets to sync the new passwords to the database.
+    Restarts PostgreSQL to pick up new secrets, then updates database role
+    passwords. Use after rotating secrets.
 
     Examples:
         uv run api-forge-cli k8s db sync
     """
-    console.print_header("Synchronizing PostgreSQL Passwords (Kubernetes)")
-    success = run_sync(_get_runtime())
-
-    if not success:
-        raise typer.Exit(1)
+    execute_sync(_get_runtime(), label=_K8S_LABEL)
 
 
 @k8s_db_app.command()
@@ -694,27 +583,18 @@ def backup(
 ) -> None:
     """Create a PostgreSQL database backup from Kubernetes.
 
-    Creates a backup by running pg_dump in the pod and copying
-    the result locally.
+    Runs pg_dump in the pod and copies the result locally.
 
     Examples:
         uv run api-forge-cli k8s db backup
         uv run api-forge-cli k8s db backup --output-dir ./backups
     """
-    console.print_header("Creating PostgreSQL Backup (Kubernetes)")
-
-    backup_dir = output_dir or Path("./data/postgres-backups")
-    success, result = run_backup(
+    execute_backup(
         _get_runtime(),
-        output_dir=backup_dir,
+        label=_K8S_LABEL,
+        output_dir=output_dir,
         superuser_mode=True,
     )
-
-    if not success:
-        console.error(f"Backup failed: {result}")
-        raise typer.Exit(1)
-
-    console.print(f"\n[bold green]🎉 Backup created: {result}[/bold green]")
 
 
 @k8s_db_app.command()
@@ -758,8 +638,6 @@ def reset(
         uv run api-forge-cli k8s db reset --no-temporal  # Keep Temporal data
         uv run api-forge-cli k8s db reset -y             # Skip confirmation
     """
-    console.print_header("Resetting PostgreSQL Database (Kubernetes)")
-
     include_temporal = is_temporal_enabled() and include_temporal
 
     if not yes:
@@ -774,18 +652,13 @@ def reset(
             console.print("[dim]Operation cancelled[/dim]")
             raise typer.Exit(0)
 
-    success = run_reset(
+    execute_reset(
         _get_runtime(),
+        label=_K8S_LABEL,
         include_temporal=include_temporal,
         superuser_mode=True,
+        retry_command="uv run api-forge-cli k8s db init",
     )
-
-    if not success:
-        raise typer.Exit(1)
-
-    console.print("\n[bold green]🎉 PostgreSQL database reset complete![/bold green]")
-    console.print("\n[dim]To re-initialize:[/dim]")
-    console.print("  Run 'uv run api-forge-cli k8s db init'")
 
 
 @k8s_db_app.command()
@@ -793,19 +666,14 @@ def reset(
 def status() -> None:
     """Show PostgreSQL health and performance metrics.
 
-    Displays runtime metrics including:
-    - Connection latency and active connections
-    - Database sizes and row counts
-    - Cache hit ratios
-    - Database uptime
-
-    Works with both bundled Kubernetes PostgreSQL and external databases.
+    Displays connection latency, active connections, database sizes, row
+    counts, cache hit ratios, and uptime. Works with both bundled
+    Kubernetes PostgreSQL and external databases.
 
     Examples:
         uv run api-forge-cli k8s db status
     """
-    console.print_header("PostgreSQL Health & Performance")
-    run_status(_get_runtime(), superuser_mode=True)
+    execute_status(_get_runtime(), label=_K8S_LABEL, superuser_mode=True)
 
 
 @k8s_db_app.command()
@@ -930,14 +798,12 @@ def migrate(
         # Stamp the DB to a revision (no migration execution)
         uv run api-forge-cli k8s db migrate stamp head
     """
-    merge_revisions_normalized: list[str] = merge_revisions or []
-
-    run_migrate(
+    execute_migrate(
         _get_runtime(),
         action=action,
         revision=revision,
         message=message,
-        merge_revisions=merge_revisions_normalized,
+        merge_revisions=merge_revisions or [],
         purge=purge,
         autogenerate=autogenerate,
         sql=sql,

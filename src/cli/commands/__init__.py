@@ -7,14 +7,17 @@ Command Groups:
 - dev: Development environment using Docker Compose
 - prod: Production Docker Compose deployment (includes 'prod db' subcommands)
 - k8s: Kubernetes deployment using Helm (includes 'k8s db' subcommands)
-- fly: Fly.io Kubernetes (FKS) deployment (future)
+- fly: Fly.io deployment (traditional Fly Machines)
+- fks: Fly.io Kubernetes Service (FKS) deployment (private beta)
 - entity: Entity/model scaffolding
 - secrets: Secret management utilities
 - users: Keycloak user management (dev environment)
 """
 
+from .config_validate import config_app
 from .dev import app as dev_app
 from .entity import entity_app
+from .fks import fks_app
 from .fly import fly_app
 from .k8s import k8s_app
 from .prod import prod_app
@@ -22,10 +25,12 @@ from .secrets import secrets_app
 from .users import users_app
 
 __all__ = [
+    "config_app",
     "dev_app",
     "prod_app",
     "k8s_app",
     "fly_app",
+    "fks_app",
     "entity_app",
     "secrets_app",
     "users_app",

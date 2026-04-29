@@ -5,45 +5,16 @@ environment: starting services, stopping them, and checking status.
 """
 
 import subprocess
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 
-from src.cli.shared.compose import ComposeRunner
+from src.cli.deployment.runtime import get_prod_runtime
+from src.cli.shared.config import get_db_settings
 from src.cli.shared.console import console, with_error_handling
-from src.infra.postgres.connection import get_settings
 from src.utils.paths import get_project_root
 
 from .prod_db import prod_db_app
-
-if TYPE_CHECKING:
-    from src.cli.deployment.prod_deployer import ProdDeployer
-
-
-# ---------------------------------------------------------------------------
-# Deployer Factory
-# ---------------------------------------------------------------------------
-
-
-def _get_deployer() -> "ProdDeployer":
-    """Get the production deployer instance.
-
-    Returns:
-        ProdDeployer instance configured for current project
-    """
-    from src.cli.deployment.prod_deployer import ProdDeployer
-
-    return ProdDeployer(console, get_project_root())
-
-
-def _get_compose_runner() -> ComposeRunner:
-    """Create a ComposeRunner for the prod compose file."""
-    project_root = get_project_root()
-    return ComposeRunner(
-        project_root,
-        compose_file=project_root / "docker-compose.prod.yml",
-        project_name="api-forge-prod",
-    )
 
 
 def _verify_database_accessible() -> bool:
@@ -57,7 +28,7 @@ def _verify_database_accessible() -> bool:
             get_docker_compose_postgres_connection,
         )
 
-        settings = get_settings()
+        settings = get_db_settings()
         conn = get_docker_compose_postgres_connection(settings)
 
         # Test connection with a short timeout
@@ -167,7 +138,7 @@ def up(
             console.print("[dim]Use --skip-db-check to bypass this verification.[/dim]")
             raise typer.Exit(1)
 
-    deployer = _get_deployer()
+    deployer = get_prod_runtime().get_deployer()
     deployer.deploy(
         skip_build=skip_build,
         no_wait=no_wait,
@@ -219,7 +190,7 @@ def down(
             console.print("[dim]Operation cancelled[/dim]")
             raise typer.Exit(0)
 
-    deployer = _get_deployer()
+    deployer = get_prod_runtime().get_deployer()
     deployer.teardown(volumes=volumes)
 
 
@@ -235,7 +206,7 @@ def status() -> None:
     """
     console.print_header("Production Environment Status")
 
-    deployer = _get_deployer()
+    deployer = get_prod_runtime().get_deployer()
     deployer.show_status()
 
 
@@ -289,7 +260,7 @@ def logs(
         console.print("[dim]Showing logs for all production services[/dim]\n")
 
     try:
-        runner = _get_compose_runner()
+        runner = get_prod_runtime().get_compose_runner()
         runner.logs(service=service, follow=follow, tail=tail)
     except subprocess.CalledProcessError as e:
         console.handle_error(f"Failed to retrieve logs: {e}")
@@ -339,7 +310,7 @@ def restart(
         console.info("Restarting all production services...")
 
     try:
-        runner = _get_compose_runner()
+        runner = get_prod_runtime().get_compose_runner()
         if force_recreate and not service:
             runner.run(["up", "-d", "--force-recreate"], check=True)
         else:
@@ -388,7 +359,7 @@ def build(
         console.info("Building all production images...")
 
     try:
-        runner = _get_compose_runner()
+        runner = get_prod_runtime().get_compose_runner()
         runner.build(service=service, no_cache=no_cache)
         console.ok("Build complete")
     except subprocess.CalledProcessError as e:

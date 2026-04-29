@@ -5,13 +5,8 @@ This drops all databases, roles, and schemas created by the application.
 """
 
 from src.cli.shared.console import console
-from src.infra.k8s.helpers import get_namespace, get_postgres_label
-from src.infra.k8s.port_forward import with_postgres_port_forward_if_needed
 
 from .connection import PostgresConnection
-
-K8S_NAMESPACE = get_namespace()
-POSTGRES_LABEL = get_postgres_label()
 
 
 class PostgresReset:
@@ -29,9 +24,6 @@ class PostgresReset:
         self._settings = connection.settings
         self._console = console
 
-    @with_postgres_port_forward_if_needed(
-        namespace=K8S_NAMESPACE, pod_label=POSTGRES_LABEL
-    )
     def reset(self, include_temporal: bool = True) -> bool:
         """Reset the PostgreSQL database to clean state.
 

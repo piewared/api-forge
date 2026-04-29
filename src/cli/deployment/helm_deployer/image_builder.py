@@ -26,16 +26,11 @@ if TYPE_CHECKING:
     from ..shell_commands import ShellCommands
 
 
+from src.cli.shared.errors import DeploymentError  # re-export for back-compat
+
+__all__ = ["DeploymentError", "ImageBuilder"]
+
 CONTROLLER = get_k8s_controller_sync()
-
-
-class DeploymentError(Exception):
-    """Raised when a deployment operation fails."""
-
-    def __init__(self, message: str, details: str | None = None):
-        self.message = message
-        self.details = details
-        super().__init__(message)
 
 
 class ImageBuilder:
@@ -319,6 +314,18 @@ class ImageBuilder:
             progress_factory: Rich Progress class for creating progress bars
         """
         context = self._controller.get_current_context()
+
+        if context == "unknown":
+            raise DeploymentError(
+                "Could not detect Kubernetes cluster context",
+                details=(
+                    "The `kubectl config current-context` command failed.\n"
+                    "Please ensure:\n"
+                    "  1. kubectl is installed and in your PATH\n"
+                    "  2. You have a valid kubeconfig file (~/.kube/config)\n"
+                    "  3. A cluster context is selected (verify with `kubectl config current-context`)"
+                ),
+            )
 
         # Determine cluster type and loading strategy
         if self._controller.is_minikube_context():

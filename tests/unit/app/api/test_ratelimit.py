@@ -3,9 +3,10 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException, Request
+from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
 
-from src.app.api.http.app import FastAPILimiter, configure_rate_limiter
+from src.app.api.http.app import configure_rate_limiter
 from src.app.api.http.middleware.limiter import (
     DefaultLocalRateLimiter,
     get_rate_limiter,

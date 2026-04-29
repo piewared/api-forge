@@ -45,8 +45,23 @@ def build_cli_context() -> CLIContext:
 
 
 def get_cli_context(ctx: typer.Context | None = None) -> CLIContext:
-    """Return the CLIContext from Typer, falling back to a new instance."""
+    """Return the active CLIContext attached to a Typer/Click context.
+
+    The Typer top-level callback (``_configure_context`` in ``src.cli``)
+    populates ``ctx.obj`` once per CLI invocation, so every command resolved
+    by Typer can use this helper without threading ``ctx`` through manually.
+
+    Raises:
+        RuntimeError: if no CLIContext is attached. Callers that want a
+            standalone context outside of a Typer command (notably tests)
+            should construct one explicitly via ``build_cli_context()`` —
+            the previous silent fallback hid real-infrastructure construction
+            (k8s controller, shell commands, …) inside test imports.
+    """
     context = ctx or click.get_current_context(silent=True)
     if context and isinstance(context.obj, CLIContext):
         return context.obj
-    return build_cli_context()
+    raise RuntimeError(
+        "CLIContext is not configured. Run inside a Typer command, or call "
+        "build_cli_context() explicitly to construct a standalone context."
+    )

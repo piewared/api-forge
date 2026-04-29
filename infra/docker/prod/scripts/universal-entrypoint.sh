@@ -133,6 +133,16 @@ fi
 
 echo "Secrets setup complete."
 
+# Fix ownership of writable app directories.
+# When a volume is mounted (e.g. on Fly.io), the host mounts it as root
+# (uid:0 gid:0) which overwrites the Dockerfile-time chown. Re-apply
+# ownership here while we still run as root, before dropping privileges.
+for _dir in /app/logs /app/data /app/keys /app/certs; do
+    if [ -d "$_dir" ]; then
+        chown -R "${CONTAINER_USER_UID}:${CONTAINER_USER_GID}" "$_dir"
+    fi
+done
+
 
 # Drop privileges and start the application (unless explicitly skipped)
 if [ "$SKIP_USER_SWITCH" = "false" ]; then

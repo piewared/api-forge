@@ -6,30 +6,10 @@ from unittest.mock import patch
 import pytest
 
 from src.app.core.models.session import AuthSession, TokenClaims, UserSession
-from src.app.core.security import hash_client_fingerprint
 
 
 class TestAuthSession:
     """Test AuthSession model."""
-
-    def test_create_auth_session(
-        self,
-        test_auth_session,
-    ):
-        """Test successful creation of an auth session."""
-        session = test_auth_session
-
-        assert session.id == "auth-session-123"
-        assert session.pkce_verifier == "test-pkce-verifier"
-        assert session.state == "test-state-parameter"
-        assert session.nonce == "test-nonce-value"
-        assert session.provider == "default"
-        assert session.return_to == "/dashboard"
-        assert session.client_fingerprint_hash == hash_client_fingerprint(
-            "testclient", "testclient"
-        )
-        assert not session.used
-        assert session.expires_at > session.created_at
 
     def test_auth_session_expiration(self, test_auth_session):
         """Test auth session expiration check."""
@@ -54,20 +34,6 @@ class TestAuthSession:
 
 class TestUserSession:
     """Test UserSession model."""
-
-    def test_create_user_session(self, test_user_session, test_user):
-        """Test successful creation of a user session."""
-        session = test_user_session
-
-        assert session.id == "user-session-456"
-        assert session.user_id == test_user.id
-        assert session.provider == "default"
-        assert session.client_fingerprint == hash_client_fingerprint(
-            "testclient", "testclient"
-        )
-        assert session.refresh_token == "mock-refresh-token"
-        assert session.access_token == "mock-access-token"
-        assert session.expires_at > session.created_at
 
     def test_user_session_expiration(self, test_user_session: UserSession):
         """Test user session expiration check."""

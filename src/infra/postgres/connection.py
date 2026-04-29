@@ -3,9 +3,8 @@
 Provides centralized database settings and connection utilities.
 """
 
-import os
 from collections.abc import Callable
-from functools import lru_cache, wraps
+from functools import wraps
 from typing import Any, Literal, Self, TypeVar
 from urllib.parse import quote_plus, urlencode
 
@@ -15,9 +14,7 @@ import psycopg2.extras
 from pydantic import BaseModel
 
 from src.app.runtime.config.config_data import DatabaseConfig
-from src.app.runtime.config.config_loader import load_config
 from src.cli.shared.secrets import get_password
-from src.infra.constants import DEFAULT_PATHS
 
 # Type variable for function return type
 T = TypeVar("T")
@@ -370,37 +367,6 @@ class PostgresConnection:
         self.close()
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> DbSettings:
-    """Get database settings from application config."""
-    from dotenv import load_dotenv
-    from loguru import logger
-
-    load_dotenv()
-
-    try:
-        # Temporarily disable verbose config loading logs
-        logger.disable("src.app.runtime")
-        os.environ["APP_ENVIRONMENT"] = "production"
-
-        # Use centralized path to config.yaml
-        config_path = DEFAULT_PATHS.config_yaml
-
-        if not config_path.exists():
-            msg = f"Could not find config.yaml at {config_path}. Please ensure config.yaml exists in project root."
-            raise FileNotFoundError(msg)
-
-        # Load config from the found path
-        config = load_config(file_path=config_path)
-        config.database.environment_mode = "production"
-        db_config = config.database
-        settings = DbSettings.load(db_config)
-    finally:
-        logger.enable("src.app.runtime")
-
-    return settings
-
-
 def with_postgres_connection(
     settings: DbSettings | None = None,
     *,
@@ -413,7 +379,7 @@ def with_postgres_connection(
     must accept a 'conn' or 'connection' parameter.
 
     Args:
-        settings: Database settings (if None, will call get_settings())
+        settings: Database settings (if None, will call get_db_settings())
         superuser_mode: If True, connect as superuser
         ssl_mode: SSL mode for connection (default: require)
 
@@ -438,7 +404,11 @@ def with_postgres_connection(
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
             # Get settings if not provided
-            db_settings = settings if settings is not None else get_settings()
+            db_settings = settings
+            if db_settings is None:
+                from src.cli.commands.db.runtime_fly import get_db_settings
+
+                db_settings = get_db_settings()
 
             # Create connection within context manager
             with PostgresConnection(

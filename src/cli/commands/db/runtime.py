@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.cli.shared.console import CLIConsole
-from src.infra.postgres import PostgresConnection
+from src.infra.postgres import DbSettings, PostgresConnection
+
+if TYPE_CHECKING:
+    from src.infra.secrets import SecretsManager
 
 
 @dataclass(frozen=True)
@@ -18,11 +20,11 @@ class DbRuntime:
 
     name: str
     console: CLIConsole
-    get_settings: Callable[[], Any]
+    get_settings: Callable[[], DbSettings]
     connect: Callable[[Any, bool], PostgresConnection]
     port_forward: Callable[[], AbstractContextManager[None]]
     get_deployer: Callable[[], Any]
-    secrets_dirs: Sequence[Path]
+    secrets_manager: SecretsManager
     is_temporal_enabled: Callable[[], bool]
     is_bundled_postgres_enabled: Callable[[], bool]
 

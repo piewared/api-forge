@@ -229,7 +229,7 @@ class TestConfigLoaderEdgeCases:
 
         try:
             loaded = load_config(temp_path, processed=False)
-            assert loaded["config"]["optional"]["value"] == ""
+            assert loaded["optional"]["value"] == ""
         finally:
             temp_path.unlink()
 

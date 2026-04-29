@@ -4,7 +4,6 @@ Provides database initialization including creating roles, databases,
 schemas, and setting up privileges. Used by the CLI `db init` command.
 """
 
-from src.cli.deployment.status_display import is_temporal_enabled
 from src.cli.shared.console import console
 from src.infra.k8s.helpers import get_namespace, get_postgres_label
 
@@ -40,8 +39,10 @@ class PostgresInitializer:
             self._console.error(f"Cannot connect to PostgreSQL: {msg}")
             return False
 
-        # Show connected user
-        current_user = conn.scalar("SELECT current_user")
+        # Show connected user (use postgres_db since app_db may not exist yet)
+        current_user = conn.scalar(
+            "SELECT current_user", database=self._settings.postgres_db
+        )
         self._console.ok(f"Connected to PostgreSQL as {current_user}")
 
         try:
@@ -57,6 +58,8 @@ class PostgresInitializer:
             self._setup_schema_and_privileges(conn)
 
             # Initialize Temporal if enabled
+            from src.infra.utils.service_config import is_temporal_enabled
+
             if is_temporal_enabled() and s.temporal_password:
                 self._initialize_temporal(conn, s.temporal_password)
 

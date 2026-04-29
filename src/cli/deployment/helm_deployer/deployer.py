@@ -38,7 +38,7 @@ from .cleanup import CleanupManager
 from .config_sync import ConfigSynchronizer
 from .helm_release import HelmReleaseManager
 from .image_builder import DeploymentError, ImageBuilder
-from .secret_manager import SecretManager
+from .secret_manager import HelmDeploymentSecretManager
 
 # Re-export for backward compatibility
 __all__ = ["HelmDeployer", "DeploymentError"]
@@ -110,7 +110,7 @@ class HelmDeployer(BaseDeployer):
             paths=self.paths,
             constants=self.constants,
         )
-        self.secret_manager = SecretManager(
+        self.secret_manager = HelmDeploymentSecretManager(
             commands=self.commands,
             console=console,
             paths=self.paths,
@@ -326,7 +326,7 @@ class HelmDeployer(BaseDeployer):
         with self.console.status(f"[bold red]Deleting namespace {namespace}..."):
             self._controller.delete_namespace(namespace, timeout="120s")
 
-        self.success(f"Teardown complete for {namespace}")
+        self.console.ok(f"Teardown complete for {namespace}")
 
     def show_status(self, namespace: str | None = None) -> None:
         """Display the current status of the Kubernetes deployment.
@@ -519,7 +519,6 @@ class HelmDeployer(BaseDeployer):
         import time
 
         from src.infra.k8s import get_postgres_label
-        from src.infra.postgres.connection import get_settings
         from src.infra.utils.service_config import is_bundled_postgres_enabled
 
         # Check if postgres pod exists first
@@ -550,8 +549,10 @@ class HelmDeployer(BaseDeployer):
                 try:
                     # Clear the settings cache to ensure fresh password values
                     # after secret rotation/deployment
-                    get_settings.cache_clear()
-                    settings = get_settings()
+                    from src.cli.commands.db.runtime_fly import get_db_settings
+
+                    get_db_settings.cache_clear()
+                    settings = get_db_settings()
 
                     # Import here to avoid circular dependencies
                     from src.infra.k8s.postgres_connection import (

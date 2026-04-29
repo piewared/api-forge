@@ -8,7 +8,8 @@ Command Groups:
 - dev: Development Docker Compose environment
 - prod: Production Docker Compose deployment (includes 'prod db' subcommands)
 - k8s: Kubernetes Helm deployment (includes 'k8s db' subcommands)
-- fly: Fly.io Kubernetes (coming soon)
+- fly: Fly.io deployment (traditional Fly Machines)
+- fks: Fly.io Kubernetes Service (private beta, preserved for future)
 - entity: Entity/model scaffolding
 - secrets: Secret management
 - users: Keycloak user management (dev)
@@ -17,8 +18,10 @@ Command Groups:
 import typer
 
 from .commands import (
+    config_app,
     dev_app,
     entity_app,
+    fks_app,
     fly_app,
     k8s_app,
     prod_app,
@@ -46,9 +49,11 @@ def _configure_context(ctx: typer.Context) -> None:
 app.add_typer(dev_app, name="dev", help="Development environment commands")
 app.add_typer(prod_app, name="prod", help="Production Docker Compose commands")
 app.add_typer(k8s_app, name="k8s", help="Kubernetes Helm deployment commands")
-app.add_typer(fly_app, name="fly", help="Fly.io Kubernetes commands (coming soon)")
+app.add_typer(fly_app, name="fly", help="Fly.io deployment commands")
+app.add_typer(fks_app, name="fks", help="Fly.io Kubernetes Service (private beta)")
 
 # Register utility command groups
+app.add_typer(config_app, name="config", help="Configuration validation")
 app.add_typer(entity_app, name="entity")
 app.add_typer(secrets_app, name="secrets")
 app.add_typer(users_app, name="users")

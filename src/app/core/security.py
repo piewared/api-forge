@@ -5,8 +5,10 @@ import hashlib
 import hmac
 import secrets
 import time
+from urllib.parse import unquote
 
 from fastapi import Request
+from loguru import logger
 
 from src.app.runtime.context import get_config
 
@@ -147,11 +149,16 @@ def sanitize_return_url(
 
     return_to = return_to.strip()
 
-    # Allow relative paths starting with /
-    if return_to.startswith("/") and not return_to.startswith("//"):
+    # Decode percent-encoding before validation to prevent bypass via /%2f, /\ etc.
+    decoded = unquote(return_to)
+    if (
+        decoded.startswith("/")
+        and not decoded.startswith("//")
+        and not decoded.startswith("/\\")
+    ):
         # Ensure it's a valid path (no control characters)
-        if all(ord(c) >= 32 for c in return_to):
-            return return_to
+        if all(ord(c) >= 32 for c in decoded):
+            return return_to  # return original, not decoded
 
     # Check absolute URLs against allowlist
     if allowed_hosts and (
@@ -231,9 +238,7 @@ def extract_client_fingerprint(request: Request) -> str:
     if not client_ip and hasattr(request, "client") and request.client:
         client_ip = request.client.host
 
-    print(
-        f"extract_client_fingerprint called with user_agent: {user_agent}, client_ip: {client_ip}"
-    )
+    logger.debug("extract_client_fingerprint: computing fingerprint")
     return hash_client_fingerprint(user_agent, client_ip)
 
 

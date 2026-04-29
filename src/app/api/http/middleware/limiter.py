@@ -45,7 +45,9 @@ class DefaultLocalRateLimiter:
         self._hits: defaultdict[str, deque[float]] = defaultdict(deque)
         self._lock = asyncio.Lock()
         self._times = times
-        self._seconds = milliseconds // 1000
+        # Float seconds — integer division would round any sub-second window
+        # down to 0, leaving the throttle effectively disabled.
+        self._seconds: float = milliseconds / 1000.0
         self._per_endpoint = per_endpoint
         self._per_method = per_method
         self._last_cleanup = time.monotonic()
@@ -113,8 +115,8 @@ class DefaultLocalRateLimiter:
                 f"Cleaned up local rate limiter with {len(self._hits)} tracked keys"
             )
 
-    async def _throttle(self, key: str, times: int, seconds: int) -> None:
-        await self._cleanup_old_keys()  # Add periodic cleanup
+    async def _throttle(self, key: str, times: int, seconds: float) -> None:
+        await self._cleanup_old_keys()  # periodic cleanup
         now = time.monotonic()
         window_start = now - seconds
         async with self._lock:
@@ -122,7 +124,11 @@ class DefaultLocalRateLimiter:
             while hits and hits[0] <= window_start:
                 hits.popleft()
             if len(hits) >= times:
-                retry_after = max(0, int(seconds - (now - hits[0])))
+                # Retry-After is whole seconds; round up so the client doesn't
+                # retry inside the still-active window.
+                from math import ceil
+
+                retry_after = max(1, ceil(seconds - (now - hits[0])))
                 raise HTTPException(
                     status_code=429,
                     detail="Too Many Requests",

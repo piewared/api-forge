@@ -8,8 +8,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.cli.prompts import ConsolePromptProvider
 from src.cli.shared.console import CLIConsole
 from src.infra.constants import DeploymentPaths
+from src.infra.secrets import (
+    GeneratorConfig,
+    PKICertificateGenerator,
+    SecretGenerationOrchestrator,
+    SecretKind,
+    get_secrets_manager,
+)
 
 if TYPE_CHECKING:
     from rich.progress import Progress
@@ -17,7 +25,7 @@ if TYPE_CHECKING:
     from ..shell_commands import ShellCommands
 
 
-class SecretManager:
+class HelmDeploymentSecretManager:
     """Manages Kubernetes secrets for deployment.
 
     Handles:
@@ -50,9 +58,9 @@ class SecretManager:
             namespace: Target Kubernetes namespace
             progress_factory: Rich Progress class for creating progress bars
         """
-        self._generate_secrets_if_needed(progress_factory)
+        self._generate_secrets_if_needed()
 
-        self.console.print("[bold cyan]🔐 Deploying Kubernetes secrets...[/bold cyan]")
+        self.console.info("Deploying Kubernetes secrets...")
 
         script_path = self.paths.apply_secrets_script
         if not script_path.exists():
@@ -75,57 +83,54 @@ class SecretManager:
             self.commands.run_bash_script(script_path, [namespace])
             progress.update(task, completed=1)
 
-        self.console.print(
-            f"[green]✓ Secrets deployed to namespace {namespace}[/green]"
-        )
+        self.console.ok(f"Secrets deployed to namespace {namespace}")
 
-    def _generate_secrets_if_needed(self, progress_factory: type[Progress]) -> None:
+    def _generate_secrets_if_needed(self) -> None:
         """Generate secrets if they don't exist (first-time setup)."""
-        keys_dir = self.paths.secrets_keys_dir
+        manager = get_secrets_manager()
 
-        required_files = [
-            keys_dir / "postgres_password.txt",
-            keys_dir / "session_signing_secret.txt",
-            keys_dir / "csrf_signing_secret.txt",
+        # Check if key secrets exist
+        required_keys = [
+            "postgres_password",
+            "session_signing_secret",
+            "csrf_signing_secret",
         ]
 
-        if all(f.exists() for f in required_files):
-            self.console.print("[dim]✓ Secrets already exist[/dim]")
+        # Check if PKI certificates exist
+        required_certs = [
+            "root-ca.crt",
+            "root-ca.key",
+        ]
+
+        keys_exist = all(manager.exists(key) for key in required_keys)
+        certs_exist = all(
+            manager.exists(cert, SecretKind.CERT) for cert in required_certs
+        )
+
+        if keys_exist and certs_exist:
+            self.console.ok("Secrets and certificates already exist")
             return
 
-        self.console.print(
-            "[bold yellow]🔑 Generating secrets (first time setup)...[/bold yellow]"
+        self.console.info("Generating secrets and certificates (first time setup)...")
+
+        # Create generator config
+        config = GeneratorConfig(
+            secrets_manager=manager,
+            prompt_provider=ConsolePromptProvider(self.console.console),
+            non_interactive=False,
+            overwrite_secrets=False,
         )
 
-        generate_script = self.paths.generate_secrets_script
-        if not generate_script.exists():
-            from .image_builder import DeploymentError
-
-            self.console.print(
-                f"[red]✗ Secret generation script not found: {generate_script}[/red]"
-            )
-            raise DeploymentError(
-                "Cannot generate secrets - script missing",
-                details=(
-                    f"Expected script at: {generate_script}\n\n"
-                    "This script generates required secrets for deployment:\n"
-                    "  • PostgreSQL passwords\n"
-                    "  • Session signing secrets\n"
-                    "  • CSRF signing secrets\n"
-                    "  • TLS certificates\n\n"
-                    "Recovery steps:\n"
-                    "  1. Check if the file was accidentally deleted\n"
-                    "  2. Restore from git: git checkout -- infra/secrets/generate_secrets.sh\n"
-                    "  3. Or regenerate project: uv run api-forge-cli init"
-                ),
-            )
-
-        with progress_factory(transient=True) as progress:
-            task = progress.add_task("Generating secrets and certificates...", total=1)
-            self.commands.run_bash_script(generate_script)
-            self.commands.run_bash_script(generate_script, ["--generate-pki"])
-            progress.update(task, completed=1)
-
-        self.console.print(
-            "[green]✓ Secrets and certificates generated successfully[/green]"
+        # Generate secrets
+        orchestrator = SecretGenerationOrchestrator(
+            config=config,
+            console=self.console,
         )
+        orchestrator.generate_all_secrets()
+
+        # Generate PKI certificates
+        self.console.info("Generating PKI certificates...")
+        pki_generator = PKICertificateGenerator(manager)
+        pki_generator.generate_pki_certificates()
+
+        self.console.ok("Secrets and certificates generated successfully")

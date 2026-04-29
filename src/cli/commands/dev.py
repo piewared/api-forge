@@ -12,15 +12,11 @@ Commands:
 """
 
 import subprocess
-from pathlib import Path
 
 import typer
 
-from src.cli.deployment import DevDeployer
-from src.cli.deployment.helm_deployer.image_builder import DeploymentError
-from src.cli.shared.compose import ComposeRunner
-from src.cli.shared.console import console
-from src.utils.paths import get_project_root
+from src.cli.deployment.runtime import get_dev_runtime
+from src.cli.shared.console import console, with_error_handling
 
 # Create the dev command group
 app = typer.Typer(
@@ -30,26 +26,13 @@ app = typer.Typer(
 )
 
 
-def _get_deployer() -> DevDeployer:
-    """Create a DevDeployer instance with current project context."""
-    return DevDeployer(console, Path(get_project_root()))
-
-
-def _get_compose_runner() -> ComposeRunner:
-    """Create a ComposeRunner for the dev compose file."""
-    project_root = Path(get_project_root())
-    return ComposeRunner(
-        project_root,
-        compose_file=project_root / "docker-compose.dev.yml",
-    )
-
-
 # =============================================================================
 # Commands
 # =============================================================================
 
 
 @app.command()
+@with_error_handling
 def up(
     force: bool = typer.Option(
         False,
@@ -84,15 +67,12 @@ def up(
         api-forge-cli dev up --force
     """
     console.print_header("Starting Development Environment")
-
-    try:
-        deployer = _get_deployer()
-        deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
-    except DeploymentError as e:
-        console.handle_error(f"Deployment failed: {e.message}", e.details)
+    deployer = get_dev_runtime().get_deployer()
+    deployer.deploy(force=force, no_wait=no_wait, start_server=start_server)
 
 
 @app.command()
+@with_error_handling
 def down(
     volumes: bool = typer.Option(
         False,
@@ -138,15 +118,12 @@ def down(
         raise typer.Exit(0)
 
     console.print_header("Stopping Development Environment", style="red")
-
-    try:
-        deployer = _get_deployer()
-        deployer.teardown(volumes=volumes)
-    except DeploymentError as e:
-        console.handle_error(f"Teardown failed: {e.message}", e.details)
+    deployer = get_dev_runtime().get_deployer()
+    deployer.teardown(volumes=volumes)
 
 
 @app.command()
+@with_error_handling
 def status() -> None:
     """📊 Show status of development services.
 
@@ -156,11 +133,12 @@ def status() -> None:
     Examples:
         api-forge-cli dev status
     """
-    deployer = _get_deployer()
+    deployer = get_dev_runtime().get_deployer()
     deployer.show_status()
 
 
 @app.command()
+@with_error_handling
 def logs(
     service: str = typer.Argument(
         None,
@@ -208,7 +186,7 @@ def logs(
         compose_service = None
 
     try:
-        runner = _get_compose_runner()
+        runner = get_dev_runtime().get_compose_runner()
         runner.logs(service=compose_service, follow=follow, tail=tail)
     except subprocess.CalledProcessError as e:
         console.handle_error(f"Failed to get logs: {e}")
@@ -217,6 +195,7 @@ def logs(
 
 
 @app.command()
+@with_error_handling
 def restart(
     service: str = typer.Argument(
         ...,
@@ -248,7 +227,7 @@ def restart(
     console.print(f"[bold]Restarting {service}...[/bold]")
 
     try:
-        runner = _get_compose_runner()
+        runner = get_dev_runtime().get_compose_runner()
         runner.restart(service=compose_service)
         console.print(f"[green]✅ {service} restarted successfully[/green]")
     except subprocess.CalledProcessError as e:

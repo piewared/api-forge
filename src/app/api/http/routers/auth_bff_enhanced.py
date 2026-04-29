@@ -1,10 +1,12 @@
 """Enhanced BFF (Backend-for-Frontend) authentication endpoints with CSRF protection and hardened flows."""
 
+import html
+import json
 from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
 from pydantic import BaseModel
 
@@ -279,16 +281,15 @@ async def handle_callback(
         return response
 
     except Exception:
-        # Clean up auth session on any error path to retire nonce/state
+        # Retire the auth session on any error path so nonce/state can't be
+        # reused. delete_auth_session must not mask the original failure.
+        logger.exception("Authentication failed during callback")
         try:
             await auth_session_service.delete_auth_session(session_id)
-        finally:
-            pass
-        # Clear cookie to avoid dangling references
+        except Exception:
+            logger.exception("Failed to clean up auth session after callback error")
         response = RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
         response.delete_cookie("auth_session_id", path="/")
-        # Return a generic response; log server-side
-        logger.exception("Authentication failed during callback")
         return response
 
 
@@ -309,24 +310,18 @@ async def logout(
     if not session_id:
         raise HTTPException(status_code=401, detail="No session found")
 
-    if session_id:
-        # Get session info for provider logout
-        user_session = await user_session_service.get_user_session(session_id)
+    # Look up the session for the optional provider-logout URL before deleting
+    # it. delete_user_session is best-effort idempotent: a stale cookie that
+    # doesn't resolve to a session still results in a successful 200 logout.
+    user_session = await user_session_service.get_user_session(session_id)
+    await user_session_service.delete_user_session(session_id)
+    response.delete_cookie("user_session_id", path="/")
 
-        # Delete server-side session
-        await user_session_service.delete_user_session(session_id)
-
-        # Clear session cookie
-        response.delete_cookie("user_session_id", path="/")
-
-        # Optionally trigger provider logout
-        if (
-            user_session
-            and get_config().oidc.providers[user_session.provider].end_session_endpoint
-        ):
-            provider_config = get_config().oidc.providers[user_session.provider]
+    if user_session is not None:
+        provider_config = get_config().oidc.providers.get(user_session.provider)
+        if provider_config is not None and provider_config.end_session_endpoint:
             logout_params = {
-                "post_logout_redirect_uri": "auth/web/debug",
+                "post_logout_redirect_uri": "/auth/web/debug",
                 "client_id": provider_config.client_id,
             }
             logout_url = (
@@ -364,14 +359,19 @@ async def get_auth_state(
 
 
 @router_bff.post(
-    "/refresh", dependencies=[Depends(enforce_origin), Depends(require_csrf)]
+    "/refresh",
+    # Two distinct response shapes (dict on success, JSONResponse on error
+    # paths so we can clear the cookie on a 401). Disable response_model
+    # generation so FastAPI doesn't try to validate the union.
+    response_model=None,
+    dependencies=[Depends(enforce_origin), Depends(require_csrf)],
 )
 async def refresh_session(
     request: Request,
     response: Response,
     user_session_service: UserSessionService = Depends(get_user_session_service),
     oidc_client_service: OidcClientService = Depends(get_oidc_client_service),
-) -> dict[str, str]:
+) -> dict[str, str] | JSONResponse:
     """Refresh user session with CSRF + Origin validation and rotation.
 
     Requires X-CSRF-Token header; validates client fingerprint; rotates session ID and CSRF token.
@@ -396,8 +396,11 @@ async def refresh_session(
     )
 
     if not user_session:
-        response.delete_cookie("user_session_id", path="/")
-        raise HTTPException(status_code=401, detail="Invalid session")
+        # FastAPI discards the injected Response when the route raises, so
+        # construct the error response directly to keep the cookie clearance.
+        error = JSONResponse(status_code=401, content={"detail": "Invalid session"})
+        error.delete_cookie("user_session_id", path="/")
+        return error
 
     try:
         # Refresh tokens and rotate session ID
@@ -419,10 +422,12 @@ async def refresh_session(
         return {"message": "Session refreshed", "csrf_token": new_csrf}
 
     except Exception:
-        # Clear invalid session
-        response.delete_cookie("user_session_id", path="/")
         logger.exception("Session refresh failed")
-        raise HTTPException(status_code=401, detail="Session refresh failed") from None
+        error = JSONResponse(
+            status_code=401, content={"detail": "Session refresh failed"}
+        )
+        error.delete_cookie("user_session_id", path="/")
+        return error
 
 
 # Debugging endpoint to serve as a default return_to for OIDC callbacks. Displays auth state and renders a simple interface with a logout button.
@@ -431,14 +436,18 @@ async def debug_page(
     request: Request,
     auth_state: AuthState = Depends(get_auth_state),
 ) -> Response:
-    """Simple debug page to display auth state and provide logout button."""
-    import json
+    """Simple debug page to display auth state and provide logout button.
 
-    csrf_token = auth_state.csrf_token or ""
-    # Use Pydantic v2 method: model_dump() returns dict, then json.dumps() formats it
-    auth_json = json.dumps(auth_state.model_dump(), indent=2)
+    User fields (email / first_name / last_name) and the CSRF token are
+    embedded in the rendered HTML / JS. Both must be HTML-escaped to prevent
+    a JIT-provisioned user from injecting attacker-controlled markup.
+    The CSRF token is also passed via a JS-string interpolation, so it is
+    JSON-encoded (which produces a valid quoted JS string literal and
+    correctly escapes any quote/backslash/control chars).
+    """
+    auth_json_safe = html.escape(json.dumps(auth_state.model_dump(), indent=2))
+    csrf_token_js = json.dumps(auth_state.csrf_token or "")
 
-    # Build logout button with JavaScript to send CSRF token as header
     logout_button = ""
     if auth_state.authenticated:
         logout_button = f"""
@@ -452,7 +461,7 @@ async def debug_page(
                         const response = await fetch('/auth/web/logout', {{
                             method: 'POST',
                             headers: {{
-                                'X-CSRF-Token': '{csrf_token}',
+                                'X-CSRF-Token': {csrf_token_js},
                                 'Content-Type': 'application/json'
                             }},
                             credentials: 'same-origin'
@@ -460,11 +469,9 @@ async def debug_page(
 
                         if (response.ok) {{
                             const data = await response.json();
-                            // If provider logout URL is provided, redirect to it
                             if (data.provider_logout_url) {{
                                 window.location.href = data.provider_logout_url;
                             }} else {{
-                                // Otherwise just reload the page to show logged-out state
                                 window.location.reload();
                             }}
                         }} else {{
@@ -482,7 +489,7 @@ async def debug_page(
         <head><title>Auth Debug Page</title></head>
         <body>
             <h1>Authentication State</h1>
-            <pre>{auth_json}</pre>
+            <pre>{auth_json_safe}</pre>
             {logout_button}
         </body>
     </html>

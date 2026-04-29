@@ -3,16 +3,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from src.app.api.http.deps import get_db_session
+from src.app.api.http.deps import get_authenticated_user, get_db_session
+from src.app.entities.core.user import User
 from src.app.entities.service.book import Book, BookRepository
 
 router = APIRouter()
 
 
 @router.post("/", response_model=Book)
-def create_book(
+async def create_book(
     book: Book,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> Book:
     """Create a new book."""
     repository = BookRepository(session)
@@ -22,9 +24,10 @@ def create_book(
 
 
 @router.get("/{item_id}", response_model=Book)
-def get_book(
+async def get_book(
     item_id: str,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> Book:
     """Get a book by ID."""
     repository = BookRepository(session)
@@ -35,10 +38,11 @@ def get_book(
 
 
 @router.put("/{item_id}", response_model=Book)
-def update_book(
+async def update_book(
     item_id: str,
     book_update: Book,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> Book:
     """Update a book."""
     repository = BookRepository(session)
@@ -55,9 +59,10 @@ def update_book(
 
 
 @router.delete("/{item_id}")
-def delete_book(
+async def delete_book(
     item_id: str,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> dict[str, str]:
     """Delete a book."""
     repository = BookRepository(session)
@@ -69,8 +74,9 @@ def delete_book(
 
 
 @router.get("/", response_model=list[Book])
-def list_books(
+async def list_books(
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> list[Book]:
     """List all books."""
     repository = BookRepository(session)

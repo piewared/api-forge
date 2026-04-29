@@ -70,9 +70,8 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                bundled_postgres=BundledPostgresConfig(
-                    enabled=True, password_file_path=temp_file_path
-                ),
+                user_pw_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(enabled=True),
             )
 
             assert config.password == "production_secret_password"
@@ -89,9 +88,8 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                bundled_postgres=BundledPostgresConfig(
-                    enabled=True, password_file_path=temp_file_path
-                ),
+                user_pw_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(enabled=True),
             )
 
             assert config.password == "production_password_with_spaces"
@@ -103,9 +101,8 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            bundled_postgres=BundledPostgresConfig(
-                password_file_path="/non/existent/path/to/password_file"
-            ),
+            user_pw_file_path="/non/existent/path/to/password_file",
+            bundled_postgres=BundledPostgresConfig(),
         )
 
         with pytest.raises(
@@ -126,9 +123,8 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                bundled_postgres=BundledPostgresConfig(
-                    password_file_path=temp_file_path
-                ),
+                user_pw_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(),
             )
 
             with pytest.raises(
@@ -146,9 +142,8 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            bundled_postgres=BundledPostgresConfig(
-                enabled=True, password_env_var="DB_PASSWORD"
-            ),
+            user_pw_env_var="DB_PASSWORD",
+            bundled_postgres=BundledPostgresConfig(enabled=True),
         )
 
         assert config.password == "env_secret_password"
@@ -159,9 +154,8 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            bundled_postgres=BundledPostgresConfig(
-                enabled=True, password_env_var="MISSING_DB_PASSWORD"
-            ),
+            user_pw_env_var="MISSING_DB_PASSWORD",
+            bundled_postgres=BundledPostgresConfig(enabled=True),
         )
 
         with pytest.raises(
@@ -175,9 +169,8 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            bundled_postgres=BundledPostgresConfig(
-                enabled=True, password_env_var="DB_PASSWORD"
-            ),
+            user_pw_env_var="DB_PASSWORD",
+            bundled_postgres=BundledPostgresConfig(enabled=True),
         )
 
         with pytest.raises(
@@ -186,7 +179,7 @@ class TestDatabaseConfigPasswordResolution:
             _ = config.password
 
     def test_production_mode_env_var_takes_precedence_over_file(self):
-        """Test that password_file_path takes precedence over environment variable."""
+        """Test that user_pw_file_path takes precedence over environment variable."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_file:
             temp_file.write("file_password")
             temp_file_path = temp_file.name
@@ -196,10 +189,10 @@ class TestDatabaseConfigPasswordResolution:
                 config = DatabaseConfig(
                     url="postgresql+asyncpg://user@postgres:5432/appdb",
                     environment_mode="production",
+                    user_pw_env_var="DB_PASSWORD",
+                    user_pw_file_path=temp_file_path,
                     bundled_postgres=BundledPostgresConfig(
                         enabled=True,
-                        password_env_var="DB_PASSWORD",
-                        password_file_path=temp_file_path,
                     ),
                 )
 
@@ -246,9 +239,8 @@ class TestDatabaseConfigPasswordResolution:
         config = DatabaseConfig(
             url="postgresql+asyncpg://user@postgres:5432/appdb",
             environment_mode="production",
-            bundled_postgres=BundledPostgresConfig(
-                enabled=True, password_env_var="PROD_DB_PASS"
-            ),
+            user_pw_env_var="PROD_DB_PASS",
+            bundled_postgres=BundledPostgresConfig(enabled=True),
         )
 
         # Environment variables preserve newlines
@@ -264,9 +256,8 @@ class TestDatabaseConfigPasswordResolution:
             config = DatabaseConfig(
                 url="postgresql+asyncpg://user@postgres:5432/appdb",
                 environment_mode="production",
-                bundled_postgres=BundledPostgresConfig(
-                    enabled=True, password_file_path=temp_file_path
-                ),
+                user_pw_file_path=temp_file_path,
+                bundled_postgres=BundledPostgresConfig(enabled=True),
             )
 
             # File reading strips whitespace including newlines

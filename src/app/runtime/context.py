@@ -135,6 +135,15 @@ def _recursive_dict_merge(
 ) -> dict[str, Any]:
     """Recursively merge two dictionaries from deepest levels up.
 
+    Dict-valued fields are merged so callers can override one nested key
+    while keeping the rest (e.g., override one OIDC provider, keep the others).
+
+    An *empty* dict override is treated as an explicit replacement, not a
+    no-op merge: ``override = {"providers": {}}`` clears providers rather
+    than silently leaving the base providers in place. ``_recursive_model_dump_exclude_unset``
+    only emits empty dicts when the field was explicitly set, so this is
+    always a deliberate caller signal.
+
     Args:
         base_dict: The base dictionary to merge into
         override_dict: The override dictionary to merge from
@@ -146,8 +155,11 @@ def _recursive_dict_merge(
 
     for key, value in override_dict.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            # Recursively merge nested dictionaries
-            result[key] = _recursive_dict_merge(result[key], value)
+            if not value:
+                # Empty-dict override = explicit replacement, not merge.
+                result[key] = {}
+            else:
+                result[key] = _recursive_dict_merge(result[key], value)
         else:
             # Override or new key
             result[key] = value

@@ -75,12 +75,10 @@ class RedisService:
             )
 
             logger.info(
-                "Redis client initialized",
-                extra={
-                    "url": self._url,
-                    "max_connections": redis_config.max_connections,
-                    "socket_timeout": redis_config.socket_timeout,
-                },
+                "Redis client initialized (url={}, max_connections={}, socket_timeout={}s)",
+                self._url,
+                redis_config.max_connections,
+                redis_config.socket_timeout,
             )
         except ImportError:
             logger.warning("Redis dependencies not installed, service will not connect")
@@ -88,11 +86,9 @@ class RedisService:
             self._client = None
         except Exception as e:
             logger.error(
-                "Failed to initialize Redis client",
-                extra={
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                },
+                "Failed to initialize Redis client: {} - {}",
+                type(e).__name__,
+                e,
             )
             self._enabled = False
             self._client = None
@@ -135,11 +131,9 @@ class RedisService:
             return True
         except Exception as e:
             logger.error(
-                "Redis health check failed",
-                extra={
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                },
+                "Redis health check failed: {} - {}",
+                type(e).__name__,
+                e,
             )
             return False
 
@@ -162,13 +156,7 @@ class RedisService:
                 "total_commands_processed": info.get("total_commands_processed"),
             }
         except Exception as e:
-            logger.error(
-                "Failed to get Redis info",
-                extra={
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                },
-            )
+            logger.error("Failed to get Redis info: {} - {}", type(e).__name__, e)
             return None
 
     async def test_operation(self) -> bool:
@@ -200,13 +188,7 @@ class RedisService:
 
             return bool(result == test_value)
         except Exception as e:
-            logger.error(
-                "Redis test operation failed",
-                extra={
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                },
-            )
+            logger.error("Redis test operation failed: {} - {}", type(e).__name__, e)
             return False
 
     async def close(self) -> None:
@@ -218,11 +200,7 @@ class RedisService:
                 logger.info("Redis connection closed successfully")
             except Exception as e:
                 logger.error(
-                    "Error closing Redis connection",
-                    extra={
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
-                    },
+                    "Error closing Redis connection: {} - {}", type(e).__name__, e
                 )
             finally:
                 self._client = None

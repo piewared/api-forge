@@ -12,6 +12,7 @@ Endpoint Summary:
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -25,8 +26,36 @@ from src.app.api.http.schemas.workflows import (
     WorkflowStartResponse,
 )
 from src.app.core.services import TemporalClientService
+from src.app.worker.registry import discover
+from src.app.worker.workflows.base import BaseWorkflow
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+_WORKFLOW_PACKAGE = "src.app.worker.workflows"
+
+
+def _find_workflow_class(name: str) -> type[BaseWorkflow[Any, Any]] | None:
+    """Look up a workflow class by name across the workflow package.
+
+    Walks every module in ``src.app.worker.workflows`` (using the same
+    discovery the worker registry uses) and returns the first class that
+    has the requested name and is a registered ``BaseWorkflow`` subclass.
+    Returns ``None`` if no match exists.
+    """
+    try:
+        registered = discover(_WORKFLOW_PACKAGE)
+    except (ImportError, AttributeError):
+        return None
+
+    for item in registered:
+        if (
+            isinstance(item, type)
+            and issubclass(item, BaseWorkflow)
+            and item.__name__ == name
+        ):
+            return item
+    return None
 
 
 @router.post(
@@ -59,14 +88,8 @@ async def start_workflow(
     Raises:
         HTTPException: 404 if the workflow type is not found
     """
-    # Dynamic import of workflow class
-    try:
-        workflow_module = __import__("worker.workflows", fromlist=[request.workflow])
-        workflow_class = getattr(workflow_module, request.workflow, None)
-    except ImportError:
-        workflow_class = None
-
-    if not workflow_class:
+    workflow_class = _find_workflow_class(request.workflow)
+    if workflow_class is None:
         raise HTTPException(
             status_code=404,
             detail=f"Workflow type '{request.workflow}' not found",

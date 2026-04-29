@@ -1,6 +1,7 @@
 """Configuration template substitution utilities."""
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -81,23 +82,17 @@ def load_config(
         # Apply environment-specific overrides
         logger.info(f"Loading configuration for environment: {env_mode}")
 
-        # Iterate through all environment variables with the prefix matching the env_mode and return (name, value) pairs of all matching variables
-        env_variables = [
-            (var, value)
-            for var, value in os.environ.items()
-            if var.startswith(f"{env_mode.upper()}_")
-        ]
-        logger.info(f"Applying {len(env_variables)} environment-specific overrides")
-        logger.debug(
-            f"Override keys: {[var for var, _ in env_variables]}"
-        )  # Log keys only
+        # Promote prefixed env vars (e.g. PRODUCTION_DATABASE_URL -> DATABASE_URL)
+        from src.app.runtime.config.env_promotion import promote_env_vars
 
-        # Now create new environment variables from the matching variables above by removing the prefix
-        for var_name, var_value in env_variables:
-            new_var_name = var_name[len(f"{env_mode.upper()}_") :]
-
-            os.environ[new_var_name] = var_value
-            logger.debug(f"Set environment variable {new_var_name} from {var_name}")
+        promoted = promote_env_vars(dict(os.environ), env_mode)
+        override_count = 0
+        for key, value in promoted.items():
+            if key not in os.environ or os.environ[key] != value:
+                os.environ[key] = value
+                logger.debug(f"Promoted environment variable {key}")
+                override_count += 1
+        logger.info(f"Applying {override_count} environment-specific overrides")
 
         # Substitute environment variables
         content = substitute_env_vars(content)
@@ -105,19 +100,22 @@ def load_config(
     # Parse YAML
     try:
         loaded: dict[str, Any] = yaml.safe_load(content)
-        if not processed:
-            return loaded
         if not loaded:
             raise ValueError("Failed to parse YAML")
+
+        # Extract the 'config' section from the YAML structure
+        if "config" not in loaded:
+            raise ValueError("Invalid YAML structure: missing 'config' key")
+
+        config_data = loaded["config"]
+        if not processed:
+            return config_data
+
     except yaml.YAMLError as e:
         raise ValueError(f"Error parsing YAML: {e}") from e
 
     # Validate and return as ConfigData
     try:
-        # Extract the 'config' section from the YAML structure
-        if "config" not in loaded:
-            raise ValueError("Invalid YAML structure: missing 'config' key")
-        config_data = loaded["config"]
         config = ConfigData(**config_data)
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}") from e
@@ -166,8 +164,8 @@ def _string_representer(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
     Returns:
         YAML scalar node with appropriate quoting style
     """
-    # Quote strings that contain ${...} patterns or look like numbers
-    if "${" in data or data.isdigit():
+    # Quote strings that contain ${...} patterns, look like numbers, or are empty
+    if "${" in data or data.isdigit() or data == "":
         return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
     # Use default representation for other strings
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
@@ -198,7 +196,7 @@ def save_config(config: ConfigData | dict[str, Any]) -> None:
             serialized = config.model_dump()
 
         yaml.dump(
-            serialized,
+            {"config": serialized},
             f,
             Dumper=QuotedDumper,
             default_flow_style=False,
@@ -206,6 +204,56 @@ def save_config(config: ConfigData | dict[str, Any]) -> None:
             indent=2,
         )
     temp_path.replace(CONFIG_PATH)
+
+
+def update_env_file(
+    var_name: str, value: str, env_file_path: Path = Path(".env")
+) -> None:
+    """Update an environment variable in the .env file and load it into os.environ.
+
+    Uses regex to find and replace the variable in the .env file. If the variable
+    doesn't exist, it will be appended to the file.
+
+    Args:
+        var_name: Name of the environment variable (e.g., "FLY_DB_NAME")
+        value: New value for the variable
+        env_file_path: Path to .env file (default: .env in current directory)
+
+    Raises:
+        FileNotFoundError: If .env file doesn't exist
+
+    Example:
+        >>> update_env_file("FLY_DB_NAME", "my-database-123")
+        # .env file now contains: FLY_DB_NAME=my-database-123
+        # os.environ["FLY_DB_NAME"] is now set to "my-database-123"
+    """
+    if not env_file_path.exists():
+        raise FileNotFoundError(f".env file not found at {env_file_path}")
+
+    # Read current .env contents
+    with open(env_file_path) as f:
+        env_contents = f.read()
+
+    # Regex pattern to match the variable (handles quoted and unquoted values)
+    pattern = rf"^{re.escape(var_name)}=.*$"
+    replacement = f"{var_name}={value}"
+
+    # Check if variable exists
+    if re.search(pattern, env_contents, re.MULTILINE):
+        # Update existing variable
+        env_contents = re.sub(pattern, replacement, env_contents, flags=re.MULTILINE)
+    else:
+        # Append new variable
+        if not env_contents.endswith("\n"):
+            env_contents += "\n"
+        env_contents += f"{replacement}\n"
+
+    # Write back to file
+    with open(env_file_path, "w") as f:
+        f.write(env_contents)
+
+    # Load into environment
+    os.environ[var_name] = value
 
 
 # Example usage

@@ -1,4 +1,5 @@
 config:
+  seed: 6132503
   rate_limiter:
     requests: 10
     window_ms: 5000
@@ -20,10 +21,13 @@ config:
     pool_timeout: 30
     pool_recycle: 1800
     environment_mode: "${APP_ENVIRONMENT:-development}"
+    user_pw_file_path: "${DATABASE_PASSWORD_FILE_PATH:-/run/secrets/postgres_app_user_pw}"
+    user_pw_env_var: "${DATABASE_PASSWORD_ENV_VAR:-POSTGRES_APP_USER_PW}"
+    settings:
+      volume_size_gb: 5
+      initial_cluster_size: 1
     bundled_postgres:
       enabled: true
-      password_file_path: "${DATABASE_PASSWORD_FILE_PATH:-/run/secrets/postgres_app_user_pw}"
-      password_env_var: "${DATABASE_PASSWORD_ENV_VAR:-POSTGRES_APP_USER_PW}"
   temporal:
     enabled: true
     url: "${TEMPORAL_URL:-temporal:7233}"
@@ -189,3 +193,16 @@ config:
       - X-Requested-With
       - If-Modified-Since
       - X-CSRF-Token
+  deployments:
+    fly_io:
+      org: "${FLY_ORG:-my-org}"
+      region: "${FLY_REGION:-iad}"
+      app:
+        name: "${FLY_APP_NAME:-}"
+      fks:
+        name: "${FLY_FKS_CLUSTER_NAME:-}"
+      database:
+        name: "${FLY_DB_NAME:-}"
+        vm_memory_mb: 512
+        vm_cpu_kind: shared
+        vm_cpus: 2

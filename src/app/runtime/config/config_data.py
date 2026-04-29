@@ -10,8 +10,21 @@ from functools import cached_property
 from typing import Any, Literal
 
 from loguru import logger
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from sqlalchemy import URL
+
+
+class _ConfigBase(BaseModel):
+    """Base class for every config model in this module.
+
+    Enables ``validate_assignment`` so that mutating a config field after
+    construction (``cfg.oidc.providers = {}``) marks the field as set in
+    ``model_fields_set``. ``with_context`` relies on that to know which
+    fields the caller actually meant to override; without this, a
+    post-construction assignment is silently dropped during merge.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 def deep_freeze(value: Any) -> Any:
@@ -26,7 +39,7 @@ def deep_freeze(value: Any) -> Any:
         return value  # primitive types are already hashable
 
 
-class CORSConfig(BaseModel):
+class CORSConfig(_ConfigBase):
     """CORS configuration for the application."""
 
     origins: list[str] = Field(
@@ -36,10 +49,12 @@ class CORSConfig(BaseModel):
     allow_methods: list[str] = Field(
         default=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     )
-    allow_headers: list[str] = Field(default=["*"])
+    allow_headers: list[str] = Field(
+        default=["Content-Type", "Authorization", "X-Request-ID", "X-CSRF-Token"]
+    )
 
 
-class RateLimiterConfig(BaseModel):
+class RateLimiterConfig(_ConfigBase):
     """Rate limiter configuration model."""
 
     requests: int = Field(
@@ -55,7 +70,7 @@ class RateLimiterConfig(BaseModel):
     )
 
 
-class TemporalWorkerConfig(BaseModel):
+class TemporalWorkerConfig(_ConfigBase):
     """Temporal worker configuration model."""
 
     enabled: bool = Field(default=True, description="Enable temporal worker")
@@ -85,7 +100,7 @@ class TemporalWorkerConfig(BaseModel):
     worker_build_id: str = Field(default="api-worker-1", description="Worker build ID")
 
 
-class TemporalyRetryConfig(BaseModel):
+class TemporalyRetryConfig(_ConfigBase):
     """Temporal activity retry policy configuration model."""
 
     maximum_attempts: int = Field(
@@ -106,7 +121,7 @@ class TemporalyRetryConfig(BaseModel):
     )
 
 
-class TemporalActivitiesConfig(BaseModel):
+class TemporalActivitiesConfig(_ConfigBase):
     """Temporal activities configuration model."""
 
     start_to_close_timeout_s: int = Field(
@@ -127,7 +142,7 @@ class TemporalActivitiesConfig(BaseModel):
     )
 
 
-class TemporalWorkflowsConfig(BaseModel):
+class TemporalWorkflowsConfig(_ConfigBase):
     """Temporal workflows configuration model."""
 
     execution_timeout_s: int = Field(
@@ -148,7 +163,7 @@ class TemporalWorkflowsConfig(BaseModel):
     )
 
 
-class TemporalConfig(BaseModel):
+class TemporalConfig(_ConfigBase):
     """Temporal configuration model."""
 
     tls: bool = Field(default=False, description="Enable TLS for Temporal connection")
@@ -171,7 +186,7 @@ class TemporalConfig(BaseModel):
     )
 
 
-class RedisConfig(BaseModel):
+class RedisConfig(_ConfigBase):
     """Redis configuration model."""
 
     enabled: bool = Field(default=True, description="Enable Redis service")
@@ -257,7 +272,7 @@ class RedisConfig(BaseModel):
         return conn_str
 
 
-class OIDCProviderConfig(BaseModel):
+class OIDCProviderConfig(_ConfigBase):
     """OIDC provider configuration model."""
 
     openid_configuration_endpoint: str | None = Field(
@@ -286,7 +301,7 @@ class OIDCProviderConfig(BaseModel):
     )
 
 
-class OIDCRefreshTokenPolicy(BaseModel):
+class OIDCRefreshTokenPolicy(_ConfigBase):
     """Controls whether refresh tokens are issued and stored."""
 
     enabled: bool = Field(
@@ -303,7 +318,7 @@ class OIDCRefreshTokenPolicy(BaseModel):
     )
 
 
-class OIDCConfig(BaseModel):
+class OIDCConfig(_ConfigBase):
     """OIDC configuration model."""
 
     providers: dict[str, OIDCProviderConfig] = Field(
@@ -330,7 +345,7 @@ class OIDCConfig(BaseModel):
     )
 
 
-class JWTClaimsConfig(BaseModel):
+class JWTClaimsConfig(_ConfigBase):
     """JWT claims mapping configuration."""
 
     user_id: str = Field(
@@ -348,7 +363,7 @@ class JWTClaimsConfig(BaseModel):
     )
 
 
-class JWTConfig(BaseModel):
+class JWTConfig(_ConfigBase):
     """JWT validation configuration."""
 
     allowed_algorithms: list[str] = Field(
@@ -382,7 +397,7 @@ class JWTConfig(BaseModel):
     )
 
 
-class LoggingConfig(BaseModel):
+class LoggingConfig(_ConfigBase):
     """Logging configuration model."""
 
     level: str = Field(default="INFO", description="Logging level")
@@ -394,23 +409,126 @@ class LoggingConfig(BaseModel):
     )
 
 
-class BundledPostgresConfig(BaseModel):
+class DatabaseInfraSettingsConfig(_ConfigBase):
+    """Infrastructure settings for database provisioning."""
+
+    volume_size_gb: int = Field(
+        default=10, description="Volume size in GB for database storage"
+    )
+    initial_cluster_size: int = Field(
+        default=1, description="Initial number of nodes in the cluster"
+    )
+
+
+class BundledPostgresConfig(_ConfigBase):
     """Configuration for bundled PostgreSQL setup."""
 
     enabled: bool = Field(
         default=False, description="Enable bundled PostgreSQL configuration"
     )
-    password_file_path: str | None = Field(
-        default=None,
-        description="Path to file containing database password",
-    )
-    password_env_var: str | None = Field(
-        default=None,
-        description="Environment variable name containing database password",
+
+
+# ---------------------------------------------------------------------------
+# Deployments Configuration
+# ---------------------------------------------------------------------------
+
+
+class FlyIOAppConfig(_ConfigBase):
+    """Fly.io app deployment settings."""
+
+    name: str = Field(
+        default="",
+        description="App name (empty = auto-generate unique name)",
     )
 
 
-class DatabaseConfig(BaseModel):
+class FlyIOFksConfig(_ConfigBase):
+    """Fly.io FKS (Fly Kubernetes Service) cluster settings."""
+
+    name: str = Field(
+        default="",
+        description="FKS cluster name (empty = auto-generate unique name)",
+    )
+
+
+class FlyIODatabaseConfig(_ConfigBase):
+    """Fly.io database deployment settings."""
+
+    name: str = Field(
+        default="",
+        description="Database cluster name (empty = auto-generate unique name)",
+    )
+    vm_memory_mb: int = Field(
+        default=2048, description="Memory allocation for the Postgres VM in MB"
+    )
+    vm_cpu_kind: str = Field(
+        default="shared",
+        description="CPU kind for the Postgres VM (shared or dedicated)",
+    )
+    vm_cpus: int = Field(
+        default=2, description="Number of CPUs allocated to the Postgres VM"
+    )
+
+
+class FlyIODeploymentConfig(_ConfigBase):
+    """Fly.io deployment settings."""
+
+    org: str = Field(default="", description="Fly.io organization")
+    region: str = Field(default="iad", description="Fly.io region for deployments")
+    app: FlyIOAppConfig = Field(
+        default_factory=FlyIOAppConfig,
+        description="App deployment settings",
+    )
+    fks: FlyIOFksConfig = Field(
+        default_factory=FlyIOFksConfig,
+        description="FKS cluster settings",
+    )
+    database: FlyIODatabaseConfig = Field(
+        default_factory=FlyIODatabaseConfig,
+        description="Database deployment settings",
+    )
+
+
+class DeploymentsConfig(_ConfigBase):
+    """Deployment configuration for various platforms."""
+
+    fly_io: FlyIODeploymentConfig = Field(
+        default_factory=FlyIODeploymentConfig,
+        description="Fly.io deployment settings",
+    )
+
+
+# Keep for backwards compatibility - maps to new structure
+class FlyIOSettingsConfig(_ConfigBase):
+    """Fly.io deployment settings for Managed Postgres.
+
+    DEPRECATED: Use deployments.fly_io instead.
+    This class is kept for backwards compatibility.
+    """
+
+    name: str = Field(
+        default="",
+        description="Postgres cluster name (empty = auto-generate unique name)",
+    )
+    region: str = Field(
+        default="iad", description="Fly.io region to deploy the Postgres cluster"
+    )
+    org: str = Field(
+        default="", description="Fly.io organization for the Postgres cluster"
+    )
+    vm_memory_mb: int = Field(
+        default=2048, description="Memory allocation for the Postgres VM in MB"
+    )
+    vm_cpu_kind: str = Field(
+        default="shared",
+        description="CPU kind for the Postgres VM (shared or dedicated)",
+    )
+    vm_cpus: int = Field(
+        default=2, description="Number of CPUs allocated to the Postgres VM"
+    )
+
+
+class DatabaseConfig(_ConfigBase):
     """Database configuration model."""
 
     url: str = Field(
@@ -423,6 +541,14 @@ class DatabaseConfig(BaseModel):
     pg_db: str = Field(default="postgres", description="PostgreSQL database name")
     owner_user: str = Field(default="appowner", description="Database owner username")
     user: str = Field(default="user", description="Database username")
+    user_pw_file_path: str | None = Field(
+        default=None,
+        description="Path to file containing database password",
+    )
+    user_pw_env_var: str | None = Field(
+        default=None,
+        description="Environment variable name containing database password",
+    )
     ro_user: str = Field(
         default="backupuser", description="Database read-only username"
     )
@@ -440,6 +566,14 @@ class DatabaseConfig(BaseModel):
     max_overflow: int = Field(default=10, description="Maximum pool overflow")
     pool_timeout: int = Field(default=30, description="Pool timeout in seconds")
     pool_recycle: int = Field(default=1800, description="Pool recycle time in seconds")
+    settings: DatabaseInfraSettingsConfig = Field(
+        default_factory=DatabaseInfraSettingsConfig,
+        description="Infrastructure settings for database provisioning",
+    )
+    fly_io_settings: FlyIOSettingsConfig = Field(
+        default_factory=FlyIOSettingsConfig,
+        description="Fly.io deployment settings for Managed Postgres",
+    )
     bundled_postgres: BundledPostgresConfig = Field(
         default_factory=BundledPostgresConfig,
         description="Bundled PostgreSQL configuration",
@@ -495,43 +629,41 @@ class DatabaseConfig(BaseModel):
             return url_obj.password
 
         password = None
-        if self.bundled_postgres.password_env_var:
+        if self.user_pw_env_var:
             logger.debug(
                 "Attempting to read database password from environment variable {}",
-                self.bundled_postgres.password_env_var,
+                self.user_pw_env_var,
             )
 
             import os
 
-            password = os.getenv(self.bundled_postgres.password_env_var)
+            password = os.getenv(self.user_pw_env_var)
             if not password:
                 logger.debug(
                     "Environment variable {} for database password is not set or empty",
-                    self.bundled_postgres.password_env_var,
+                    self.user_pw_env_var,
                 )
 
-        if not password and self.bundled_postgres.password_file_path:
+        if not password and self.user_pw_file_path:
             logger.debug(
                 "Attempting to read database password from file {}",
-                self.bundled_postgres.password_file_path,
+                self.user_pw_file_path,
             )
             try:
-                with open(
-                    self.bundled_postgres.password_file_path, encoding="utf-8"
-                ) as f:
+                with open(self.user_pw_file_path, encoding="utf-8") as f:
                     password = f.read().strip()
             except Exception as e:
                 logger.error(
                     "Failed to read database password from file {}: {}",
-                    self.bundled_postgres.password_file_path,
+                    self.user_pw_file_path,
                     e,
                 )
 
         if not password:
             logger.error(
                 "Database password not found in environment variable {} or file {}",
-                self.bundled_postgres.password_env_var,
-                self.bundled_postgres.password_file_path,
+                self.user_pw_env_var,
+                self.user_pw_file_path,
             )
 
             # Only raise error in production mode; dev/test can use passwordless SQLite
@@ -614,7 +746,7 @@ class DatabaseConfig(BaseModel):
         return conn_str
 
 
-class AppConfig(BaseModel):
+class AppConfig(_ConfigBase):
     """Application configuration model."""
 
     environment: Literal["development", "production", "test"] = Field(
@@ -642,7 +774,7 @@ class AppConfig(BaseModel):
         return f"{scheme}://{self.host}:{self.port}"
 
 
-class SecurityConfig(BaseModel):
+class SecurityConfig(_ConfigBase):
     """Security configuration for authentication and sessions."""
 
     # Cookie settings
@@ -678,9 +810,10 @@ class SecurityConfig(BaseModel):
     )
 
 
-class ConfigData(BaseModel):
+class ConfigData(_ConfigBase):
     """Root configuration model that matches the config.yaml structure."""
 
+    seed: int = Field(default=7363812, description="Random seed for the application")
     rate_limiter: RateLimiterConfig = Field(
         default_factory=RateLimiterConfig, description="Rate limiter configuration"
     )
@@ -710,4 +843,7 @@ class ConfigData(BaseModel):
     )
     security: SecurityConfig = Field(
         default_factory=SecurityConfig, description="Security configuration"
+    )
+    deployments: DeploymentsConfig = Field(
+        default_factory=DeploymentsConfig, description="Deployment configurations"
     )

@@ -62,7 +62,7 @@ class DevDeployer(BaseDeployer):
         )  # Keycloak, Postgres, Redis, Temporal
 
         if all_services_running and not force:
-            self.success("All services are already running and healthy!")
+            self.console.ok("All services are already running and healthy!")
             self.console.print(
                 "[bold yellow]💡 Tip: Use --force to restart all services[/bold yellow]"
             )
@@ -76,13 +76,13 @@ class DevDeployer(BaseDeployer):
             return
 
         if running_services and force:
-            self.warning(f"Found running services: {', '.join(running_services)}")
+            self.console.warn(f"Found running services: {', '.join(running_services)}")
             self.console.print(
                 "[yellow]🔄 Restarting all services with --force flag...[/yellow]"
             )
             self._stop_services()
         elif running_services:
-            self.warning(
+            self.console.warn(
                 f"Some services are already running: {', '.join(running_services)}"
             )
             self.console.print(
@@ -99,7 +99,7 @@ class DevDeployer(BaseDeployer):
 
     def _ensure_required_directories(self) -> None:
         data_root = self.ensure_data_directories(self.DATA_SUBDIRS)
-        self.info(f"Ensured data directories exist under {data_root}")
+        self.console.info(f"Ensured data directories exist under {data_root}")
 
     def teardown(self, **kwargs: Any) -> None:
         """Stop the development environment.
@@ -115,7 +115,7 @@ class DevDeployer(BaseDeployer):
         with self.console.status("[bold red]Stopping containers..."):
             self.run_command(cmd)
 
-        self.success("Development services stopped")
+        self.console.ok("Development services stopped")
 
     def show_status(self) -> None:
         """Display the current status of the development deployment."""
@@ -130,8 +130,8 @@ class DevDeployer(BaseDeployer):
         Returns:
             Always True (dev uses hardcoded credentials)
         """
-        self.info("Development environment uses hardcoded credentials")
-        self.info("No secret deployment needed")
+        self.console.info("Development environment uses hardcoded credentials")
+        self.console.info("No secret deployment needed")
         return True
 
     def restart_resource(
@@ -217,25 +217,27 @@ class DevDeployer(BaseDeployer):
             check_postgres_status, timeout=30, service_name="PostgreSQL"
         ):
             progress.update(task2, completed=1)
-            self.success("PostgreSQL is ready")
+            self.console.ok("PostgreSQL is ready")
         else:
-            self.warning("PostgreSQL may not be fully ready yet")
+            self.console.warn("PostgreSQL may not be fully ready yet")
 
         # Wait for Keycloak
         task3 = progress.add_task("Waiting for Keycloak to be ready...", total=1)
         if wait_for_keycloak():
             progress.update(task3, completed=1)
-            self.success("Keycloak is ready")
+            self.console.ok("Keycloak is ready")
 
             # Configure Keycloak
             task4 = progress.add_task("Configuring Keycloak...", total=1)
             if run_keycloak_setup():
                 progress.update(task4, completed=1)
-                self.success("Keycloak configured")
+                self.console.ok("Keycloak configured")
             else:
-                self.warning("Keycloak setup failed - you may need to run it manually")
+                self.console.warn(
+                    "Keycloak setup failed - you may need to run it manually"
+                )
         else:
-            self.error("Keycloak failed to start within timeout")
+            self.console.error("Keycloak failed to start within timeout")
             raise typer.Exit(1)
 
         # Wait for Redis
@@ -244,9 +246,9 @@ class DevDeployer(BaseDeployer):
             check_redis_status, timeout=20, service_name="Redis"
         ):
             progress.update(task5, completed=1)
-            self.success("Redis is ready")
+            self.console.ok("Redis is ready")
         else:
-            self.warning("Redis may not be fully ready yet")
+            self.console.warn("Redis may not be fully ready yet")
 
         # Wait for Temporal
         task6 = progress.add_task("Waiting for Temporal to be ready...", total=1)
@@ -254,9 +256,9 @@ class DevDeployer(BaseDeployer):
             check_temporal_status, timeout=60, interval=5, service_name="Temporal"
         ):
             progress.update(task6, completed=1)
-            self.success("Temporal is ready")
+            self.console.ok("Temporal is ready")
         else:
-            self.warning("Temporal may not be fully ready yet")
+            self.console.warn("Temporal may not be fully ready yet")
 
     def _start_dev_server(self) -> None:
         """Start the FastAPI development server with hot reload."""
@@ -297,5 +299,5 @@ class DevDeployer(BaseDeployer):
         except KeyboardInterrupt:
             self.console.print("\n[yellow]Server stopped by user[/yellow]")
         except Exception as exc:
-            self.error("Failed to start development server")
+            self.console.error("Failed to start development server")
             raise typer.Exit(1) from exc

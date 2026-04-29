@@ -34,17 +34,7 @@ from src.app.core.services import (
     UserSessionService,
 )
 from src.app.core.services.storage.factory import get_session_storage, get_storage
-from src.app.runtime.context import get_config
-
-# --- Rate limiter dependencies ---
-try:
-    import redis.asyncio as redis_async
-    from fastapi_limiter import FastAPILimiter
-    from redis.asyncio import Redis as AsyncRedis
-except ImportError:  # pragma: no cover - optional dependency missing
-    FastAPILimiter = None  # type: ignore[assignment,misc]
-    redis_async = None  # type: ignore[assignment]
-    AsyncRedis = None  # type: ignore[assignment,misc]
+from src.app.runtime.context import ConfigData, get_config
 
 
 # --- Security middleware ---
@@ -60,6 +50,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
         response.headers.setdefault(
             "Permissions-Policy", "geolocation=(), microphone=()"
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'",
         )
         # HSTS only in prod
         if get_config().app.environment == "production":
@@ -221,6 +215,36 @@ app.include_router(router_bff, prefix="/auth")
 # app.include_router(your_router, prefix="/api/v1", tags=["your_feature"])
 
 
+async def _check_database(service: DbSessionService) -> bool:
+    return await asyncio.to_thread(service.health_check)
+
+
+async def _run_startup_health_checks(
+    deps: ApplicationDependencies, config: ConfigData
+) -> list[tuple[str, str]]:
+    """Run all startup health checks concurrently. Returns list of (service, error) tuples."""
+    tasks: dict[str, asyncio.Task[bool]] = {}
+    tasks["database"] = asyncio.create_task(_check_database(deps.database_service))
+    if deps.redis_service is not None:
+        tasks["redis"] = asyncio.create_task(deps.redis_service.health_check())
+    if config.temporal.enabled:
+        tasks["temporal"] = asyncio.create_task(deps.temporal_service.health_check())
+
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    errors: list[tuple[str, str]] = []
+    for name, result in zip(tasks.keys(), results, strict=True):
+        if isinstance(result, Exception):
+            logger.exception("{} health check failed: {}", name, result)
+            errors.append((name, str(result)))
+        elif not result:
+            msg = f"{name} health check returned unhealthy status"
+            logger.error(msg)
+            errors.append((name, msg))
+        else:
+            logger.info("✓ {} is healthy", name)
+    return errors
+
+
 def _activate_local_rate_limiter() -> None:
     from src.app.api.http.middleware.limiter import DefaultLocalRateLimiter
 
@@ -242,21 +266,30 @@ async def _initialize_rate_limiter() -> None:
         _activate_local_rate_limiter()
         return None
 
-    if FastAPILimiter is None or redis_async is None:
-        logger.info(
-            "FastAPILimiter or redis.asyncio not installed; using local in-memory rate limiter"
-        )
+    # Defer imports to startup time (event loop is running, full import graph settled).
+    # Module-level optional imports can silently fail on some container builds.
+    try:
+        import redis.asyncio as _redis_async
+    except ImportError:
+        logger.info("redis.asyncio not installed; using local in-memory rate limiter")
+        _activate_local_rate_limiter()
+        return
+
+    try:
+        from fastapi_limiter import FastAPILimiter as _FastAPILimiter
+    except ImportError:
+        logger.info("fastapi-limiter not installed; using local in-memory rate limiter")
         _activate_local_rate_limiter()
         return
 
     try:
         logger.info("Initializing FastAPI limiter with Redis: {}", config.redis.url)
-        client = redis_async.from_url(
+        client = _redis_async.from_url(
             config.redis.connection_string,
             encoding="utf-8",
             decode_responses=config.redis.decode_responses,
         )
-        await FastAPILimiter.init(client)
+        await _FastAPILimiter.init(client)
         app.state.redis = client
 
         logger.info(
@@ -356,61 +389,31 @@ async def startup() -> None:
 
     logger.info("Getting configuration for startup")
     logger.info("Starting up application in {} environment", config.app.environment)
-    # Validate configuration so we fail fast on misconfiguration
 
-    # Perform health checks on critical services
+    # CSRF / Origin enforcement is bypassed in dev and test environments. If
+    # this is misconfigured in production (env not set / set to "development"),
+    # the bypass would silently disable a critical defense — log it loudly.
+    from src.app.api.http.deps import _CSRF_BYPASS_ENVIRONMENTS
+
+    if config.app.environment in _CSRF_BYPASS_ENVIRONMENTS:
+        logger.warning(
+            "CSRF + Origin enforcement is BYPASSED for env='{}'. "
+            "Make sure APP_ENVIRONMENT is set to 'production' before deploying.",
+            config.app.environment,
+        )
+
+    # Perform health checks on critical services (run concurrently)
     logger.info("Performing startup health checks on critical services")
-    health_check_errors = []
+    health_check_errors = await _run_startup_health_checks(deps, config)
 
-    # Database health check
-    try:
-        logger.info("Checking database connectivity...")
-        db_healthy = deps.database_service.health_check()
-        if db_healthy:
-            logger.info("✓ Database is healthy")
-        else:
-            error_msg = "Database health check returned unhealthy status"
-            logger.error(error_msg)
-            health_check_errors.append(("database", error_msg))
-    except Exception as e:
-        error_msg = f"Database health check failed: {e}"
-        logger.exception(error_msg)
-        health_check_errors.append(("database", str(e)))
+    if not config.redis.enabled:
+        logger.info("Redis is disabled in config, skipping health check")
+    elif deps.redis_service is None:
+        logger.info(
+            "Redis unavailable (connection failed during startup), skipping periodic health check"
+        )
 
-    # Redis health check (non-critical, just warn)
-    if deps.redis_service is not None:
-        try:
-            logger.info("Checking Redis connectivity...")
-            redis_healthy = await deps.redis_service.health_check()
-            if redis_healthy:
-                logger.info("✓ Redis is healthy")
-            else:
-                logger.warning(
-                    "⚠ Redis health check returned unhealthy status, will use in-memory fallback"
-                )
-        except Exception as e:
-            logger.warning(
-                "⚠ Redis health check failed: {}, will use in-memory fallback", e
-            )
-    else:
-        logger.info("Redis is disabled, skipping health check")
-
-    # Temporal health check (critical if enabled)
-    if config.temporal.enabled:
-        try:
-            logger.info("Checking Temporal connectivity...")
-            temporal_healthy = await deps.temporal_service.health_check()
-            if temporal_healthy:
-                logger.info("✓ Temporal is healthy")
-            else:
-                error_msg = "Temporal health check returned unhealthy status"
-                logger.error(error_msg)
-                health_check_errors.append(("temporal", error_msg))
-        except Exception as e:
-            error_msg = f"Temporal health check failed: {e}"
-            logger.exception(error_msg)
-            health_check_errors.append(("temporal", str(e)))
-    else:
+    if not config.temporal.enabled:
         logger.info("Temporal is disabled, skipping health check")
 
     # Fail startup if critical services are unhealthy
@@ -419,8 +422,7 @@ async def startup() -> None:
         raise RuntimeError(f"Critical service health checks failed: {error_summary}")
     elif health_check_errors:
         logger.warning(
-            "Some health checks failed but continuing in non-production environment: {}",
-            health_check_errors,
+            "Some health checks failed but continuing: {}", health_check_errors
         )
 
     # Verify JWKS endpoints so auth failures surface early

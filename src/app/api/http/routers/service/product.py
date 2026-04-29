@@ -3,16 +3,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from src.app.api.http.deps import get_db_session
+from src.app.api.http.deps import get_authenticated_user, get_db_session
+from src.app.entities.core.user import User
 from src.app.entities.service.product import Product, ProductRepository
 
 router = APIRouter()
 
 
 @router.post("/", response_model=Product)
-def create_product(
+async def create_product(
     product: Product,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> Product:
     """Create a new product."""
     repository = ProductRepository(session)
@@ -22,9 +24,10 @@ def create_product(
 
 
 @router.get("/{item_id}", response_model=Product)
-def get_product(
+async def get_product(
     item_id: str,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> Product:
     """Get a product by ID."""
     repository = ProductRepository(session)
@@ -35,10 +38,11 @@ def get_product(
 
 
 @router.put("/{item_id}", response_model=Product)
-def update_product(
+async def update_product(
     item_id: str,
     product_update: Product,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> Product:
     """Update a product."""
     repository = ProductRepository(session)
@@ -55,9 +59,10 @@ def update_product(
 
 
 @router.delete("/{item_id}")
-def delete_product(
+async def delete_product(
     item_id: str,
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> dict[str, str]:
     """Delete a product."""
     repository = ProductRepository(session)
@@ -69,8 +74,9 @@ def delete_product(
 
 
 @router.get("/", response_model=list[Product])
-def list_products(
+async def list_products(
     session: Session = Depends(get_db_session),
+    _user: User = Depends(get_authenticated_user),
 ) -> list[Product]:
     """List all products."""
     repository = ProductRepository(session)

@@ -1,25 +1,33 @@
 import os
 import re
-from collections.abc import Iterable
 from pathlib import Path
 
 from loguru import logger
 
+from src.infra.secrets import FileSecretsManager
 from src.utils.paths import get_project_root
 
 _SECRETS_LOADED = False
 
 
-def _candidate_secret_dirs() -> Iterable[Path]:
+def _candidate_secret_dirs() -> list[Path]:
+    """Get candidate directories for secrets files."""
+    dirs: list[Path] = []
     custom_dir = os.getenv("SECRETS_KEYS_DIR")
     if custom_dir:
-        yield Path(custom_dir)
+        dirs.append(Path(custom_dir))
     project_root = get_project_root()
-    yield project_root / "infra" / "secrets" / "keys"
-    yield project_root / "secrets" / "keys"
+    dirs.append(project_root / "infra" / "secrets" / "keys")
+    dirs.append(project_root / "secrets" / "keys")
+    return dirs
 
 
 def load_secret_files_into_env() -> None:
+    """Load secret files into environment variables.
+
+    Uses FileSecretsManager to read secrets and populate environment variables.
+    Each secret key becomes an uppercase environment variable name.
+    """
     global _SECRETS_LOADED
     if _SECRETS_LOADED:
         return
@@ -31,13 +39,13 @@ def load_secret_files_into_env() -> None:
         if not directory.exists() or not directory.is_dir():
             continue
 
-        for file_path in directory.iterdir():
-            if not file_path.is_file():
-                continue
+        # Use FileSecretsManager for this directory
+        manager = FileSecretsManager(secrets_dir=directory)
+        keys = manager.list_keys()
 
-            # Sanitize filename to create valid environment variable name
-            # Replace any non-alphanumeric/underscore characters with underscores
-            env_name = file_path.stem.upper()
+        for key in keys:
+            # Convert key to env var name (uppercase, sanitize)
+            env_name = key.upper()
             env_name = "".join(c if c.isalnum() or c == "_" else "_" for c in env_name)
 
             # Skip if empty name or already exists in environment
@@ -47,43 +55,29 @@ def load_secret_files_into_env() -> None:
             if env_name in os.environ:
                 continue
 
-            # Check file size before reading
+            # Read secret value using SecretsManager
             try:
-                file_size = file_path.stat().st_size
-                if file_size > MAX_ENV_VAR_SIZE:
-                    logger.warning(
-                        f"Secret file {file_path.name} is too large ({file_size} bytes) to load as environment variable (max {MAX_ENV_VAR_SIZE} bytes)"
-                    )
+                value = manager.read(key)
+                if not value:
                     continue
             except OSError as exc:
-                logger.warning(f"Unable to stat secret file {file_path}: {exc}")
+                logger.warning(f"Unable to read secret {key}: {exc}")
                 continue
 
-            # Read and validate content
-            try:
-                raw_value = file_path.read_text(encoding="utf-8")
-            except OSError as exc:
-                logger.warning(f"Unable to read secret file {file_path}: {exc}")
-                continue
-
-            # Strip whitespace and validate
-            value = raw_value.strip()
-            if not value:
-                continue
-
-            # Final size check on actual content
+            # Size check on content
             if len(value) > MAX_ENV_VAR_SIZE:
                 logger.warning(
-                    f"Secret file {file_path.name} content is too large ({len(value)} bytes) for environment variable (max {MAX_ENV_VAR_SIZE} bytes)"
+                    f"Secret {key} content is too large ({len(value)} bytes) for environment variable (max {MAX_ENV_VAR_SIZE} bytes)"
                 )
                 continue
 
             # Set environment variable
             os.environ[env_name] = value
             logger.debug(
-                f"Loaded secret {env_name} from {file_path.name} ({len(value)} bytes)"
+                f"Loaded secret {env_name} from {key}.txt ({len(value)} bytes)"
             )
 
+        # Only use first existing directory
         break
 
     _SECRETS_LOADED = True

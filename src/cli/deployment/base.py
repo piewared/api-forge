@@ -79,7 +79,7 @@ class BaseDeployer(ABC):
         self, label: str, health_checker: HealthChecker, timeout: int = 120
     ) -> bool:
         """Restart a Docker container and wait for it to be healthy."""
-        self.info(f"Restarting container: {label}...")
+        self.console.info(f"Restarting container: {label}...")
 
         stop_result = self.run_command(
             ["docker", "stop", label],
@@ -111,7 +111,7 @@ class BaseDeployer(ABC):
         )
 
         if is_healthy:
-            self.success(f"Container {label} restarted and healthy")
+            self.console.ok(f"Container {label} restarted and healthy")
             return True
 
         result = self.run_command(
@@ -120,7 +120,7 @@ class BaseDeployer(ABC):
             check=False,
         )
         if result and result.stdout and result.stdout.strip().lower() == "true":
-            self.success(f"Container {label} restarted and running (no healthcheck)")
+            self.console.ok(f"Container {label} restarted and running (no healthcheck)")
             return True
 
         self.console.print(f"[red]Container {label} failed to become healthy[/red]")
@@ -162,7 +162,7 @@ class BaseDeployer(ABC):
         env_example = self.project_root / ".env.example"
 
         if not env_file.exists():
-            self.error("❌ .env file not found!")
+            self.console.error("❌ .env file not found!")
             self.console.print()
             self.console.print("[bold yellow]📝 Setup Required:[/bold yellow]")
             self.console.print()
@@ -210,38 +210,6 @@ class BaseDeployer(ABC):
             console=self.console.console,
             transient=transient,
         )
-
-    def success(self, message: str) -> None:
-        """Print a success message.
-
-        Args:
-            message: The message to print
-        """
-        self.console.ok(message)
-
-    def error(self, message: str) -> None:
-        """Print an error message.
-
-        Args:
-            message: The message to print
-        """
-        self.console.error(message)
-
-    def warning(self, message: str) -> None:
-        """Print a warning message.
-
-        Args:
-            message: The message to print
-        """
-        self.console.warn(message)
-
-    def info(self, message: str) -> None:
-        """Print an info message.
-
-        Args:
-            message: The message to print
-        """
-        self.console.info(message)
 
     def ensure_data_directories(
         self,

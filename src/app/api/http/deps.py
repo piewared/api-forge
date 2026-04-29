@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request
+from loguru import logger
 from sqlmodel import Session
 
 from src.app.api.http.app_data import ApplicationDependencies
@@ -275,7 +276,9 @@ async def _authenticate_with_session(
         # Re-raise HTTP exceptions
         raise
     except Exception:
-        # Other exceptions - return None or raise based on required flag
+        # Don't leak unexpected errors to the client, but make them visible in
+        # logs — silent except has been a real source of debugging time.
+        logger.exception("Unexpected error during session authentication")
         if required:
             raise HTTPException(
                 status_code=401, detail="Session authentication failed"
@@ -394,8 +397,10 @@ async def get_authenticated_user(
             # Re-raise HTTP exceptions (auth failures)
             raise
         except Exception:
-            # JWT auth failed, continue to no auth found
-            pass
+            # JWT verification or downstream lookup failed. Don't surface the
+            # specific reason to the client (the generic 401 below covers it),
+            # but log so the failure is visible in operations.
+            logger.exception("JWT authentication path failed; falling through to 401")
 
     # No valid authentication found
     raise HTTPException(
@@ -461,27 +466,39 @@ def is_origin_allowed(origin: str) -> bool:
     return candidate in allowed_origins
 
 
-def enforce_origin(request: Request) -> None:
-    """
-    Enforce Origin/Referer allowlist for state-changing requests.
-    Allows same-origin requests; allowlist is derived from config.app.base_url.
-    """
+# Verbs that mutate server state and therefore require CSRF / Origin checks.
+_STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# Environments where CSRF + Origin enforcement is bypassed for developer
+# ergonomics (curl, integration test harnesses, etc.). The configured
+# environment must match exactly — if a deployment ships with this set to a
+# value other than "production", a startup-time warning is logged so the
+# bypass cannot silently hide in misconfigured prod.
+_CSRF_BYPASS_ENVIRONMENTS = frozenset({"development", "test"})
+
+
+def _should_bypass_state_changing_checks(request: Request) -> bool:
+    """True if the current request should skip CSRF / Origin enforcement.
+
+    Bypassed when:
+    - the verb is not state-changing (GET / HEAD / OPTIONS), or
+    - the configured app environment is in ``_CSRF_BYPASS_ENVIRONMENTS``.
     """
-    Enforce Origin/Referer allowlist for state-changing requests.
-    Skips CORS preflight (OPTIONS).
-    """
-    # 1) Ignore preflight
     if request.method == "OPTIONS":
-        return
+        return True
+    if request.method not in _STATE_CHANGING_METHODS:
+        return True
+    return get_config().app.environment in _CSRF_BYPASS_ENVIRONMENTS
 
-    # 2) (Optional) Only enforce on state-changing verbs
-    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-        return
 
-    # 3) Skip enforcement in development mode
-    cfg = get_config()
-    if cfg.app.environment == "development" or cfg.app.environment == "test":
+def enforce_origin(request: Request) -> None:
+    """Enforce Origin/Referer allowlist for state-changing requests.
+
+    Skips CORS preflight (OPTIONS) and read-only verbs. In dev/test
+    environments the check is bypassed entirely (see module note about
+    ``_CSRF_BYPASS_ENVIRONMENTS``).
+    """
+    if _should_bypass_state_changing_checks(request):
         return
 
     allowed_origins = get_allowed_origins()  # normalized list of (scheme, host, port)
@@ -490,101 +507,39 @@ def enforce_origin(request: Request) -> None:
     host_header = request.headers.get("host")
     candidate = origin or referer
 
-    # --- 1️⃣ If Origin header present ---
+    # --- If Origin header present ---
     if origin:
         if origin == "null":
             raise HTTPException(status_code=403, detail="Origin 'null' not allowed")
         if not is_origin_allowed(origin):
             raise HTTPException(status_code=403, detail="Origin not allowed")
-        return  # ✅ OK
+        return
 
-    # --- 2️⃣ No Origin — fall back to same-host check ---
+    # --- No Origin — fall back to same-host check ---
     if not candidate:
-        # No Origin or Referer — check Host header
         if host_header:
             try:
                 scheme, host, port = normalize_origin(f"https://{host_header}")
                 if (scheme, host, port) in allowed_origins:
-                    return  # ✅ Treat as same-origin
+                    return  # Treat as same-origin
             except Exception:
                 pass
         # Fail closed
         raise HTTPException(status_code=403, detail="Missing or invalid Origin")
 
-    # --- 3️⃣ Use Referer fallback ---
+    # --- Referer fallback ---
     if not is_origin_allowed(candidate):
         raise HTTPException(status_code=403, detail="Referer origin not allowed")
 
 
-# TODO: REMOVE
-def enforce_origin_old(request: Request) -> None:
-    """
-    Enforce Origin/Referer allowlist for state-changing requests.
-    Allows same-origin requests; allowlist is derived from config.app.base_url.
-    """
-
-    """
-    Enforce Origin/Referer allowlist for state-changing requests.
-    Skips CORS preflight (OPTIONS).
-    """
-    # 1) Ignore preflight
-    if request.method == "OPTIONS":
-        return
-
-    # 2) (Optional) Only enforce on state-changing verbs
-    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-        return
-
-    cfg = get_config()
-    allowed_origins = cfg.app.cors.origins
-    origin = request.headers.get("origin", None)
-    referer = request.headers.get("referer")
-    candidate: str
-    if origin is None:
-        # No origin header, can use referer as fallback
-        candidate = referer or ""
-    else:
-        # origin is set; must use it
-        if origin == "null":
-            # Some browsers set Origin: null for file:// or sandboxed contexts. This is not allowed.
-            raise HTTPException(status_code=403, detail="Origin 'null' not allowed")
-        candidate = origin
-
-    if not allowed_origins:
-        # If allowed_origins is empty, fall back to rejecting cross-site requests explicitly
-        if origin:
-            raise HTTPException(
-                status_code=403, detail="Cross-origin request not allowed"
-            )
-        return
-    if not candidate:
-        # Some agents might omit Origin; fail closed for state-changing endpoints
-        raise HTTPException(status_code=403, detail="Missing Origin")
-    try:
-        if is_origin_allowed(candidate):
-            return
-        # If no match found, reject
-        raise HTTPException(status_code=403, detail="Origin not allowed")
-    except Exception:
-        raise HTTPException(
-            status_code=403, detail="Origin validation failed"
-        ) from None
-
-
 def require_csrf(request: Request) -> None:
-    """Dependency to require CSRF token header for state-changing requests."""
+    """Require an HMAC CSRF token in the X-CSRF-Token header.
 
-    # 1) Ignore preflight
-    if request.method == "OPTIONS":
-        return
-
-    # 2) (Optional) Only enforce on state-changing verbs
-    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-        return
-
-    # 3) Skip enforcement in development mode
-    cfg = get_config()
-    if cfg.app.environment == "development" or cfg.app.environment == "test":
+    Skips CORS preflight and read-only verbs. In dev/test environments the
+    check is bypassed entirely (see module note about
+    ``_CSRF_BYPASS_ENVIRONMENTS``).
+    """
+    if _should_bypass_state_changing_checks(request):
         return
 
     csrf_header = request.headers.get("x-csrf-token")

@@ -2,6 +2,32 @@
 
 from typing import cast
 
+from src.app.runtime.config.config_data import ConfigData
+
+
+def get_config() -> ConfigData:
+    from dotenv import load_dotenv
+
+    from src.app.runtime.config.config_loader import load_config
+
+    load_dotenv()
+    return load_config()
+
+
+def get_seed(config: ConfigData | None) -> int:
+    """Get the random seed from config.yaml.
+
+    Args:
+        config: The loaded configuration data.
+
+    Returns:
+        The random seed as an integer.
+    """
+    if not config:
+        config = get_config()
+
+    return config.seed
+
 
 def is_redis_enabled() -> bool:
     """Check if Redis is enabled in config.yaml.
@@ -19,8 +45,7 @@ def is_redis_enabled() -> bool:
         config_data = load_config(processed=False)
 
         # Navigate to config.redis.enabled in the YAML structure
-        config_section = config_data.get("config", {})
-        redis_config = config_section.get("redis", {})
+        redis_config = config_data.get("redis", {})
         return cast(
             bool, redis_config.get("enabled", True)
         )  # Default to True if not specified
@@ -45,9 +70,7 @@ def is_temporal_enabled() -> bool:
         # Load raw config without environment variable substitution or processing
         config_data = load_config(processed=False)
 
-        # Navigate to config.temporal.enabled in the YAML structure
-        config_section = config_data.get("config", {})
-        temporal_config = config_section.get("temporal", {})
+        temporal_config = config_data.get("temporal", {})
         return cast(
             bool, temporal_config.get("enabled", True)
         )  # Default to True if not specified
@@ -76,8 +99,7 @@ def is_bundled_postgres_enabled() -> bool:
         config_data = load_config(processed=False)
 
         # Navigate to config.database.bundled_postgres.enabled in the YAML structure
-        config_section = config_data.get("config", {})
-        database_config = config_section.get("database", {})
+        database_config = config_data.get("database", {})
         bundled_postgres = database_config.get("bundled_postgres", {})
         return cast(
             bool, bundled_postgres.get("enabled", True)

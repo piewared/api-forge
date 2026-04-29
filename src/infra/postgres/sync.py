@@ -3,17 +3,21 @@
 Syncs database user role names and passwords from secret files to PostgreSQL.
 """
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import psycopg2
 
-from src.cli.deployment.base import BaseDeployer
 from src.cli.deployment.status_display import is_temporal_enabled
 from src.cli.shared.console import console
 from src.infra.constants import DEFAULT_CONSTANTS
 from src.infra.utils.service_config import is_bundled_postgres_enabled
 
 from .connection import PostgresConnection
+
+if TYPE_CHECKING:
+    from src.cli.commands.db.runtime import DbRuntime
 
 
 class PostgresPasswordSync:
@@ -24,26 +28,14 @@ class PostgresPasswordSync:
 
     def __init__(
         self,
+        runtime: DbRuntime,
         connection: PostgresConnection,
-        deployer: BaseDeployer,
-        secrets_dirs: list[Path],
     ) -> None:
-        self._deployer = deployer
+        self._runtime = runtime
+        self._deployer = runtime.get_deployer()
         self._settings = connection.settings
         self._connection = connection
         self._console = console
-        self._secrets_dirs = secrets_dirs
-
-    def _read_secret(self, filename: str) -> str | None:
-        """Read a secret from file.
-
-        Tries secrets_dir first, then keys_dir.
-        """
-        for base in self._secrets_dirs:
-            path = base / filename
-            if path.exists():
-                return path.read_text().strip()
-        return None
 
     def sync_bundled_superuser_password(self) -> bool:
         """Sync the bundled PostgreSQL superuser password by deploying secrets and restarting the bundled postgres pod/container.

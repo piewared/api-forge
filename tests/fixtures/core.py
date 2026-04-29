@@ -9,8 +9,6 @@ from sqlalchemy import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 from starlette.requests import Request
 
-from src.app.runtime.config.config_data import OIDCProviderConfig
-from src.app.runtime.context import get_config
 from tests.utils import oct_jwk
 
 # Models will be imported within fixtures to control timing
@@ -62,21 +60,6 @@ def kid_for_jwt() -> str:
 def jwks_data(secret_for_jwt_generation: str, kid_for_jwt: str) -> dict[str, Any]:
     """Mock JWKS data for testing."""
     return {"keys": [oct_jwk(secret_for_jwt_generation.encode("utf-8"), kid_for_jwt)]}
-
-
-@pytest.fixture
-def oidc_provider_config() -> OIDCProviderConfig:
-    return OIDCProviderConfig(
-        issuer=_ISSUER,
-        client_id="test-client-id",
-        client_secret="test-client-secret",
-        authorization_endpoint=f"{_ISSUER}/authorize",
-        token_endpoint=f"{_ISSUER}/token",
-        userinfo_endpoint=f"{_ISSUER}/userinfo",
-        jwks_uri=f"{_ISSUER}/.well-known/jwks.json",
-        scopes=["openid", "profile", "email"],
-        redirect_uri="http://localhost/callback",
-    )
 
 
 @pytest.fixture

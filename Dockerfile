@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # FastAPI Application Production Dockerfile
 # Multi-stage build for optimal security and performance
 # Using Debian slim instead of Alpine for better compatibility with pre-built wheels
@@ -8,10 +9,10 @@
 FROM python:3.13-slim AS builder
 
 # Install build dependencies (minimal for using pre-built wheels)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    git \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create and set working directory
@@ -21,15 +22,22 @@ WORKDIR /build
 COPY pyproject.toml uv.lock ./
 
 # Install uv for fast dependency management
-RUN pip install --no-cache-dir uv
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir uv
 
 # Install dependencies to a virtual environment
-RUN uv venv /opt/venv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv /opt/venv
+
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install dependencies using uv pip install from pyproject.toml
-# uv will use pre-built wheels when available (much faster, no Rust needed)
-RUN uv pip install -e .
+# Install dependencies from the lockfile for reproducible builds.
+# --frozen ensures the exact versions pinned in uv.lock are used, not
+# freshly resolved ones, so Docker images match the local development env.
+# UV_PROJECT_ENVIRONMENT points uv sync at the venv we just created so
+# packages go into /opt/venv (not the default .venv in the build dir).
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project
 
 # =============================================================================
 # Stage 2: Production environment
@@ -37,12 +45,10 @@ RUN uv pip install -e .
 FROM python:3.13-slim AS production
 
 # Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    tzdata \
-    tini \
-    gosu \
-    libpq5 \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates tzdata tini gosu libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user for security
@@ -85,7 +91,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5)" || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Use tini as init process for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/universal-entrypoint.sh"]

@@ -3,19 +3,6 @@ revision = 3
 requires-python = ">=3.13"
 
 [[package]]
-name = "aioredis"
-version = "2.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "async-timeout" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/cf/9eb144a0b05809ffc5d29045c4b51039000ea275bc1268d0351c9e7dfc06/aioredis-2.0.1.tar.gz", hash = "sha256:eaa51aaf993f2d71f54b70527c440437ba65340588afeb786cd87c55c89cd98e", size = 111047, upload-time = "2021-12-27T20:28:17.557Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/a9/0da089c3ae7a31cbcd2dcf0214f6f571e1295d292b6139e2bac68ec081d0/aioredis-2.0.1-py3-none-any.whl", hash = "sha256:9ac0d0b3b485d293b8ca1987e6de8658d7dafcca1cddfcd1d506cae8cdebfdd6", size = 71243, upload-time = "2021-12-27T20:28:16.36Z" },
-]
-
-[[package]]
 name = "alembic"
 version = "1.17.2"
 source = { registry = "https://pypi.org/simple" }
@@ -56,7 +43,6 @@ name = "api-forge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "aioredis" },
     { name = "alembic" },
     { name = "authlib" },
     { name = "cachetools" },
@@ -72,6 +58,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "redis" },
     { name = "requests" },
     { name = "ruamel-yaml" },
     { name = "sqlmodel" },
@@ -98,7 +85,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aioredis", specifier = ">=2.0.0" },
     { name = "alembic", specifier = ">=1.13.0" },
     { name = "authlib", specifier = ">=1.6.4" },
     { name = "cachetools", specifier = ">=5.3.3" },
@@ -114,6 +100,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "pyyaml", specifier = ">=6.0.0" },
+    { name = "redis", extras = ["asyncio"], specifier = ">=5.0.0" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruamel-yaml", specifier = ">=0.18.6" },
     { name = "sqlmodel", specifier = ">=0.0.24" },
@@ -136,15 +123,6 @@ dev = [
     { name = "ruff", specifier = ">=0.1.0" },
     { name = "types-authlib", specifier = ">=1.6.2.20250914" },
     { name = "types-psycopg2", specifier = ">=2.9.21.20251012" },
-]
-
-[[package]]
-name = "async-timeout"
-version = "5.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a5/ae/136395dfbfe00dfc94da3f3e136d0b13f394cba8f4841120e34226265780/async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3", size = 9274, upload-time = "2024-11-06T16:41:39.6Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c", size = 6233, upload-time = "2024-11-06T16:41:37.9Z" },
 ]
 
 [[package]]

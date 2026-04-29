@@ -10,7 +10,9 @@ from src.app.api.http.deps import (
     get_allowed_origins,
     is_origin_allowed,
     normalize_origin,
+    require_csrf,
 )
+from src.app.core.security import generate_csrf_token
 from src.app.runtime.config.config_data import AppConfig, ConfigData, CORSConfig
 from src.app.runtime.context import with_context
 
@@ -574,3 +576,99 @@ class TestEnforceOrigin:
                     # Should raise exception
                     with pytest.raises(HTTPException):
                         enforce_origin(request)
+
+
+# ---------- require_csrf ----------
+
+
+def _make_csrf_request(
+    method: str = "POST",
+    csrf_header: str | None = None,
+    user_session_id: str | None = None,
+) -> Request:
+    """Build a Starlette Request scope for require_csrf tests."""
+    headers = []
+    if csrf_header is not None:
+        headers.append((b"x-csrf-token", csrf_header.encode("latin-1")))
+    if user_session_id is not None:
+        cookie_value = f"user_session_id={user_session_id}".encode("latin-1")
+        headers.append((b"cookie", cookie_value))
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": "/",
+        "query_string": b"",
+        "headers": headers,
+    }
+    return Request(scope)
+
+
+def _production_config() -> ConfigData:
+    """Production config with CSRF/session secrets so tokens can be generated."""
+    config = ConfigData()
+    config.app = AppConfig()
+    config.app.environment = "production"
+    config.app.csrf_signing_secret = "csrf-prod-secret-32-bytes-padded"
+    config.app.session_signing_secret = "session-prod-secret-32-bytes-pad"
+    return config
+
+
+class TestRequireCSRF:
+    """require_csrf has 5 branches; the dev/test early-exits are exercised
+    elsewhere. These tests cover the production enforcement paths."""
+
+    def test_options_preflight_is_allowed(self) -> None:
+        """OPTIONS requests skip CSRF enforcement (CORS preflight)."""
+        with with_context(config_override=_production_config()):
+            require_csrf(_make_csrf_request(method="OPTIONS"))  # must not raise
+
+    def test_get_requests_skip_enforcement(self) -> None:
+        """Read-only verbs are not state-changing; CSRF is irrelevant."""
+        with with_context(config_override=_production_config()):
+            require_csrf(_make_csrf_request(method="GET"))
+
+    def test_missing_csrf_header_is_rejected_in_production(self) -> None:
+        with with_context(config_override=_production_config()):
+            with pytest.raises(HTTPException) as exc_info:
+                require_csrf(_make_csrf_request(method="POST", csrf_header=None))
+        assert exc_info.value.status_code == 403
+        assert "Missing CSRF token" in exc_info.value.detail
+
+    def test_csrf_header_without_session_is_rejected(self) -> None:
+        with with_context(config_override=_production_config()):
+            with pytest.raises(HTTPException) as exc_info:
+                require_csrf(
+                    _make_csrf_request(
+                        method="POST",
+                        csrf_header="some-token",
+                        user_session_id=None,
+                    )
+                )
+        assert exc_info.value.status_code == 401
+        assert "No session found" in exc_info.value.detail
+
+    def test_invalid_csrf_token_is_rejected(self) -> None:
+        with with_context(config_override=_production_config()):
+            with pytest.raises(HTTPException) as exc_info:
+                require_csrf(
+                    _make_csrf_request(
+                        method="POST",
+                        csrf_header="not-a-valid-token",
+                        user_session_id="session-id",
+                    )
+                )
+        assert exc_info.value.status_code == 403
+        assert "Invalid CSRF token" in exc_info.value.detail
+
+    def test_valid_csrf_token_passes(self) -> None:
+        """End-to-end: a token generated for the same session must validate."""
+        config = _production_config()
+        with with_context(config_override=config):
+            valid_token = generate_csrf_token("session-id")
+            require_csrf(
+                _make_csrf_request(
+                    method="POST",
+                    csrf_header=valid_token,
+                    user_session_id="session-id",
+                )
+            )  # must not raise

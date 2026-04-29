@@ -14,22 +14,24 @@ import typer
 from src.cli.commands.db import (
     DbRuntime,
     get_compose_runtime,
-    run_backup,
-    run_init,
-    run_migrate,
-    run_reset,
-    run_status,
-    run_sync,
-    run_verify,
 )
-from src.cli.commands.db_utils import (
-    configure_external_database,
-    read_env_example_values,
-    update_bundled_postgres_config,
-    update_env_file,
+from src.cli.commands.db.cli_helpers import (
+    execute_backup,
+    execute_init,
+    execute_migrate,
+    execute_reset,
+    execute_status,
+    execute_sync,
+    execute_verify,
 )
 from src.cli.deployment.status_display import is_temporal_enabled
 from src.cli.shared.console import console, with_error_handling
+from src.cli.shared.db_utils import (
+    configure_external_database,
+    read_env_example_values,
+    update_bundled_postgres_config,
+    update_env_vars,
+)
 from src.utils.paths import get_project_root
 
 
@@ -285,7 +287,7 @@ def _create_bundled(*, skip_build: bool, wait: bool) -> None:
 
     # Update .env with bundled defaults from .env.example
     console.info("Updating .env file for bundled PostgreSQL...")
-    update_env_file(bundled_defaults)
+    update_env_vars(bundled_defaults)
     console.ok(".env file updated")
 
     # Update config.yaml
@@ -408,15 +410,12 @@ def _create_bundled(*, skip_build: bool, wait: bool) -> None:
     console.info("\nInitializing database...")
 
     try:
-        success = run_init(_get_runtime())
-        if not success:
-            console.error("Database initialization failed")
-            console.print("\n[dim]You can retry with:[/dim]")
-            console.print("  uv run api-forge-cli prod db init")
-            raise typer.Exit(1)
-
+        execute_init(_get_runtime(), label="Docker Compose")
         console.ok("Database initialized successfully")
-
+    except typer.Exit:
+        console.print("\n[dim]You can retry with:[/dim]")
+        console.print("  uv run api-forge-cli prod db init")
+        raise
     except Exception as e:
         console.error(f"Database initialization failed: {e}")
         console.print("\n[dim]You can retry with:[/dim]")
@@ -426,27 +425,22 @@ def _create_bundled(*, skip_build: bool, wait: bool) -> None:
     console.print("  - Run 'uv run api-forge-cli prod db verify' to verify setup")
 
 
+_PROD_LABEL = "Docker Compose"
+
+
 @prod_db_app.command(name="init")
 @with_error_handling
 def init_db() -> None:
     """Initialize the PostgreSQL database with roles and schema.
 
-    This command:
-    - Creates the owner, app user, and read-only roles
-    - Creates the application database
-    - Sets up the schema with proper privileges
-
-    Credentials are prompted at runtime (never stored in files).
+    Creates owner / app / read-only roles, the application database, and
+    sets up the schema with proper privileges. Credentials are prompted at
+    runtime (never stored in files).
 
     Examples:
         uv run api-forge-cli prod db init
-        uv run api-forge-cli prod db init --temporal
     """
-    console.print_header("Initializing PostgreSQL Database (Docker Compose)")
-    success = run_init(_get_runtime())
-
-    if not success:
-        raise typer.Exit(1)
+    execute_init(_get_runtime(), label=_PROD_LABEL)
 
 
 @prod_db_app.command()
@@ -454,24 +448,22 @@ def init_db() -> None:
 def verify() -> None:
     """Verify PostgreSQL database setup and configuration.
 
-    This command checks:
-    - Role existence and attributes
-    - Database and schema ownership
-    - Table and sequence privileges
-    - TLS configuration
-    - Temporal roles (if enabled)
+    Checks role existence/attributes, database and schema ownership, table
+    and sequence privileges, TLS configuration, and Temporal roles (if
+    enabled).
 
     Examples:
         uv run api-forge-cli prod db verify
     """
-    console.print_header("Verifying PostgreSQL Configuration (Docker Compose)")
-    success = run_verify(_get_runtime(), superuser_mode=False)
-
-    if not success:
-        console.info(
-            'Please run "uv run api-forge-cli prod db init" to re-initialize the database.'
-        )
-        raise typer.Exit(1)
+    execute_verify(
+        _get_runtime(),
+        label=_PROD_LABEL,
+        superuser_mode=False,
+        retry_hint=(
+            'Please run "uv run api-forge-cli prod db init" to '
+            "re-initialize the database."
+        ),
+    )
 
 
 @prod_db_app.command()
@@ -479,20 +471,13 @@ def verify() -> None:
 def sync() -> None:
     """Synchronize PostgreSQL role passwords.
 
-    This command updates database role passwords to match new values.
-    Use after rotating secrets to sync the new passwords to the database.
-
-    Credentials are prompted at runtime.
+    Updates database role passwords to match new values. Use after rotating
+    secrets. Credentials are prompted at runtime.
 
     Examples:
         uv run api-forge-cli prod db sync
-        uv run api-forge-cli prod db sync --temporal
     """
-    console.print_header("Synchronizing PostgreSQL Passwords (Docker Compose)")
-    success = run_sync(_get_runtime())
-
-    if not success:
-        raise typer.Exit(1)
+    execute_sync(_get_runtime(), label=_PROD_LABEL)
 
 
 @prod_db_app.command()
@@ -516,19 +501,12 @@ def backup(
         uv run api-forge-cli prod db backup
         uv run api-forge-cli prod db backup --output-dir ./backups
     """
-    console.print_header("Creating PostgreSQL Backup (Docker Compose)")
-    backup_dir = output_dir or Path("./data/postgres-backups")
-    success, result = run_backup(
+    execute_backup(
         _get_runtime(),
-        output_dir=backup_dir,
+        label=_PROD_LABEL,
+        output_dir=output_dir,
         superuser_mode=False,
     )
-
-    if not success:
-        console.error(f"Backup failed: {result}")
-        raise typer.Exit(1)
-
-    console.print(f"\n[bold green]🎉 Backup created: {result}[/bold green]")
 
 
 @prod_db_app.command()
@@ -572,8 +550,6 @@ def reset(
         uv run api-forge-cli prod db reset --no-temporal  # Keep Temporal data
         uv run api-forge-cli prod db reset -y             # Skip confirmation
     """
-    console.print_header("Resetting PostgreSQL Database (Docker Compose)")
-
     include_temporal = is_temporal_enabled() and include_temporal
 
     if not yes:
@@ -588,18 +564,13 @@ def reset(
             console.print("[dim]Operation cancelled[/dim]")
             raise typer.Exit(0)
 
-    success = run_reset(
+    execute_reset(
         _get_runtime(),
+        label=_PROD_LABEL,
         include_temporal=include_temporal,
         superuser_mode=False,
+        retry_command="uv run api-forge-cli prod db init",
     )
-
-    if not success:
-        raise typer.Exit(1)
-
-    console.print("\n[bold green]🎉 PostgreSQL database reset complete![/bold green]")
-    console.print("\n[dim]To re-initialize:[/dim]")
-    console.print("  Run 'uv run api-forge-cli prod db init'")
 
 
 @prod_db_app.command()
@@ -607,19 +578,14 @@ def reset(
 def status() -> None:
     """Show PostgreSQL health and performance metrics.
 
-    Displays runtime metrics including:
-    - Connection latency and active connections
-    - Database sizes and row counts
-    - Cache hit ratios
-    - Database uptime
-
-    Works with both bundled Docker Compose PostgreSQL and external databases.
+    Displays connection latency, active connections, database sizes, row
+    counts, cache hit ratios, and uptime. Works with both bundled Docker
+    Compose PostgreSQL and external databases.
 
     Examples:
         uv run api-forge-cli prod db status
     """
-    console.print_header("PostgreSQL Health & Performance")
-    run_status(_get_runtime(), superuser_mode=False)
+    execute_status(_get_runtime(), label=_PROD_LABEL, superuser_mode=False)
 
 
 @prod_db_app.command()
@@ -744,14 +710,12 @@ def migrate(
         # Stamp the DB to a revision (no migration execution)
         uv run api-forge-cli prod db migrate stamp head
     """
-    merge_revisions_normalized: list[str] = merge_revisions or []
-
-    run_migrate(
+    execute_migrate(
         _get_runtime(),
         action=action,
         revision=revision,
         message=message,
-        merge_revisions=merge_revisions_normalized,
+        merge_revisions=merge_revisions or [],
         purge=purge,
         autogenerate=autogenerate,
         sql=sql,

@@ -3,7 +3,6 @@
 import time
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import Request, Response
@@ -23,8 +22,8 @@ from src.app.core.services import (
     JwtGeneratorService,
 )
 from src.app.core.services.oidc_client_service import TokenResponse
-from src.app.entities.core.user import User, UserRepository
-from src.app.entities.core.user_identity import UserIdentity, UserIdentityRepository
+from src.app.entities.core.user import User
+from src.app.entities.core.user_identity import UserIdentity
 from src.app.runtime.config.config_data import (
     ConfigData,
     OIDCProviderConfig,
@@ -212,36 +211,6 @@ def auth_test_config(
     return config
 
 
-# Service Mocks
-@pytest.fixture
-def mock_oidc_client_service():
-    """Mock OIDC client service with standard responses."""
-    mock_service = AsyncMock()
-    mock_service.generate_pkce_pair.return_value = ("test-verifier", "test-challenge")
-    mock_service.generate_state.return_value = "test-state"
-    mock_service.exchange_code_for_tokens.return_value = TokenResponse(
-        access_token="mock-access-token",
-        token_type="Bearer",
-        expires_in=3600,
-        refresh_token="mock-refresh-token",
-        id_token="mock-id-token",
-    )
-    mock_service.get_user_claims.return_value = {
-        "iss": "https://mock-provider.test",
-        "sub": "user-12345",
-        "email": "test@example.com",
-        "given_name": "Test",
-        "family_name": "User",
-    }
-    mock_service.refresh_access_token.return_value = TokenResponse(
-        access_token="new-access-token",
-        token_type="Bearer",
-        expires_in=3600,
-        refresh_token="new-refresh-token",
-    )
-    return mock_service
-
-
 # HTTP Client Fixtures
 @pytest.fixture
 def auth_test_client(
@@ -249,8 +218,17 @@ def auth_test_client(
     session: Session,
     jwks_service_fake: JwksService,
     test_user: User,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[TestClient]:
-    """Test client configured with authentication setup."""
+    """Test client configured with authentication setup.
+
+    Patches the startup side effects that would otherwise fail in a unit-test
+    environment: ``init_db`` connecting to a real Postgres, and the JWKS
+    readiness fetch reaching out to configured providers. The remaining
+    startup steps (service construction, app.state.app_dependencies) run
+    normally so dependency providers backed by ``request.app.state`` work.
+    """
+    from src.app.core.services import JwksService as _JwksService
     from src.app.runtime.context import with_context
 
     def override_get_session():
@@ -271,6 +249,14 @@ def auth_test_client(
             "iss": "local-dev",
         }
         return test_user
+
+    # Neutralise the I/O-touching parts of startup.
+    monkeypatch.setattr("src.app.runtime.init_db.init_db", lambda: None)
+
+    async def _noop_fetch_jwks(self, issuer, *, force_refresh=False):  # noqa: ARG001
+        return {"keys": []}
+
+    monkeypatch.setattr(_JwksService, "fetch_jwks", _noop_fetch_jwks)
 
     configure_rate_limiter(
         limiter_factory=lambda *_a, **_k: _no_limit

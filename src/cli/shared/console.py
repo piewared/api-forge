@@ -21,7 +21,10 @@ class CLIConsole:
         self.console = Console()
 
     def print(self, msg: ConsoleRenderable | str | None = None) -> None:
-        self.console.print(msg)
+        if msg is None:
+            self.console.print()
+        else:
+            self.console.print(msg)
 
     def status(self, status: str) -> Status:
         return self.console.status(status)
@@ -248,7 +251,7 @@ def with_error_handling(func: Callable[..., None]) -> Callable[..., None]:
     """
     from functools import wraps
 
-    from src.cli.deployment.helm_deployer.image_builder import DeploymentError
+    from src.cli.shared.errors import DeploymentError
 
     @wraps(func)
     def wrapper(*args: object, **kwargs: object) -> None:

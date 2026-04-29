@@ -31,8 +31,8 @@ database:
   environment_mode: "${APP_ENVIRONMENT:-development}"
   
   # Password sources (production)
-  password_file_path: "${DATABASE_PASSWORD_FILE_PATH:-/run/secrets/postgres_app_user_pw}"
-  password_env_var: "${DATABASE_PASSWORD_ENV_VAR:-POSTGRES_APP_USER_PW}"
+  user_pw_file_path: "${DATABASE_PASSWORD_FILE_PATH:-/run/secrets/postgres_app_user_pw}"
+  user_pw_env_var: "${DATABASE_PASSWORD_ENV_VAR:-POSTGRES_APP_USER_PW}"
 ```
 
 ### 2. Environment Variables (`.env`)
