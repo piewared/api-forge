@@ -14,11 +14,27 @@ from rich.status import Status
 
 
 class CLIConsole:
-    """Rich console wrapper for consistent CLI output."""
+    """Rich console wrapper for consistent CLI output.
+
+    The verbose flag controls whether ``debug()`` lines appear. Use ``debug``
+    for bookkeeping output (per-secret confirmations, "wrote file X",
+    "already exists" notes) that's useful when troubleshooting but otherwise
+    just noise. Use ``info``/``ok``/``warn``/``error`` for status headlines
+    that always show.
+    """
 
     def __init__(self) -> None:
         """Initialize the CLI console."""
         self.console = Console()
+        self._verbose = False
+
+    def set_verbose(self, verbose: bool) -> None:
+        """Enable or disable debug output."""
+        self._verbose = verbose
+
+    @property
+    def verbose(self) -> bool:
+        return self._verbose
 
     def print(self, msg: ConsoleRenderable | str | None = None) -> None:
         if msg is None:
@@ -29,17 +45,43 @@ class CLIConsole:
     def status(self, status: str) -> Status:
         return self.console.status(status)
 
+    # ------------------------------------------------------------------
+    # Status lines
+    #
+    # All prefixes are single-character so column widths line up cleanly:
+    #
+    #   →  step       cyan      action in progress
+    #   ✓  ok         green     success
+    #   ✗  error      red       failure
+    #   !  warn       yellow    advisory
+    #   ℹ  info       cyan      plain informational
+    #   ·  debug      dim       bookkeeping (verbose only)
+    #
+    # Every prefix is followed by exactly one space. Callers should NOT bake
+    # leading spaces into the message — pass plain text, indent comes from
+    # the prefix alone (or, for sub-bullets, exactly two extra spaces).
+    # ------------------------------------------------------------------
+
+    def step(self, msg: str) -> None:
+        """Action-in-progress line."""
+        self.console.print(f"[cyan]→[/cyan] {msg}")
+
     def info(self, msg: str) -> None:
-        self.console.print(f"[cyan]ℹ[/cyan]  {msg}")
+        self.console.print(f"[cyan]ℹ[/cyan] {msg}")
+
+    def debug(self, msg: str) -> None:
+        """Print a bookkeeping line — only when verbose mode is on."""
+        if self._verbose:
+            self.console.print(f"[dim]· {msg}[/dim]")
 
     def ok(self, msg: str) -> None:
-        self.console.print(f"[green]✅[/green] {msg}")
+        self.console.print(f"[green]✓[/green] {msg}")
 
     def error(self, msg: str) -> None:
-        self.console.print(f"[red]❌[/red] {msg}")
+        self.console.print(f"[red]✗[/red] {msg}")
 
     def warn(self, msg: str) -> None:
-        self.console.print(f"[yellow]⚠️[/yellow]  {msg}")
+        self.console.print(f"[yellow]![/yellow] {msg}")
 
     def confirm_action(
         self,
@@ -215,27 +257,28 @@ class CLIConsole:
         else:
             return "cancel"
 
-    def print_header(self, title: str, style: str = "blue") -> None:
-        """Print a styled header panel.
+    def print_header(self, title: str, style: str = "cyan") -> None:
+        """Print a top-of-command banner: a full-width horizontal rule with
+        the title centered. Replaces the older Panel.fit box for a flatter,
+        more terminal-native look.
 
         Args:
-            title: Header title text
-            style: Border style color
+            title: Header title text.
+            style: Color/style applied to both the rule and the title text.
         """
-        self.console.print(
-            Panel.fit(
-                f"[bold {style}]{title}[/bold {style}]",
-                border_style=style,
-            )
-        )
+        self.console.print()
+        self.console.rule(f"[bold {style}]{title}[/bold {style}]", style=style)
+        self.console.print()
 
     def print_subheader(self, title: str) -> None:
-        """Print a subheader.
+        """Print a section divider: dim left-aligned rule with the title.
 
         Args:
-            title: Subheader title text
+            title: Subheader title text.
         """
-        self.console.print(f"\n[bold underline]{title}[/bold underline]\n")
+        self.console.print()
+        self.console.rule(f"[bold]{title}[/bold]", align="left", style="dim cyan")
+        self.console.print()
 
 
 def with_error_handling(func: Callable[..., None]) -> Callable[..., None]:

@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 from typing import Any
 
 from .types import CommandResult
+
+# Environment variables we layer on top of the inherited process env when
+# invoking flyctl. ``FLY_NO_UPDATE_CHECK=1`` suppresses flyctl's in-process
+# self-update — the auto-upgrade fires mid-deploy when an outdated flyctl is
+# present, adds ~30 s, and emits a curl progress bar that interleaves with
+# our own status output. Users still upgrade flyctl on their own schedule.
+_FLYCTL_ENV_OVERRIDES = {"FLY_NO_UPDATE_CHECK": "1"}
 
 
 class FlyCtlBase:
@@ -40,6 +48,7 @@ class FlyCtlBase:
             CommandResult with execution results
         """
         cmd = ["fly", *args]
+        env = {**os.environ, **_FLYCTL_ENV_OVERRIDES}
 
         def _run() -> CommandResult:
             try:
@@ -50,6 +59,7 @@ class FlyCtlBase:
                     input=input_data,
                     timeout=timeout,
                     cwd=cwd,
+                    env=env,
                 )
                 return CommandResult(
                     success=result.returncode == 0,

@@ -122,12 +122,12 @@ def inject_temporal_fly_secrets(
     pw_value = manager.read("postgres_temporal_pw", SecretKind.KEY)
     if pw_value:
         secrets["POSTGRES_PWD"] = pw_value.strip()
-        _emit(console, "ok", "  Set POSTGRES_PWD from postgres_temporal_pw")
+        _emit(console, "debug", "Set POSTGRES_PWD from postgres_temporal_pw")
     else:
         _emit(
             console,
             "warn",
-            "  postgres_temporal_pw not found; POSTGRES_PWD will not be set",
+            "postgres_temporal_pw not found; POSTGRES_PWD will not be set",
         )
 
     # -------------------------------------------------------------------------
@@ -143,19 +143,19 @@ def inject_temporal_fly_secrets(
         secrets["POSTGRES_SEEDS"] = pg_host
         secrets["SQL_HOST_NAME"] = pg_host
         secrets["DB_PORT"] = pg_port
-        _emit(console, "ok", f"  Set POSTGRES_SEEDS={pg_host} port={pg_port}")
+        _emit(console, "debug", f"Set POSTGRES_SEEDS={pg_host} port={pg_port}")
     elif cluster_name:
         _emit(
             console,
             "warn",
-            f"  Could not resolve postgres host for cluster '{cluster_name}'; "
+            f"Could not resolve postgres host for cluster '{cluster_name}'; "
             "POSTGRES_SEEDS not set",
         )
     else:
         _emit(
             console,
             "warn",
-            "  No database cluster configured; POSTGRES_SEEDS not set.\n"
+            "No database cluster configured; POSTGRES_SEEDS not set.\n"
             "  Set deployments.fly_io.database.name so Temporal can reach postgres.",
         )
 
@@ -167,9 +167,7 @@ def inject_temporal_fly_secrets(
     # -------------------------------------------------------------------------
     secrets["SQL_TLS_ENABLED"] = "false"
     secrets["SQL_HOST_VERIFICATION"] = "false"
-    _emit(
-        console, "info", "  Set SQL_TLS_ENABLED=false (Fly private WireGuard network)"
-    )
+    _emit(console, "debug", "Set SQL_TLS_ENABLED=false (Fly private WireGuard network)")
 
     if secrets:
         result = controller.secrets_set(app_name, secrets, stage=True)
@@ -214,8 +212,6 @@ def run_temporal_schema_setup(
     Returns:
         ``True`` on success, ``False`` on failure.
     """
-    _emit(console, "info", "  Running Temporal schema setup...")
-
     host_port = _resolve_pg_host_port(controller, env_lookup, cluster_name)
     if not host_port:
         _emit(
@@ -272,44 +268,88 @@ def run_temporal_schema_setup(
         "PGPASSWORD": pw,
     }
 
-    _emit(console, "info", f"  Connecting to postgres host: {pg_host}:{pg_port}")
-    _emit(
-        console,
-        "info",
-        "  Starting one-shot admin-tools machine (streaming output below)...",
-    )
+    _emit(console, "debug", f"Connecting to postgres host: {pg_host}:{pg_port}")
 
-    result = controller.machine_run(
-        _ADMIN_TOOLS_IMAGE,
-        app_name=temporal_app_name,
-        # Override both ENTRYPOINT and CMD so the image's default
-        # `tini -- sleep infinity` is fully displaced.
-        # Without --entrypoint, flyctl appends our args to `sleep infinity`
-        # instead of replacing the CMD.
-        entrypoint="/bin/sh",
-        command=["-c", setup_cmd],
-        env=env,
-        region=region,
-        rm=True,
-        # capture_output=False (default) is required: fly machine run needs a
-        # TTY-capable stdout to properly attach to the one-shot machine's
-        # console. With capture_output=True (piped stdout) flyctl detects
-        # non-TTY mode and exits immediately with "machine failed to reach
-        # desired start state" before the container even runs.
-        # Timeout budget: ~60 s machine start + ~60 s image pull + ~120 s SQL
-        # migrations = 240 s worst case; 360 s gives comfortable headroom.
-        timeout=360,
-    )
+    # ------------------------------------------------------------------
+    # Retry strategy
+    # ``fly machine run`` waits up to 5 minutes for the machine to reach
+    # ``started`` and exposes no flag to extend that. Cold pulls of the
+    # 202 MB admin-tools image regularly push past it on the first run.
+    # By the second run the image is cached on the Fly host, so the
+    # machine starts in seconds and the migration completes immediately.
+    # ``update-schema`` is idempotent (no-op when the schema is current),
+    # so the retry is also safe in the rarer case of a real SQL error
+    # — the user just sees the failure twice.
+    # ------------------------------------------------------------------
+    max_attempts = 2
+    last_result = None
+    for attempt in range(1, max_attempts + 1):
+        if attempt == 1:
+            _emit(
+                console,
+                "debug",
+                "Starting one-shot admin-tools machine (streaming output below)...",
+            )
+        else:
+            _emit(
+                console,
+                "info",
+                f"  First attempt failed (likely cold image pull > 5min flyctl wait). "
+                f"Retrying ({attempt}/{max_attempts}) — image should now be cached...",
+            )
 
-    if result.success:
-        _emit(console, "ok", "  Temporal schema setup complete")
-        return True
-    else:
-        stderr = (
-            result.stderr.strip() if result.stderr else "(no output — check fly logs)"
+        last_result = controller.machine_run(
+            _ADMIN_TOOLS_IMAGE,
+            app_name=temporal_app_name,
+            # Override both ENTRYPOINT and CMD so the image's default
+            # `tini -- sleep infinity` is fully displaced.
+            # Without --entrypoint, flyctl appends our args to `sleep infinity`
+            # instead of replacing the CMD.
+            entrypoint="/bin/sh",
+            command=["-c", setup_cmd],
+            env=env,
+            region=region,
+            rm=True,
+            # capture_output=False (default) is required: fly machine run needs
+            # a TTY-capable stdout to attach to the one-shot machine's console.
+            # With capture_output=True (piped stdout) flyctl detects non-TTY
+            # mode and exits immediately with "machine failed to reach desired
+            # start state" before the container even runs.
+            # Subprocess timeout = flyctl's 5 min wait + headroom for the SQL.
+            timeout=600,
         )
-        _emit(console, "error", f"  Temporal schema setup failed:\n  {stderr}")
-        return False
+
+        if last_result.success:
+            if attempt > 1:
+                _emit(
+                    console,
+                    "ok",
+                    f"Temporal schema setup complete (attempt {attempt}/{max_attempts})",
+                )
+            else:
+                _emit(console, "ok", "Temporal schema setup complete")
+            return True
+
+    # All attempts exhausted.
+    # capture_output=False means stderr is streamed to the terminal but not
+    # into result.stderr — so the captured value is almost always empty. Point
+    # the user at the canonical place to find what actually went wrong, plus
+    # the rerun escape hatch. The caller (up.py summary) supplies the broader
+    # "this is benign on a pre-initialised DB" framing.
+    stderr = (
+        last_result.stderr.strip()
+        if last_result is not None and last_result.stderr
+        else ""
+    )
+    msg = f"Temporal schema setup failed after {max_attempts} attempts."
+    if stderr:
+        msg += f"\n  {stderr}"
+    msg += (
+        f"\n  Inspect logs: fly logs --app {temporal_app_name}"
+        "\n  Rerun:        uv run api-forge-cli fly up"
+    )
+    _emit(console, "error", msg)
+    return False
 
 
 def run_temporal_namespace_init(
@@ -344,12 +384,6 @@ def run_temporal_namespace_init(
         ``True`` on success or if the namespace already exists, ``False`` on
         unrecoverable failure.
     """
-    _emit(
-        console,
-        "info",
-        f"  Running Temporal namespace init (namespace={namespace})...",
-    )
-
     # The machine runs *on* the temporal app, so it shares 6PN with the server.
     # .internal resolves to the running machine's IPv6 without requiring
     # [[services]] in fly.toml.
@@ -371,11 +405,11 @@ def run_temporal_namespace_init(
     #
     # Subprocess timeout (360 s) = 200 s health loop + ~160 s machine
     # boot / image pull / namespace create headroom.
-    _emit(console, "info", f"  Target address: {temporal_address}")
+    _emit(console, "debug", f"Target address: {temporal_address}")
     _emit(
         console,
-        "info",
-        "  Launching one-shot admin-tools machine (capturing output)...",
+        "debug",
+        "Launching one-shot admin-tools machine (capturing output)...",
     )
 
     # Health check strategy:
@@ -428,13 +462,16 @@ def run_temporal_namespace_init(
         env={"TEMPORAL_ADDRESS": temporal_address},
         region=region,
         rm=True,
-        timeout=360,
+        # The admin-tools image is cached at this point (schema-setup ran
+        # first), so flyctl's hardcoded 5 min wait is plenty. Subprocess
+        # timeout (600 s) absorbs the 200 s health-check loop plus headroom.
+        timeout=600,
         # capture_output=False (default): fly machine run needs TTY-capable
         # stdout. See schema setup comment for details.
     )
 
     if result.success:
-        _emit(console, "ok", "  Temporal namespace init complete")
+        _emit(console, "ok", "Temporal namespace init complete")
         return True
     else:
         stderr = (
@@ -442,5 +479,5 @@ def run_temporal_namespace_init(
             if result.stderr
             else f"(no output — check: fly logs --app {temporal_app_name})"
         )
-        _emit(console, "error", f"  Temporal namespace init failed:\n  {stderr}")
+        _emit(console, "error", f"Temporal namespace init failed:\n  {stderr}")
         return False

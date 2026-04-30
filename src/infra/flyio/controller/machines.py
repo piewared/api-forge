@@ -118,6 +118,13 @@ class FlyMachinesMixin(FlyCtlBase):
     ) -> CommandResult:
         """Run a one-shot machine and (optionally) auto-remove it when done.
 
+        Note on timeouts: ``fly machine run`` does **not** expose a flag to
+        extend its internal "wait for machine to reach ``started``" budget
+        (hardcoded at 5 minutes). The ``timeout`` argument here is just the
+        outer subprocess kill. Cold pulls of large images can blow past
+        flyctl's hard 5 min wait; callers handle that via retry rather than
+        a longer wait — see ``run_temporal_schema_setup``.
+
         Args:
             capture_output: If True, capture stdout/stderr into CommandResult
                 instead of streaming them to the terminal.  Set True for

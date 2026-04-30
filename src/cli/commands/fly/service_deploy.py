@@ -91,12 +91,12 @@ def _inject_fly_service_urls(
         resolve_fly_service_urls,
     )
 
-    console.info("  Injecting Fly.io service URLs...")
+    console.debug("Injecting Fly.io service URLs...")
     defaults = parse_service_defaults()
     fly_urls = resolve_fly_service_urls(defaults, base_app_name)
     url_result = controller.secrets_set(app_name, fly_urls, stage=True)
     if not url_result.success:
-        console.warn(f"  Failed to set Fly.io service URLs: {url_result.stderr}")
+        console.warn(f"Failed to set Fly.io service URLs: {url_result.stderr}")
 
 
 def _check_app_machine_status(
@@ -119,12 +119,12 @@ def _check_app_machine_status(
     display = label or app_name
     app_info = controller.app_info(app_name)
     if not app_info:
-        console.info(f"  {display}: app not yet created (will be on first deploy)")
+        console.debug(f"{display}: app not yet created (will be on first deploy)")
         return
 
     machines = controller.machines_list(app_name)
     if not machines:
-        console.info(f"  {display}: no machines provisioned yet")
+        console.debug(f"{display}: no machines provisioned yet")
         return
 
     _NOT_RUNNING = {"stopped", "suspended", "stopping", "created"}
@@ -132,14 +132,14 @@ def _check_app_machine_status(
     started = [m for m in machines if m.get("state") == "started"]
 
     if not not_running:
-        console.ok(f"  {display}: {len(started)} machine(s) running")
+        console.ok(f"{display}: {len(started)} machine(s) running")
     else:
         states = ", ".join(
             f"{m.get('id', '?')[:8]}={m.get('state')}" for m in not_running
         )
         console.warn(
-            f"  {display}: {len(not_running)} machine(s) are not running ({states}). "
-            "They will be woken automatically before deployment."
+            f"{display}: {len(not_running)} machine(s) not running ({states}); "
+            "will wake automatically before deployment"
         )
 
 
@@ -173,7 +173,7 @@ def _deploy_service_app(
     Returns:
         True if deployment succeeded, False otherwise
     """
-    console.info(f"Deploying {service_name} service...")
+    console.step(f"Deploying {service_name} service...")
 
     # Initialize parser for docker-compose.prod.yml (single source of truth)
     compose_file = get_project_root() / "docker-compose.prod.yml"
@@ -188,12 +188,12 @@ def _deploy_service_app(
     # Check if app exists, create if not
     app_info = controller.app_info(service_app_name)
     if not app_info:
-        console.info(f"  Creating app '{service_app_name}'...")
+        console.step(f"Creating app '{service_app_name}'...")
         result = controller.app_create(service_app_name, org=org)
         if not result.success:
             console.error(f"Failed to create {service_name} app: {result.stderr}")
             return False
-        console.ok(f"  App '{service_app_name}' created")
+        console.ok(f"App '{service_app_name}' created")
     else:
         # Pre-start stopped or suspended machines before deploying.
         # - "stopped"   → fly deploy updates image config but leaves the machine
@@ -210,8 +210,8 @@ def _deploy_service_app(
             m for m in machines if m.get("state") in ("stopped", "suspended")
         ]
         if needs_start:
-            console.info(
-                f"  Starting {len(needs_start)} stopped/suspended machine(s) before deploying..."
+            console.debug(
+                f"Starting {len(needs_start)} stopped/suspended machine(s) before deploying..."
             )
             for m in needs_start:
                 mid = m.get("id", "")
@@ -233,9 +233,9 @@ def _deploy_service_app(
     #   docker-compose.prod.yml.
     _APP_LIKE_SERVICES = {"app", "worker"}
     if compose_service_name in _APP_LIKE_SERVICES:
-        console.info(f"  Syncing secrets for {service_name}...")
+        console.debug(f"Syncing secrets for {service_name}...")
         if not _sync_secrets(controller, service_app_name):
-            console.warn(f"  Failed to sync some secrets for {service_name}")
+            console.warn(f"Failed to sync some secrets for {service_name}")
 
         # Override Docker Compose hostnames with Fly.io .internal addresses.
         # Delegates to _inject_fly_service_urls which derives ports/protocols
@@ -243,18 +243,18 @@ def _deploy_service_app(
         if base_app_name:
             _inject_fly_service_urls(controller, service_app_name, base_app_name)
     elif key_secrets:
-        console.info(f"  Syncing secrets for {service_name}...")
+        console.debug(f"Syncing secrets for {service_name}...")
         if not _sync_service_secrets(
             controller, service_app_name, key_secrets, env_vars
         ):
-            console.warn(f"  Failed to sync some secrets for {service_name}")
+            console.warn(f"Failed to sync some secrets for {service_name}")
 
     # Temporal requires extra env var translation that the docker-compose
     # entrypoint scripts perform at runtime (POSTGRES_PWD, POSTGRES_SEEDS, …).
     # On Fly.io those scripts never run — delegate to the infra module which
     # derives and injects the values directly as Fly secrets.
     if compose_service_name == "temporal":
-        console.info("  Injecting Temporal-specific Fly.io secrets...")
+        console.debug("Injecting Temporal-specific Fly.io secrets...")
         inject_temporal_fly_secrets(
             controller,
             service_app_name,
@@ -274,10 +274,13 @@ def _deploy_service_app(
         console.error(f"No build config or image specified for {compose_service_name}")
         return False
 
-    # Generate fly.toml for the service (written to .fly/ to keep root clean)
+    # Generate fly.toml for the service (written to .fly/ to keep root clean).
+    # Use compose_service_name (the slug, e.g. "temporal-web") rather than the
+    # human display name — `service_name.lower()` would yield "temporal web"
+    # for "Temporal Web", producing a file with a space in the name.
     fly_dir = _get_fly_dir()
     fly_dir.mkdir(parents=True, exist_ok=True)
-    service_toml_path = fly_dir / f"fly.{service_name.lower()}.toml"
+    service_toml_path = fly_dir / f"fly.{compose_service_name}.toml"
 
     # Build env section from resolved environment variables.
     # Skip Docker-secrets file-path vars (values like /run/secrets/...) — those
@@ -409,7 +412,7 @@ primary_region = "{region}"
 '''
 
     service_toml_path.write_text(toml_content)
-    console.info(f"  Generated {service_toml_path.name} from docker-compose config")
+    console.debug(f"Generated {service_toml_path.name} from docker-compose config")
 
     # Deploy the service.
     # - cwd=build_context: flyctl's working directory becomes the Docker build
@@ -417,7 +420,7 @@ primary_region = "{region}"
     # - dockerfile (absolute): passed as --dockerfile flag rather than in the toml
     #   to avoid flyctl resolving it relative to the toml file's directory.
     # - config is an absolute path since CWD is changing.
-    console.info(f"  Deploying {service_name}...")
+    console.debug(f"Deploying {service_name}...")
     result = controller.deploy(
         app=service_app_name,
         config=str(service_toml_path.resolve()),
@@ -427,8 +430,8 @@ primary_region = "{region}"
     )
 
     if result.success:
-        console.ok(f"  {service_name} deployed successfully")
+        console.ok(f"{service_name} deployed")
         return True
     else:
-        console.error(f"  {service_name} deployment failed: {result.stderr}")
+        console.error(f"{service_name} deployment failed: {result.stderr}")
         return False

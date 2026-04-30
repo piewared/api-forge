@@ -10,23 +10,20 @@ from rich.table import Table
 from src.cli.shared.console import console, with_error_handling
 from src.cli.shared.fly import check_prerequisites, get_fly_controller
 from src.infra.flyio.controller import FlyCtlControllerSync
-from src.infra.flyio.port_forward import ensure_app_machines_running
 from src.infra.flyio.temporal import (
     run_temporal_namespace_init,
     run_temporal_schema_setup,
 )
-from src.utils.paths import get_project_root
 
 # fly_app is imported here so the decorator registers the command on it
 from . import fly_app
-from .deploy import _check_database_attached, _check_database_exists, _ensure_app_exists
-from .secrets import _sync_secrets
+from ._main_app_deploy import deploy_main_app
+from .deploy import _check_database_exists
 from .service_deploy import (
     SERVICE_SPECS,
     _check_app_machine_status,
     _deploy_service_app,
     _generate_service_app_name,
-    _inject_fly_service_urls,
 )
 from .settings import (
     _check_service_enabled,
@@ -34,7 +31,6 @@ from .settings import (
     _load_env_file,
     _load_fly_app_settings,
 )
-from .toml import _fly_toml_exists, _get_fly_toml_path, _write_fly_toml
 
 # Time to wait after the Temporal server's machine reports healthy before
 # running namespace-init / starting the worker. ``fly deploy`` returns when
@@ -89,7 +85,7 @@ def _run_temporal_schema(
 ) -> bool:
     """Run Temporal schema setup one-shot machine. Returns success flag."""
     temporal_app_name = _generate_service_app_name(effective_app, "temporal")
-    console.info("Running Temporal schema setup (one-shot machine)...")
+    console.step("Running Temporal schema setup (one-shot machine)...")
     ok = run_temporal_schema_setup(
         controller,
         temporal_app_name=temporal_app_name,
@@ -100,7 +96,7 @@ def _run_temporal_schema(
     )
     if not ok:
         console.warn(
-            "  Schema setup failed or was skipped — "
+            "Schema setup failed or was skipped — "
             "Temporal server may not start correctly."
         )
     return ok
@@ -112,7 +108,7 @@ def _run_namespace_init(
     effective_region: str,
 ) -> bool:
     """Run Temporal namespace init one-shot machine. Returns success flag."""
-    console.info("Running Temporal namespace init (one-shot machine)...")
+    console.step("Running Temporal namespace init (one-shot machine)...")
     ok = run_temporal_namespace_init(
         controller,
         temporal_app_name=temporal_app_name,
@@ -121,7 +117,7 @@ def _run_namespace_init(
     )
     if not ok:
         console.warn(
-            "  Namespace init failed — create it manually:\n"
+            "Namespace init failed — create it manually:\n"
             + _temporal_namespace_init_fallback_command(temporal_app_name)
         )
     return ok
@@ -232,6 +228,14 @@ def up(
             ),
         ),
     ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show bookkeeping output (per-secret confirmations, file generation, etc.).",
+        ),
+    ] = False,
 ) -> None:
     """Deploy to Fly.io (analogous to k8s up).
 
@@ -293,6 +297,7 @@ def up(
         # Re-deploy main app only
         uv run api-forge-cli fly up --service app
     """
+    console.set_verbose(verbose)
     controller = get_fly_controller()
     check_prerequisites(controller)
 
@@ -305,11 +310,11 @@ def up(
     effective_org = org or settings.org
 
     console.print_header("Deploy to Fly.io")
-    console.info(f"App: {effective_app}")
-    console.info(f"Region: {effective_region}")
+    # Run metadata as a clean key:value block (no bullet chrome).
+    console.print(f"  [bold]App[/bold]          {effective_app}")
+    console.print(f"  [bold]Region[/bold]       {effective_region}")
     if effective_org:
-        console.info(f"Organization: {effective_org}")
-    console.print()
+        console.print(f"  [bold]Organization[/bold] {effective_org}")
 
     # Validate --service value early so the error is immediate.
     if only_service and only_service not in _VALID_ONLY_SERVICES:
@@ -328,9 +333,8 @@ def up(
     if not only_service:
         redis_enabled = _check_service_enabled("redis")
         temporal_enabled = _check_service_enabled("temporal")
-        console.info(f"Redis enabled in config: {redis_enabled}")
-        console.info(f"Temporal enabled in config: {temporal_enabled}")
-        console.print()
+        console.debug(f"redis enabled in config: {redis_enabled}")
+        console.debug(f"temporal enabled in config: {temporal_enabled}")
     else:
         redis_enabled = False
         temporal_enabled = False
@@ -344,22 +348,20 @@ def up(
         db_exists, cluster_name = _check_database_exists(controller)
 
         if not db_exists:
-            console.error("Database not found!")
+            console.error("Database not found")
             if cluster_name:
-                console.info(f"  Configured cluster '{cluster_name}' does not exist.")
+                console.print(f"  Configured cluster '{cluster_name}' does not exist.")
             else:
-                console.info("  No database cluster configured in config.yaml.")
+                console.print("  No database cluster configured in config.yaml.")
             console.print()
-            console.info("Create a database first:")
-            console.info("  uv run api-forge-cli fly db create managed")
-            console.print()
-            console.info("Or skip this check with --skip-db-check")
+            console.print("  Create one:  uv run api-forge-cli fly db create managed")
+            console.print("  Or skip:     api-forge-cli fly up --skip-db-check")
             raise typer.Exit(1)
 
         console.ok(f"Database cluster found: {cluster_name}")
 
     # Check machine status of target app(s) and warn if any are not running.
-    console.info("Checking machine status...")
+    console.step("Checking machine status...")
     if only_service and only_service in {"redis", "temporal", "temporal-web", "worker"}:
         # Targeting a single supporting service — check only that app.
         _check_app_machine_status(
@@ -397,7 +399,7 @@ def up(
 
         if only_service == "temporal":
             # Schema setup must run before the Temporal server starts.
-            console.info("Running Temporal schema setup (one-shot machine)...")
+            console.step("Running Temporal schema setup (one-shot machine)...")
             schema_ok = run_temporal_schema_setup(
                 controller,
                 temporal_app_name=_generate_service_app_name(effective_app, "temporal"),
@@ -427,12 +429,12 @@ def up(
 
         if only_service == "temporal" and ok:
             temporal_app_name = _generate_service_app_name(effective_app, "temporal")
-            console.info(
-                f"  Waiting {_TEMPORAL_GRPC_WARMUP_SECONDS}s for Temporal "
+            console.step(
+                f"Waiting {_TEMPORAL_GRPC_WARMUP_SECONDS}s for Temporal "
                 "gRPC server to initialise..."
             )
             time.sleep(_TEMPORAL_GRPC_WARMUP_SECONDS)
-            console.info("Running Temporal namespace init (one-shot machine)...")
+            console.step("Running Temporal namespace init (one-shot machine)...")
             ns_ok = run_temporal_namespace_init(
                 controller,
                 temporal_app_name=temporal_app_name,
@@ -452,6 +454,10 @@ def up(
     # =========================================================================
     services_deployed = []
     services_failed = []
+    # Tri-state: None = not attempted (Temporal disabled), True/False = result
+    # of the explicit one-shot schema setup. Surfaced in the summary table so a
+    # silent failure on a pre-initialised DB is still visible to operators.
+    temporal_schema_status: bool | None = None
 
     # only_service == "app" skips Phase 1 entirely; None runs all enabled services.
     if (only_service is None) and (redis_enabled or temporal_enabled):
@@ -490,8 +496,12 @@ def up(
                 elif not redis_ok:
                     services_failed.append("Redis")
 
-            # schema_ok is informational only — Temporal server deploy continues regardless
-            _schema_ok = schema_future.result() if schema_future is not None else True
+            # Temporal server deploy continues regardless — a failure here is
+            # benign if the DB schema is already current. The status flows into
+            # the summary table so an unexpected failure on a fresh DB stays
+            # visible.
+            if schema_future is not None:
+                temporal_schema_status = schema_future.result()
 
         # --- Sequential: Temporal server (requires schema to exist) ---
         if temporal_enabled:
@@ -513,8 +523,8 @@ def up(
                 # Give Temporal's gRPC server a short head-start. fly deploy
                 # returns once the health check passes, but port 7233 may
                 # still be initialising its DB connections.
-                console.info(
-                    f"  Waiting {_TEMPORAL_GRPC_WARMUP_SECONDS}s for Temporal "
+                console.step(
+                    f"Waiting {_TEMPORAL_GRPC_WARMUP_SECONDS}s for Temporal "
                     "gRPC server to initialise..."
                 )
                 time.sleep(_TEMPORAL_GRPC_WARMUP_SECONDS)
@@ -523,7 +533,6 @@ def up(
                 # Running this in parallel with Temporal Web deploy caused flyctl
                 # spinner frames from the Web deploy to interleave with health-check
                 # output from the machine, making logs unreadable.
-                console.print()
                 _ns_ok = _run_namespace_init(
                     controller,
                     temporal_app_name,
@@ -531,7 +540,6 @@ def up(
                 )
 
                 # --- Sequential: Temporal Web UI (after namespace init, no dependency) ---
-                console.print()
                 web_ok, web_entry = _deploy_temporal_web_service(
                     controller,
                     effective_app,
@@ -566,127 +574,60 @@ def up(
             console.error(f"Failed to deploy services: {', '.join(services_failed)}")
             console.info("Continuing with main app deployment...")
 
-        console.print()
-
     # =========================================================================
-    # Phase 2: App Setup  (reached for full deploy or --service app)
+    # Main App: setup, configuration, deploy
     # =========================================================================
-    console.print_subheader("Phase 2: Main App Setup")
-    if not _ensure_app_exists(controller, effective_app, effective_org):
-        raise typer.Exit(1)
-
-    # Sync secrets before checking database attachment - DATABASE_URL must
-    # already be in Fly secrets for _check_database_attached() to detect it
-    if not _sync_secrets(controller, effective_app):
-        console.warn("Some secrets may be missing - deployment may fail")
-
-    # Override Docker Compose service hostnames (temporal:7233, redis://redis:…)
-    # with Fly.io .internal addresses so the main app can reach its siblings.
-    _inject_fly_service_urls(controller, effective_app, effective_app)
-    console.print()
-
-    # Check if database is attached to the app
-    if not skip_db_check:
-        if not _check_database_attached(controller, effective_app):
-            console.warn("Database not attached to app!")
-            console.info(
-                f"  Run: uv run api-forge-cli fly db attach --cluster {cluster_name} --app {effective_app}"
-            )
-            console.print()
-
-            # Try to attach automatically
-            if console.confirm_action(
-                "Attach database now",
-                f"This will set DATABASE_URL secret on '{effective_app}'",
-            ):
-                result = controller.mpg_attach(
-                    cluster_name,  # type: ignore
-                    effective_app,
-                )
-                if result.success:
-                    console.ok("Database attached successfully")
-                else:
-                    console.error(f"Failed to attach database: {result.stderr}")
-                    raise typer.Exit(1)
-        else:
-            console.ok("Database already attached to app")
-
-    console.print()
-
-    # =========================================================================
-    # Phase 3: Configuration
-    # =========================================================================
-    console.print_subheader("Phase 3: Configuration")
-
-    if _fly_toml_exists() and not regenerate_config:
-        console.info("Using existing fly.toml")
-    else:
-        action = "Regenerating" if _fly_toml_exists() else "Generating"
-        console.info(f"{action} fly.toml...")
-
-        _write_fly_toml(
-            effective_app,
-            effective_region,
-            dockerfile=dockerfile,
-            overwrite=regenerate_config,
-        )
-        console.ok(f"fly.toml written to {_get_fly_toml_path()}")
-
-    console.print()
-
-    # =========================================================================
-    # Phase 4: Deploy Main Application
-    # =========================================================================
-    console.print_subheader("Phase 4: Deploy Main Application")
-    console.info("Starting deployment...")
-    ensure_app_machines_running(effective_app, console=console, controller=controller)
-
-    # cwd=project_root sets the Docker build context so COPY instructions in
-    # the Dockerfile resolve correctly.  The dockerfile path itself comes from
-    # [build].dockerfile in fly.toml (stored as a toml-relative path ../Dockerfile)
-    # so we don't need to pass --dockerfile here.
-    result = controller.deploy(
-        app=effective_app,
-        config=str(_get_fly_toml_path()),
+    console.print_subheader("Main App")
+    result = deploy_main_app(
+        controller,
+        effective_app=effective_app,
+        effective_region=effective_region,
+        effective_org=effective_org,
+        cluster_name=cluster_name,
+        dockerfile=dockerfile,
         image=image,
-        primary_region=effective_region,
         strategy=strategy,
         no_cache=no_cache,
-        cwd=str(get_project_root()),
+        regenerate_config=regenerate_config,
+        skip_db_check=skip_db_check,
     )
 
     if result.success:
-        console.print()
-        console.ok("Deployment completed successfully!")
-        console.print()
+        console.ok("Deployment completed")
 
         # =====================================================================
-        # Phase 5: Post-deployment summary
+        # Summary
         # =====================================================================
-        console.print_subheader("Phase 5: Deployment Summary")
-        console.info(f"🌐 App URL: https://{effective_app}.fly.dev")
+        console.print_subheader("Summary")
+
+        # ----- Top: app URL (and Temporal Web UI if present) -----
+        temporal_deployed = any(s[0] == "Temporal" for s in services_deployed)
+        temporal_web_deployed = any(s[0] == "Temporal Web" for s in services_deployed)
+        console.print(f"  [bold]App:[/bold]         https://{effective_app}.fly.dev")
+        if temporal_web_deployed:
+            web_app = _generate_service_app_name(effective_app, "temporal-web")
+            console.print(f"  [bold]Temporal UI:[/bold] https://{web_app}.fly.dev")
         console.print()
 
-        # Show service status table
+        # ----- Service status table (single source of truth for addresses) -----
         table = Table(show_header=True, header_style="bold")
         table.add_column("Service")
         table.add_column("Status")
-        table.add_column("Details")
+        table.add_column("Address")
 
         table.add_row(
             "App",
             "[green]✓ Deployed[/green]",
-            f"https://{effective_app}.fly.dev",
+            f"{effective_app}.fly.dev",
         )
 
         if not skip_db_check and cluster_name:
             table.add_row(
                 "PostgreSQL",
                 "[green]✓ Connected[/green]",
-                f"Cluster: {cluster_name}",
+                f"cluster: {cluster_name}",
             )
 
-        # Show deployed services
         for service_name, service_app, port in services_deployed:
             table.add_row(
                 service_name,
@@ -694,53 +635,53 @@ def up(
                 f"{service_app}.flycast:{port}",
             )
 
-        # Show failed services
         for service_name in services_failed:
             table.add_row(
                 service_name,
                 "[red]✗ Failed[/red]",
-                "Check logs above",
+                "(see logs above)",
+            )
+
+        # Surface the explicit Temporal schema-setup result. Failure is non-fatal
+        # because update-schema is a no-op against an already-current DB; it's
+        # only a real problem on a truly fresh database.
+        if temporal_schema_status is True:
+            table.add_row(
+                "Temporal Schema",
+                "[green]✓ Up to date[/green]",
+                "schema + visibility tables current",
+            )
+        elif temporal_schema_status is False:
+            table.add_row(
+                "Temporal Schema",
+                "[yellow]⚠ Setup failed[/yellow]",
+                "benign if DB pre-initialised; fatal on fresh DB",
             )
 
         console.print(table)
         console.print()
 
-        # Show note about Temporal setup if Temporal was deployed
-        if any(s[0] == "Temporal" for s in services_deployed):
-            console.print("[bold cyan]📝 Temporal Setup Notes:[/bold cyan]")
-            console.info(
-                "Temporal requires database schema initialization. In k8s, this is handled"
+        # ----- Schema-setup failure: detailed recovery hints -----
+        if temporal_schema_status is False and temporal_deployed:
+            temporal_app_name = _generate_service_app_name(effective_app, "temporal")
+            console.warn(
+                "Temporal schema setup failed this run. update-schema is "
+                "idempotent — if your DB was initialised by a previous deploy, "
+                "this is benign. On a fresh DB, Temporal will not start."
             )
-            console.info(
-                "by Jobs (temporal-schema-setup, temporal-namespace-init). For Fly.io:"
-            )
-            console.print()
-            console.info(
-                "  1. Schema setup runs automatically via Temporal's auto-setup"
-            )
-            console.info(
-                "  2. Access Temporal Web UI: https://{}.fly.dev".format(
-                    _generate_service_app_name(effective_app, "temporal-web")
-                )
-            )
-            console.info(
-                "  3. Temporal server: {}.flycast:7233 (internal)".format(
-                    _generate_service_app_name(effective_app, "temporal")
-                )
-            )
+            console.print(f"  [dim]Inspect:[/dim] fly logs --app {temporal_app_name}")
+            console.print("  [dim]Rerun:[/dim]   uv run api-forge-cli fly up")
             console.print()
 
-        console.print_subheader("Useful commands")
-        console.info("  Status: uv run api-forge-cli fly status")
-        console.info("  Logs:   uv run api-forge-cli fly logs")
-        console.info("  Scale:  uv run api-forge-cli fly scale --count 2")
-
-        # Show service-specific URLs
-        if services_deployed:
-            console.print()
-            console.info("Service internal URLs (use .flycast for app-to-app):")
-            for service_name, service_app, port in services_deployed:
-                console.info(f"  {service_name}: {service_app}.flycast:{port}")
+        # ----- Useful commands (compact two-column layout) -----
+        console.print("[bold]Useful commands[/bold]")
+        console.print(
+            "  uv run api-forge-cli fly status   [dim]· health & machines[/dim]"
+        )
+        console.print("  uv run api-forge-cli fly logs     [dim]· tail app logs[/dim]")
+        console.print(
+            "  uv run api-forge-cli fly scale --count 2   [dim]· scale machines[/dim]"
+        )
     else:
         console.error("Deployment failed")
         if result.stderr:

@@ -29,7 +29,7 @@ def _ensure_app_exists(
     # Check if app already exists
     existing = controller.app_info(app_name)
     if existing:
-        console.info(f"App '{app_name}' already exists")
+        console.debug(f"App '{app_name}' already exists")
         return True
 
     # Create the app

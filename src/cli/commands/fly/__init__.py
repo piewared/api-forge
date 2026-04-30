@@ -43,6 +43,7 @@ from src.cli.commands.fly import (  # noqa: F401, E402
     machines,
     scale,
     status,
+    sync,
     up,
 )
 

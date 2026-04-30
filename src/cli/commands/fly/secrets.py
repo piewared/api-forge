@@ -107,18 +107,18 @@ def _sync_secrets(
 
     if not secrets_to_set:
         if existing_secrets:
-            console.info("All secrets already set on Fly.io")
+            console.debug("All secrets already set on Fly.io")
         return True
 
     # Set secrets on Fly.io (staging to avoid redeploy)
-    console.info(
+    console.debug(
         f"Setting {len(secrets_to_set)} secret(s): {', '.join(secrets_to_set.keys())}"
     )
 
     result = controller.secrets_set(app_name, secrets_to_set, stage=True)
 
     if result.success:
-        console.ok(f"Secrets staged for {app_name}")
+        console.debug(f"Secrets staged for {app_name}")
         return True
     else:
         console.error(f"Failed to set secrets: {result.stderr}")
