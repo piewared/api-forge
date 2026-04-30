@@ -1,78 +1,78 @@
 """{{entity_name}} API router with CRUD operations."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
 from src.app.api.http.deps import get_db_session
-from src.app.entities.service.{{entity_name.lower()}} import {{entity_name}}, {{entity_name}}Repository
+
+from .repository import {{entity_name}}Repository
+from .schemas import {{entity_name}}Create, {{entity_name}}Read, {{entity_name}}Update
+from .service import {{entity_name}}NotFoundError, {{entity_name}}Service
 
 
-router = APIRouter()
-
-
-@router.post("/", response_model={{entity_name}})
-def create_{{entity_name.lower()}}(
-    {{entity_name.lower()}}: {{entity_name}},
+def get_{{entity_name.lower()}}_service(
     session: Session = Depends(get_db_session),
-) -> {{entity_name}}:
+) -> {{entity_name}}Service:
+    return {{entity_name}}Service(session, {{entity_name}}Repository(session))
+
+
+router = APIRouter(
+    prefix="/api/v1/{{entity_name.lower()}}s",
+    tags=["{{entity_name.lower()}}s"],
+)
+
+
+@router.post(
+    "/",
+    response_model={{entity_name}}Read,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_{{entity_name.lower()}}(
+    data: {{entity_name}}Create,
+    service: {{entity_name}}Service = Depends(get_{{entity_name.lower()}}_service),
+) -> {{entity_name}}Read:
     """Create a new {{entity_name.lower()}}."""
-    repository = {{entity_name}}Repository(session)
-    created_{{entity_name.lower()}} = repository.create({{entity_name.lower()}})
-    session.commit()
-    return created_{{entity_name.lower()}}
+    return service.create(data)
 
 
-@router.get("/{{ "{" }}item_id{{ "}" }}", response_model={{entity_name}})
+@router.get("/{{ "{" }}item_id{{ "}" }}", response_model={{entity_name}}Read)
 def get_{{entity_name.lower()}}(
     item_id: str,
-    session: Session = Depends(get_db_session),
-) -> {{entity_name}}:
+    service: {{entity_name}}Service = Depends(get_{{entity_name.lower()}}_service),
+) -> {{entity_name}}Read:
     """Get a {{entity_name.lower()}} by ID."""
-    repository = {{entity_name}}Repository(session)
-    {{entity_name.lower()}} = repository.get(item_id)
-    if {{entity_name.lower()}} is None:
+    result = service.get(item_id)
+    if result is None:
         raise HTTPException(status_code=404, detail="{{entity_name}} not found")
-    return {{entity_name.lower()}}
+    return result
 
 
-@router.put("/{{ "{" }}item_id{{ "}" }}", response_model={{entity_name}})
+@router.put("/{{ "{" }}item_id{{ "}" }}", response_model={{entity_name}}Read)
 def update_{{entity_name.lower()}}(
     item_id: str,
-    {{entity_name.lower()}}_update: {{entity_name}},
-    session: Session = Depends(get_db_session),
-) -> {{entity_name}}:
-    """Update a {{entity_name.lower()}}."""
-    repository = {{entity_name}}Repository(session)
-    
-    # Ensure the ID matches
-    {{entity_name.lower()}}_update.id = item_id
-    
+    data: {{entity_name}}Update,
+    service: {{entity_name}}Service = Depends(get_{{entity_name.lower()}}_service),
+) -> {{entity_name}}Read:
+    """Update a {{entity_name.lower()}} (partial update — only sent fields change)."""
     try:
-        updated_{{entity_name.lower()}} = repository.update({{entity_name.lower()}}_update)
-        session.commit()
-        return updated_{{entity_name.lower()}}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        return service.update(item_id, data)
+    except {{entity_name}}NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.delete("/{{ "{" }}item_id{{ "}" }}")
+@router.delete("/{{ "{" }}item_id{{ "}" }}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_{{entity_name.lower()}}(
     item_id: str,
-    session: Session = Depends(get_db_session),
-) -> dict[str, str]:
+    service: {{entity_name}}Service = Depends(get_{{entity_name.lower()}}_service),
+) -> None:
     """Delete a {{entity_name.lower()}}."""
-    repository = {{entity_name}}Repository(session)
-    deleted = repository.delete(item_id)
-    if not deleted:
+    if not service.delete(item_id):
         raise HTTPException(status_code=404, detail="{{entity_name}} not found")
-    session.commit()
-    return {{ "{" }}"message": "{{entity_name}} deleted successfully"{{ "}" }}
 
 
-@router.get("/", response_model=list[{{entity_name}}])
+@router.get("/", response_model=list[{{entity_name}}Read])
 def list_{{entity_name.lower()}}s(
-    session: Session = Depends(get_db_session),
-) -> list[{{entity_name}}]:
+    service: {{entity_name}}Service = Depends(get_{{entity_name.lower()}}_service),
+) -> list[{{entity_name}}Read]:
     """List all {{entity_name.lower()}}s."""
-    repository = {{entity_name}}Repository(session)
-    return repository.list_all()
+    return service.list()

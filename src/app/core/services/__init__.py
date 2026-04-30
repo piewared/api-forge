@@ -28,7 +28,7 @@ from .session.user_session import UserSessionService
 from .temporal.temporal_client import TemporalClientService
 
 # User Services
-from .user.user_management import UserManagementService
+from .user.user_management import OrphanedIdentityError, UserManagementService
 
 __all__ = [
     # JWT Services
@@ -41,6 +41,7 @@ __all__ = [
     "AuthSessionService",
     "UserSessionService",
     # User Services
+    "OrphanedIdentityError",
     "UserManagementService",
     # OIDC Services
     "OidcClientService",

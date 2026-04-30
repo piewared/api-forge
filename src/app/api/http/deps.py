@@ -19,14 +19,13 @@ from src.app.core.services import (
     JwksService,
     JwtVerificationService,
     OidcClientService,
+    OrphanedIdentityError,
     RedisService,
     TemporalClientService,
     UserManagementService,
     UserSessionService,
 )
 from src.app.entities.core.user import User, UserRepository
-from src.app.entities.core.user_identity.entity import UserIdentity
-from src.app.entities.core.user_identity.repository import UserIdentityRepository
 from src.app.runtime.context import get_config
 
 
@@ -105,84 +104,37 @@ def get_user_management_service(
 
 async def get_current_user(
     request: Request,
-    db: Session = Depends(get_db_session),
     jwt_verify: JwtVerificationService = Depends(get_jwt_verify_service),
+    user_mgmt: UserManagementService = Depends(get_user_management_service),
 ) -> User:
-    """Authenticate the request using a Bearer token, with JIT user provisioning."""
+    """Authenticate the request using a Bearer token, with JIT user provisioning.
 
+    Token verification stays here (HTTP concern). Provisioning — looking up an
+    identity row, creating ``User`` / ``UserIdentity`` records, applying name
+    fallbacks — is delegated to :class:`UserManagementService` so the same
+    logic isn't duplicated in :func:`get_authenticated_user`.
+    """
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Bearer token")
 
     token = auth_header.split(" ", 1)[1]
     claims = await jwt_verify.verify_jwt(token)
-    uid = claims.uid
-    issuer = claims.issuer
-    subject = claims.subject
 
-    if not issuer or not subject:
+    if not claims.issuer or not claims.subject:
         raise HTTPException(
             status_code=401, detail="JWT missing required issuer or subject claims"
         )
 
-    identity_repo = UserIdentityRepository(db)
-    user_repo = UserRepository(db)
-
-    # Try to find existing identity
-    identity = None
-    if uid:
-        identity = identity_repo.get_by_uid(uid)
-    if identity is None:
-        identity = identity_repo.get_by_issuer_subject(issuer, subject)
-
-    # JIT provisioning: create user and identity if they don't exist
-    if identity is None:
-        # Extract user information from JWT claims
-        email = claims.email
-        first_name = claims.given_name
-        last_name = claims.family_name
-
-        # Fallback to extracting name from email or subject if no name claims
-        if not first_name and not last_name:
-            if email and "@" in email:
-                name_part = email.split("@")[0]
-                first_name = name_part.replace(".", " ").replace("_", " ").title()
-                last_name = ""
-            elif subject:
-                first_name = f"User {subject[-8:]}"  # Use last 8 chars of subject
-                last_name = ""
-
-        # Create the new user
-        new_user = User(
-            first_name=first_name or "Unknown",
-            last_name=last_name or "User",
-            email=email,
-        )
-
-        created_user = user_repo.create(new_user)
-
-        # Create the identity mapping
-        new_identity = UserIdentity(
-            issuer=issuer,
-            subject=subject,
-            uid_claim=uid,
-            user_id=created_user.id,
-        )
-
-        identity = identity_repo.create(new_identity)
-        user = created_user
-    else:
-        # Load existing user
-        user = user_repo.get(identity.user_id)  # type: ignore
-        if user is None:
-            raise HTTPException(
-                status_code=500, detail="User identity exists but user not found"
-            )
+    try:
+        user = await user_mgmt.provision_user_from_claims(claims)
+    except OrphanedIdentityError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     request.state.claims = claims
     request.state.scopes = claims.scopes
     request.state.roles = claims.roles
-    request.state.uid = uid
+    request.state.uid = claims.uid
     return user
 
 
@@ -291,14 +243,15 @@ async def get_authenticated_user(
     db: Session = Depends(get_db_session),
     jwt_verify: JwtVerificationService = Depends(get_jwt_verify_service),
     user_session_service: UserSessionService = Depends(get_user_session_service),
+    user_mgmt: UserManagementService = Depends(get_user_management_service),
 ) -> User:
     """
-    Unified authentication dependency that works with both JWT and session-based auth. JIT user provisioning is supported for JWT auth.
+    Unified authentication dependency that works with both JWT and session-based auth.
+    JIT user provisioning is supported for JWT auth.
 
     Authentication priority:
     1. Session cookie (BFF pattern) - for web clients
     2. Bearer token (JWT pattern) - for mobile/API clients
-    3. Development mode fallback
     """
 
     # Try session-based authentication first (BFF pattern)
@@ -314,87 +267,29 @@ async def get_authenticated_user(
         try:
             token = auth_header.split(" ", 1)[1]
             claims = await jwt_verify.verify_jwt(token)
-            uid = claims.uid
-            issuer = claims.issuer
-            subject = claims.subject
 
-            if not issuer or not subject:
+            if not claims.issuer or not claims.subject:
                 raise HTTPException(
                     status_code=401,
                     detail="JWT missing required issuer or subject claims",
                 )
 
-            identity_repo = UserIdentityRepository(db)
-            user_repo = UserRepository(db)
-
-            # Try to find existing identity
-            identity = None
-            if uid:
-                identity = identity_repo.get_by_uid(uid)
-            if identity is None:
-                identity = identity_repo.get_by_issuer_subject(issuer, subject)
-
-            # JIT provisioning: create user and identity if they don't exist
-
-            if identity is None:
-                # Extract user information from JWT claims
-                email = claims.email
-                first_name = claims.given_name
-                last_name = claims.family_name
-
-                # Fallback to extracting name from email or subject if no name claims
-                if not first_name and not last_name:
-                    if email and "@" in email:
-                        name_part = email.split("@")[0]
-                        first_name = (
-                            name_part.replace(".", " ").replace("_", " ").title()
-                        )
-                        last_name = ""
-                    elif subject:
-                        first_name = (
-                            f"User {subject[-8:]}"  # Use last 8 chars of subject
-                        )
-                        last_name = ""
-
-                # Create the new user
-                new_user = User(
-                    first_name=first_name or "Unknown",
-                    last_name=last_name or "User",
-                    email=email,
-                )
-
-                created_user = user_repo.create(new_user)
-
-                # Create the identity mapping
-                new_identity = UserIdentity(
-                    issuer=issuer,
-                    subject=subject,
-                    uid_claim=uid,
-                    user_id=created_user.id,
-                )
-
-                identity = identity_repo.create(new_identity)
-                user = created_user
-            else:
-                # Load existing user
-                user = user_repo.get(identity.user_id)
-                if user is None:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="User identity exists but user not found",
-                    )
+            try:
+                user = await user_mgmt.provision_user_from_claims(claims)
+            except OrphanedIdentityError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
 
             # Store JWT info in request state
             request.state.claims = claims
             request.state.scopes = claims.scopes
             request.state.roles = claims.roles
-            request.state.uid = uid
+            request.state.uid = claims.uid
             request.state.auth_method = "jwt"
 
             return user
 
         except HTTPException:
-            # Re-raise HTTP exceptions (auth failures)
+            # Re-raise HTTP exceptions (auth failures, 500s for orphaned data)
             raise
         except Exception:
             # JWT verification or downstream lookup failed. Don't surface the

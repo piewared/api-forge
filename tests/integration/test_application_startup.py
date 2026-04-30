@@ -1,6 +1,7 @@
 """Integration tests for application lifecycle and startup behavior.
 
-Exercises ``src.app.api.http.app.startup()`` end-to-end with two configurations:
+Exercises ``src.app.api.http.lifespan.startup()`` end-to-end with two
+configurations:
 
 - Redis enabled: verifies the rate limiter wires up Redis-backed FastAPILimiter.
 - Redis disabled: verifies the local in-memory limiter falls back cleanly and
@@ -10,7 +11,7 @@ Exercises ``src.app.api.http.app.startup()`` end-to-end with two configurations:
 Side effects we always neutralise:
 
 - ``init_db`` would touch a real Postgres at module-load time.
-- The Redis client construction inside ``_initialize_rate_limiter`` would dial
+- The Redis client construction inside ``initialize_rate_limiter`` would dial
   out to a real Redis even with our fake limiter installed.
 - The startup JWKS readiness check would fetch from the configured providers
   (Microsoft / Google / Keycloak) — patched to a no-op.
@@ -62,8 +63,9 @@ class TestApplicationStartup:
     ) -> None:
         """When Redis is enabled, startup constructs a Redis client and calls
         ``FastAPILimiter.init`` on it. We patch the lazy imports inside
-        ``_initialize_rate_limiter`` so no real connection is attempted."""
+        ``initialize_rate_limiter`` so no real connection is attempted."""
         import src.app.api.http.app as application
+        from src.app.api.http import lifespan as lifespan_module
 
         init_calls: list[object] = []
 
@@ -96,7 +98,7 @@ class TestApplicationStartup:
         )
 
         # The default dev config already has redis enabled; no override needed.
-        await application.startup()
+        await lifespan_module.startup(application.app)
 
         # The limiter was wired up against our fake Redis client.
         assert init_calls, "FastAPILimiter.init was never invoked"
@@ -113,19 +115,24 @@ class TestApplicationStartup:
     ) -> None:
         """With ``redis.enabled = False``, no Redis service is constructed,
         storage falls back to InMemoryStorage, and the local in-memory rate
-        limiter takes over (``_activate_local_rate_limiter`` was invoked)."""
+        limiter takes over (``activate_local_rate_limiter`` was invoked)."""
         import src.app.api.http.app as application
+        from src.app.api.http import lifespan as lifespan_module
+        from src.app.api.http.middleware import limiter as limiter_module
         from src.app.core.services.storage.memory import InMemoryStorage
 
         local_activated = {"called": False}
-        original_activate = application._activate_local_rate_limiter
+        original_activate = limiter_module.activate_local_rate_limiter
 
         def _spy_activate() -> None:
             local_activated["called"] = True
             original_activate()
 
+        # ``initialize_rate_limiter`` looks up ``activate_local_rate_limiter``
+        # from its own module globals at call time, so patching it on the
+        # ``limiter`` module is what reaches the fallback path.
         neutralized_startup.setattr(
-            application, "_activate_local_rate_limiter", _spy_activate
+            limiter_module, "activate_local_rate_limiter", _spy_activate
         )
 
         # Mutate the live config in place, then restore. We can't go through
@@ -133,7 +140,7 @@ class TestApplicationStartup:
         original_redis_enabled = config.redis.enabled
         config.redis.enabled = False
         try:
-            await application.startup()
+            await lifespan_module.startup(application.app)
 
             deps = application.app.state.app_dependencies
             assert isinstance(deps.app_storage, InMemoryStorage)

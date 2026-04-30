@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Any
 
-from fastapi import HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from loguru import logger
 
 from src.app.runtime.context import get_config
@@ -231,6 +231,68 @@ def rate_limit(
         return await limiter(request, response)
 
     return dependency
+
+
+def activate_local_rate_limiter() -> None:
+    """Switch the rate-limiter factory to the in-memory local implementation."""
+    logger.warning("Falling back to in-memory rate limiter")
+    configure_rate_limiter(limiter_factory=DefaultLocalRateLimiter)
+
+
+async def initialize_rate_limiter(app: FastAPI) -> None:
+    """Wire the rate limiter, preferring Redis-backed FastAPILimiter.
+
+    Falls back to the in-memory limiter when Redis is disabled, the optional
+    dependencies are missing, or the Redis connection fails outside production.
+    """
+    config = get_config()
+    if not config.redis.enabled:
+        logger.info("Redis is disabled; using local in-memory rate limiter")
+        activate_local_rate_limiter()
+        return
+
+    if config.redis.url is None:
+        logger.info("Redis URL not configured; using local in-memory rate limiter")
+        activate_local_rate_limiter()
+        return
+
+    # Defer imports to startup time (event loop is running, full import graph settled).
+    # Module-level optional imports can silently fail on some container builds.
+    try:
+        import redis.asyncio as _redis_async
+    except ImportError:
+        logger.info("redis.asyncio not installed; using local in-memory rate limiter")
+        activate_local_rate_limiter()
+        return
+
+    try:
+        from fastapi_limiter import FastAPILimiter as _FastAPILimiter
+    except ImportError:
+        logger.info("fastapi-limiter not installed; using local in-memory rate limiter")
+        activate_local_rate_limiter()
+        return
+
+    try:
+        logger.info("Initializing FastAPI limiter with Redis: {}", config.redis.url)
+        client = _redis_async.from_url(
+            config.redis.connection_string,
+            encoding="utf-8",
+            decode_responses=config.redis.decode_responses,
+        )
+        await _FastAPILimiter.init(client)
+        app.state.redis = client
+
+        logger.info(
+            "FastAPI limiter initialized with Redis: {}",
+            config.redis.sanitized_connection_string,
+        )
+        configure_rate_limiter()  # default redis-based factory
+        app.state.local_rate_limiter = None
+    except Exception:
+        logger.exception("Failed to initialize FastAPI limiter with Redis")
+        if config.app.environment == "production":
+            raise
+        activate_local_rate_limiter()
 
 
 async def close_rate_limiter() -> None:

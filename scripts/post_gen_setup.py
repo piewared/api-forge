@@ -89,7 +89,9 @@ def fix_all_src_references(project_dir: Path, package_name: str):
     - Module strings ("src.app.worker.activities")
     """
     # File extensions and patterns to process
-    patterns = ["*.py", "*.yml", "*.yaml", "Dockerfile", "docker-compose*.yml"]
+    # NOTE: *.j2 is included because cli/templates/*.j2 emit `from src.app...`
+    # imports; without rewrite, post-template `entity add` produces broken code.
+    patterns = ["*.py", "*.yml", "*.yaml", "*.j2", "Dockerfile", "docker-compose*.yml"]
 
     files_to_process = []
     for pattern in patterns:

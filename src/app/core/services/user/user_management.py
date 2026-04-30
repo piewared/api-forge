@@ -10,6 +10,14 @@ from src.app.entities.core.user_identity.entity import UserIdentity
 from src.app.entities.core.user_identity.repository import UserIdentityRepository
 
 
+class OrphanedIdentityError(LookupError):
+    """A ``UserIdentity`` row points at a ``User`` that no longer exists.
+
+    This is a data-integrity problem, not a client-input problem — callers
+    typically map it to HTTP 500, distinct from invalid-claim 401s.
+    """
+
+
 class UserManagementService:
     def __init__(
         self,
@@ -91,7 +99,9 @@ class UserManagementService:
                 # Return existing user - but should we update their info?
                 user = user_repo.get(identity.user_id)
                 if user is None:
-                    raise ValueError("User identity exists but user not found")
+                    raise OrphanedIdentityError(
+                        "User identity exists but user not found"
+                    )
 
                 # Update user with fresh claims data
                 email = claims.email
@@ -119,6 +129,3 @@ class UserManagementService:
             logger.error(f"Error during user provisioning: {e}")
             self._db_session.rollback()
             raise
-
-        finally:
-            self._db_session.close()

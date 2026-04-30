@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -13,12 +11,10 @@ from src.cli.shared.console import console
 from src.utils.paths import get_project_root
 
 from .scaffold import (
-    create_crud_router,
     create_entity_files,
+    get_entity_package_path,
     prompt_for_fields,
-    register_router_with_app,
     sanitize_entity_name,
-    unregister_router_from_app,
 )
 
 # Create the entity command group
@@ -32,21 +28,15 @@ def add(
     """
     ➕ Add a new entity to the project.
 
-    Creates a new entity with all the necessary files including:
-    - Entity model with Pydantic validation
-    - Repository pattern for data access
-    - Service layer for business logic
-    - API router with full CRUD operations
-    - Database migration files
-    - Unit tests for all components
+    Creates a new entity package with all the necessary files:
+    - entity.py    — domain model with Pydantic validation
+    - table.py     — SQLModel persistence model (auto-discovered for Alembic)
+    - repository.py — data access layer
+    - router.py    — CRUD endpoints (auto-discovered at app startup)
+    - __init__.py  — package re-exports
 
-    The entity will follow the established patterns and include:
-    - SQLAlchemy model with proper relationships
-    - Pydantic schemas for validation
-    - Repository with async database operations
-    - Service with business logic
-    - API router with OpenAPI documentation
-    - Comprehensive test coverage
+    No edits to ``app.py`` are required: the router is registered automatically
+    via :func:`register_entity_routers` at startup.
     """
     if not entity_name:
         entity_name = Prompt.ask("[cyan]Entity name")
@@ -60,9 +50,7 @@ def add(
         )
     )
 
-    project_root = get_project_root()
-    service_entities_dir = project_root / "src" / "app" / "entities" / "service"
-    entity_package_path = service_entities_dir / entity_name.lower()
+    entity_package_path = get_entity_package_path(entity_name)
 
     if entity_package_path.exists():
         console.print(
@@ -85,21 +73,20 @@ def add(
         console.print("[blue]📄 Creating entity files...[/blue]")
         create_entity_files(entity_name, fields, entity_package_path)
 
-        console.print("[blue]🔌 Creating API router...[/blue]")
-        create_crud_router(entity_name, fields)
-
-        console.print("[blue]📝 Registering router with FastAPI app...[/blue]")
-        register_router_with_app(entity_name)
-
         console.print(
             f"\n[green]✅ Entity '{entity_name}' created successfully![/green]"
         )
         console.print("\n[blue]📄 Files created:[/blue]")
-        console.print(f"  - {entity_package_path}/entity.py")
-        console.print(f"  - {entity_package_path}/table.py")
-        console.print(f"  - {entity_package_path}/repository.py")
-        console.print(f"  - {entity_package_path}/__init__.py")
-        console.print(f"  - src/app/api/http/routers/service/{entity_name.lower()}.py")
+        for filename in (
+            "entity.py",
+            "table.py",
+            "repository.py",
+            "schemas.py",
+            "service.py",
+            "router.py",
+            "__init__.py",
+        ):
+            console.print(f"  - {entity_package_path / filename}")
 
         console.print("\n[blue]🚀 API endpoints available at:[/blue]")
         console.print(f"  - POST   /api/v1/{entity_name.lower()}s/")
@@ -115,7 +102,7 @@ def add(
                 console.print(f"  - {field['name']}: {field['type']}{optional_text}")
 
         console.print(
-            "\n[dim]💡 Remember to restart your development server to load the new router![/dim]"
+            "\n[dim]💡 Restart your dev server to pick up the new router.[/dim]"
         )
 
     except Exception as e:
@@ -135,14 +122,9 @@ def rm(
     """
     🗑️  Remove an entity from the project.
 
-    Safely removes an entity and all its associated files:
-    - Entity model and migrations
-    - Repository and service files
-    - API router and endpoints
-    - Test files and fixtures
-    - Documentation references
-
-    This operation will ask for confirmation before removing files.
+    Deletes the entire entity package directory. Auto-discovery means no
+    edits to ``app.py`` are required — the router disappears with the
+    package.
     """
     entity_name = sanitize_entity_name(entity_name)
 
@@ -154,48 +136,14 @@ def rm(
     )
 
     try:
-        project_root = get_project_root()
-
-        entity_package_path = (
-            project_root / "src" / "app" / "entities" / "service" / entity_name.lower()
-        )
-        router_file = (
-            project_root
-            / "src"
-            / "app"
-            / "api"
-            / "http"
-            / "routers"
-            / "service"
-            / f"{entity_name.lower()}.py"
-        )
+        entity_package_path = get_entity_package_path(entity_name)
 
         if not entity_package_path.exists():
             console.print(f"[red]❌ Entity '{entity_name}' does not exist[/red]")
             raise typer.Exit(1)
 
-        files_to_remove = []
-
-        if entity_package_path.exists():
-            files_to_remove.extend(
-                [
-                    str(entity_package_path / "entity.py"),
-                    str(entity_package_path / "table.py"),
-                    str(entity_package_path / "repository.py"),
-                    str(entity_package_path / "__init__.py"),
-                    str(entity_package_path),
-                ]
-            )
-
-        if router_file.exists():
-            files_to_remove.append(str(router_file))
-
-        console.print("\n[yellow]📂 Files and directories to be removed:[/yellow]")
-        for file_path in files_to_remove:
-            if Path(file_path).is_dir():
-                console.print(f"  📁 {file_path}/")
-            else:
-                console.print(f"  📄 {file_path}")
+        console.print("\n[yellow]📂 Directory to be removed:[/yellow]")
+        console.print(f"  📁 {entity_package_path}/")
 
         if not force:
             console.print("\n[red bold]⚠️  This action cannot be undone![/red bold]")
@@ -204,34 +152,17 @@ def rm(
                 console.print("[blue]Operation cancelled.[/blue]")
                 return
 
-        console.print("\n[blue]🗑️  Removing entity files...[/blue]")
-        if entity_package_path.exists():
-            import shutil
+        console.print("\n[blue]🗑️  Removing entity package...[/blue]")
+        import shutil
 
-            shutil.rmtree(entity_package_path)
-            console.print(f"  ✅ Removed entity package: {entity_package_path}")
-
-        if router_file.exists():
-            router_file.unlink()
-            console.print(f"  ✅ Removed router file: {router_file}")
-
-        console.print("[blue]📝 Updating FastAPI app registration...[/blue]")
-        unregister_router_from_app(entity_name)
+        shutil.rmtree(entity_package_path)
+        console.print(f"  ✅ Removed entity package: {entity_package_path}")
 
         console.print(
             f"\n[green]✅ Entity '{entity_name}' removed successfully![/green]"
         )
-        console.print("\n[blue]🚀 Removed resources:[/blue]")
         console.print(
-            f"  - Entity package: src/app/entities/service/{entity_name.lower()}/"
-        )
-        console.print(
-            f"  - API router: src/app/api/http/routers/service/{entity_name.lower()}.py"
-        )
-        console.print("  - FastAPI app registration")
-
-        console.print(
-            "\n[dim]💡 Remember to restart your development server to unload the removed router![/dim]"
+            "\n[dim]💡 Restart your dev server to drop the removed router.[/dim]"
         )
 
     except Exception as e:
@@ -244,12 +175,8 @@ def ls() -> None:
     """
     📋 List all entities in the project.
 
-    Shows a comprehensive list of all entities in the project with their:
-    - Entity name and description
-    - Associated files (models, services, routers)
-    - Database tables and relationships
-    - API endpoints and methods
-    - Test coverage status
+    Shows each entity package and which expected files it has — the router
+    column reflects what auto-discovery will pick up at app startup.
     """
     console.print(
         Panel.fit("[bold cyan]Project Entities[/bold cyan]", border_style="cyan")
@@ -276,18 +203,7 @@ def ls() -> None:
             has_entity = "✅" if (item / "entity.py").exists() else "❌"
             has_table = "✅" if (item / "table.py").exists() else "❌"
             has_repository = "✅" if (item / "repository.py").exists() else "❌"
-
-            router_file = (
-                project_root
-                / "src"
-                / "app"
-                / "api"
-                / "http"
-                / "routers"
-                / "service"
-                / f"{item.name}.py"
-            )
-            has_router = "✅" if router_file.exists() else "❌"
+            has_router = "✅" if (item / "router.py").exists() else "❌"
 
             has_tests = "❓"  # TODO: Implement test detection
 

@@ -1,0 +1,80 @@
+"""{{entity_name}} service: business logic and transaction boundary."""
+
+from sqlmodel import Session
+
+from .entity import {{entity_name}}
+from .repository import {{entity_name}}Repository
+from .schemas import {{entity_name}}Create, {{entity_name}}Read, {{entity_name}}Update
+
+
+class {{entity_name}}NotFoundError(LookupError):
+    """Raised when a {{entity_name.lower()}} cannot be located by ID."""
+
+    def __init__(self, {{entity_name.lower()}}_id: str) -> None:
+        super().__init__(f"{{entity_name}} with ID {{ "{" }}{{entity_name.lower()}}_id{{ "}" }} not found")
+        self.{{entity_name.lower()}}_id = {{entity_name.lower()}}_id
+
+
+class {{entity_name}}Service:
+    """Application service for {{entity_name}}.
+
+    Owns the unit-of-work boundary: each public method commits on success and
+    rolls back on failure. Add validation, authorization, and orchestration
+    rules here — keep the router thin and the repository focused on persistence.
+    """
+
+    def __init__(
+        self, session: Session, repository: {{entity_name}}Repository
+    ) -> None:
+        self._session = session
+        self._repository = repository
+
+    def create(self, data: {{entity_name}}Create) -> {{entity_name}}Read:
+        # Add business rules / validation here.
+        entity = {{entity_name}}(**data.model_dump())
+        try:
+            created = self._repository.create(entity)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {{entity_name}}Read.model_validate(created)
+
+    def get(self, {{entity_name.lower()}}_id: str) -> {{entity_name}}Read | None:
+        entity = self._repository.get({{entity_name.lower()}}_id)
+        return {{entity_name}}Read.model_validate(entity) if entity else None
+
+    def list(self) -> list[{{entity_name}}Read]:
+        return [
+            {{entity_name}}Read.model_validate(e)
+            for e in self._repository.list_all()
+        ]
+
+    def update(
+        self, {{entity_name.lower()}}_id: str, data: {{entity_name}}Update
+    ) -> {{entity_name}}Read:
+        existing = self._repository.get({{entity_name.lower()}}_id)
+        if existing is None:
+            raise {{entity_name}}NotFoundError({{entity_name.lower()}}_id)
+
+        # Apply partial update: only fields explicitly set in the request body
+        # are touched. Unset fields preserve their existing values.
+        for key, value in data.model_dump(exclude_unset=True).items():
+            setattr(existing, key, value)
+
+        try:
+            updated = self._repository.update(existing)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return {{entity_name}}Read.model_validate(updated)
+
+    def delete(self, {{entity_name.lower()}}_id: str) -> bool:
+        try:
+            deleted = self._repository.delete({{entity_name.lower()}}_id)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        return deleted

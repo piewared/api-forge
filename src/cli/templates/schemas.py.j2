@@ -1,0 +1,44 @@
+"""{{entity_name}} request/response DTOs.
+
+Keeps the domain entity off the HTTP surface so server-managed fields (id,
+timestamps) can't be set by clients and so request/response shapes can evolve
+independently of the persistence model.
+"""
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+
+class {{entity_name}}Create(BaseModel):
+    """Inbound payload for ``POST``. Server-managed fields are excluded."""
+
+{% for field in fields %}
+    {{field.name}}: {{field.type}}{% if field.optional %} | None = None{% endif %}
+{% endfor %}
+
+
+class {{entity_name}}Read(BaseModel):
+    """Outbound representation including server-managed fields."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+{% for field in fields %}
+    {{field.name}}: {{field.type}}{% if field.optional %} | None = None{% endif %}
+{% endfor %}
+
+
+class {{entity_name}}Update(BaseModel):
+    """Partial-update payload — every field is optional.
+
+    The service applies ``model_dump(exclude_unset=True)`` so only fields
+    explicitly supplied by the client are touched. This works for both PUT
+    (full replace by sending every field) and PATCH-style partial edits.
+    """
+
+{% for field in fields %}
+    {{field.name}}: {{field.type}} | None = None
+{% endfor %}

@@ -89,23 +89,47 @@ Visit http://localhost:8000/docs for interactive API documentation.
 
 ```
 my-project/
-├── my_project/              # Main application package
+├── my_project/                       # Main application package
 │   ├── app/
-│   │   ├── api/http/        # FastAPI routes and dependencies
-│   │   ├── core/            # Auth, DB, config, security
-│   │   ├── entities/        # Domain entities (generated)
-│   │   ├── runtime/         # Config loading and initialization
-│   │   ├── service/         # Application services
-│   │   └── worker/          # Temporal activities and workflows
-│   └── worker/              # Worker entrypoint
-├── tests/                   # Unit and integration tests
-├── k8s/                     # Kubernetes manifests
-├── docker/                  # Docker configurations
-├── infra/                   # Infrastructure scripts and secrets
-├── config.yaml              # Application configuration
-├── src_main.py              # Application entrypoint
-└── pyproject.toml           # Dependencies and tooling
+│   │   ├── api/http/                 # FastAPI app factory, middleware, routers
+│   │   │   ├── app.py                # `create_app()` factory (slim)
+│   │   │   ├── lifespan.py           # Startup/shutdown sequencing
+│   │   │   ├── deps.py               # Cross-cutting FastAPI dependencies
+│   │   │   ├── health_checks.py      # Readiness probes
+│   │   │   ├── middleware/           # Security headers, CORS, logging, limiter
+│   │   │   └── routers/              # Core (auth, health) + auto-discovery
+│   │   ├── core/                     # Cross-cutting infra services
+│   │   │   ├── services/             # JWT, OIDC, Redis, sessions, storage,
+│   │   │   │                         #   Temporal — infrastructure adapters
+│   │   │   ├── security.py           # CSRF, fingerprinting helpers
+│   │   │   └── models/               # Shared domain-adjacent models
+│   │   ├── entities/                 # Domain entities (entity-centric layout)
+│   │   │   ├── core/                 # Auth-essential entities (User, etc.)
+│   │   │   └── service/              # Generated CRUD entities
+│   │   │       └── <name>/
+│   │   │           ├── entity.py     # Pydantic domain model
+│   │   │           ├── table.py      # SQLModel persistence model
+│   │   │           ├── repository.py # Data access
+│   │   │           ├── schemas.py    # Create/Read/Update DTOs
+│   │   │           ├── service.py    # Business logic + transactions
+│   │   │           └── router.py     # CRUD endpoints (auto-discovered)
+│   │   ├── runtime/                  # Config loading, DB init
+│   │   └── worker/                   # Temporal activities and workflows
+│   ├── cli/                          # api-forge-cli (Typer commands)
+│   └── worker/                       # Worker entrypoint
+├── tests/                            # Unit, integration, and template tests
+├── k8s/                              # Kubernetes manifests
+├── infra/                            # Infrastructure scripts and secrets
+├── config.yaml                       # Application configuration
+├── src_main.py                       # Application entrypoint
+└── pyproject.toml                    # Dependencies and tooling
 ```
+
+> **Two kinds of services.** ``app/core/services/`` holds **infrastructure
+> services** (JWT, OIDC, Redis, sessions, storage, Temporal) — cross-cutting
+> adapters. ``app/entities/<group>/<name>/service.py`` holds **application
+> services** — per-entity business logic and transaction boundaries.
+> ``api-forge-cli entity add`` scaffolds the latter.
 
 ## Key Features
 
