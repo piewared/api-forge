@@ -5,11 +5,10 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from src.infra.k8s.utils import run_sync
+from src.utils.run_sync import run_sync
 
 from .apps import FlyAppsMixin
 from .auth import FlyAuthMixin
-from .fks import FlyFksMixin
 from .machines import FlyMachinesMixin
 from .managed_postgres import FlyManagedPostgresMixin
 from .secrets import FlySecretsMixin
@@ -23,7 +22,6 @@ class FlyCtlController(
     FlySecretsMixin,
     FlyAppsMixin,
     FlyMachinesMixin,
-    FlyFksMixin,
 ):
     """Controller for Fly.io operations via flyctl CLI.
 

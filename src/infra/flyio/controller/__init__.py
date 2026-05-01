@@ -10,7 +10,6 @@ The controller is composed from domain-specific mixins:
 - FlySecretsMixin: Secrets management
 - FlyAppsMixin: App lifecycle and deployment
 - FlyMachinesMixin: Machine management, scaling, logs
-- FlyFksMixin: Fly Kubernetes Service (FKS)
 
 Example:
     # Async usage

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from src.cli.commands.fly_auth import fly_auth_app
+from src.cli.commands.fly.auth import fly_auth_app
 from src.infra.flyio.controller import CommandResult
 
 runner = CliRunner()
@@ -29,7 +29,7 @@ def patch_get_fly_controller(
     """The CLI commands resolve the controller via get_fly_controller; replace
     it with the test mock for every test in this module."""
     with patch(
-        "src.cli.commands.fly_auth.get_fly_controller", return_value=fly_controller
+        "src.cli.commands.fly.auth.get_fly_controller", return_value=fly_controller
     ):
         yield
 

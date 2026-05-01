@@ -296,6 +296,92 @@ This deletes the package directory; the router disappears with it.
 Service tests are the highest-value-per-line: they exercise business logic
 without booting FastAPI or hitting a database.
 
+## Async work: Temporal vs. BackgroundTasks
+
+Two ways to run async work from a request handler. Pick based on the
+guarantees you actually need:
+
+| Need                                         | Use                              |
+|----------------------------------------------|----------------------------------|
+| Durable execution; survives crashes/restarts | **Temporal workflow**            |
+| Retries with exponential backoff             | **Temporal workflow**            |
+| Schedules / cron-style recurring             | **Temporal workflow**            |
+| Long-running (minutes to days)               | **Temporal workflow**            |
+| Cross-process coordination                   | **Temporal workflow**            |
+| Fire-and-forget, no guarantees needed        | FastAPI **`BackgroundTasks`**    |
+| Send a confirmation email after request      | FastAPI **`BackgroundTasks`**    |
+| Hash a small payload off the request path    | FastAPI **`BackgroundTasks`**    |
+
+Both primitives are triggered from a route handler — the difference is in
+how much structure each requires.
+
+**Use Temporal** for anything where losing the work on a process restart
+would be wrong: order processing, payment flows, anything that touches
+external systems with retry semantics. The route handler delegates to a
+service method, which holds the workflow-start. Scaffold with
+`api-forge-cli workflow add <Name>` (and matching activities), or in one
+shot via `api-forge-cli entity add Order --with-workflow OrderDispatch`.
+
+```python
+# router.py — thin handler, delegates to the service
+@router.post("/orders/{order_id}/dispatch", response_model=DispatchResponse)
+async def dispatch_order(
+    order_id: str,
+    service: OrderService = Depends(get_order_service),
+) -> DispatchResponse:
+    return await service.dispatch(order_id)
+
+
+# service.py — owns the workflow-start (gets temporal via DI)
+async def dispatch(self, order_id: str) -> DispatchResponse:
+    client = await self._temporal.get_client()
+    handle = await OrderDispatchWorkflow.start_workflow(
+        client,
+        input=OrderDispatchInput(order_id=order_id),
+        id=f"order-dispatch-{order_id}",  # idempotent: dedupes retries
+    )
+    return DispatchResponse(workflow_id=handle.id)
+```
+
+**Use `BackgroundTasks`** when fire-and-forget really is enough. It's
+shipped with FastAPI, takes one import, and is honest about what it
+gives you (a best-effort coroutine that runs after the response is sent;
+no retries, no durability).
+
+```python
+# router.py — same handler shape, but the async dispatch happens
+# inline via the FastAPI-supplied BackgroundTasks instance
+from fastapi import BackgroundTasks
+
+@router.post("/widgets/", response_model=WidgetRead, status_code=201)
+async def create_widget(
+    data: WidgetCreate,
+    bg: BackgroundTasks,
+    service: WidgetService = Depends(get_widget_service),
+) -> WidgetRead:
+    widget = service.create(data)
+    bg.add_task(send_welcome_email, widget.email)  # fire-and-forget
+    return widget
+```
+
+The asymmetry is intentional. Temporal earns its own service method
+because there's real surface area to encapsulate — typed input,
+idempotency ID, retry policy, signal/query handlers later on. Fire-and-
+forget is a one-liner; it doesn't need its own seam, and pushing
+`BackgroundTasks` down into the service would couple the service to
+FastAPI's request lifecycle for no benefit.
+
+If `BackgroundTasks` isn't enough but Temporal is too much, that's the
+moment to reach for a job queue (Celery, Dramatiq, RQ). The template
+doesn't ship one — the pattern matters, the choice doesn't.
+
+> ⚠️ The template intentionally does **not** ship an in-memory
+> "workflow executor" that swaps in for Temporal when it's disabled. The
+> contract Temporal provides — durable execution — can't be fulfilled by
+> an in-process substitute, and silently dropping that guarantee in dev
+> would be a foot-gun. When `temporal.enabled=false`, the workflow and
+> activity scaffolding commands refuse to run.
+
 ## Anti-patterns to avoid
 
 ❌ **`session.commit()` in router handlers.** It scatters transaction

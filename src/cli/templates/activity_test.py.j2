@@ -1,0 +1,26 @@
+"""Unit tests for the {{activity_name}} activity.
+
+Activities are plain async functions, so they can be unit-tested
+directly with no Temporal runtime. Replace the placeholder assertion
+once you fill in the activity body.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.app.worker.activities.{{activity_name.lower()}} import (
+    {{activity_class}}Input,
+    {{activity_name}},
+)
+
+
+@pytest.mark.asyncio
+async def test_{{activity_name.lower()}}_skeleton() -> None:
+    """The default skeleton raises NotImplementedError.
+
+    Replace this assertion (and add real ones) once ``{{activity_name}}``
+    has actual behaviour.
+    """
+    with pytest.raises(NotImplementedError):
+        await {{activity_name}}({{activity_class}}Input({% for field in fields %}{{field.name}}={% if field.type == 'str' %}"sample"{% elif field.type == 'int' %}0{% elif field.type == 'float' %}0.0{% elif field.type == 'bool' %}False{% else %}None{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}))

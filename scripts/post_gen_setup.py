@@ -483,6 +483,137 @@ def update_docker_compose_temporal(project_dir: Path):
         print(f"  ✅ {compose_file} updated")
 
 
+def remove_postgres_dependencies(project_dir: Path):
+    """Strip Postgres-specific deps + flip defaults to SQLite.
+
+    The on-disk Docker Compose postgres service is intentionally kept (per
+    project decision) so users can flip back to Postgres later by editing
+    ``DATABASE_URL`` and re-adding ``psycopg2-binary``. The toggle just makes
+    SQLite the default surface so the generated project boots out-of-the-box
+    without any Postgres prerequisites.
+    """
+    print("📝 Stripping Postgres defaults; falling back to SQLite...")
+
+    # 1. pyproject.toml: drop psycopg2-binary
+    pyproject_path = project_dir / "pyproject.toml"
+    if pyproject_path.exists():
+        content = pyproject_path.read_text()
+        content = re.sub(
+            r'^[ \t]*"psycopg2-binary>=[\d.]+",\s*\n',
+            "",
+            content,
+            flags=re.MULTILINE,
+        )
+        pyproject_path.write_text(content)
+        print("  ✅ pyproject.toml: removed psycopg2-binary")
+
+    # 2. config.yaml: change the default database.url branch from postgres → sqlite.
+    config_path = project_dir / "config.yaml"
+    if config_path.exists():
+        content = config_path.read_text()
+        content = re.sub(
+            r'(\bdatabase:\s*\n\s*url:\s*")\$\{DATABASE_URL:-postgresql\+asyncpg://[^}]+\}',
+            r"\1${DATABASE_URL:-sqlite:///./database.db}",
+            content,
+        )
+        config_path.write_text(content)
+        print("  ✅ config.yaml: defaulted DATABASE_URL to SQLite")
+
+    # 3. .env.example: replace postgres URLs with SQLite (keep keys so users
+    # can edit them later when switching back).
+    env_path = project_dir / ".env.example"
+    if env_path.exists():
+        content = env_path.read_text()
+        content = re.sub(
+            r"^PRODUCTION_DATABASE_URL=postgresql://.*$",
+            "PRODUCTION_DATABASE_URL=sqlite:///./database.db",
+            content,
+            flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r"^DEVELOPMENT_DATABASE_URL=postgresql://.*$",
+            "DEVELOPMENT_DATABASE_URL=sqlite:///./database.db",
+            content,
+            flags=re.MULTILINE,
+        )
+        env_path.write_text(content)
+        print("  ✅ .env.example: pointed *_DATABASE_URL at SQLite")
+
+
+def remove_fly_dependencies(project_dir: Path):
+    """Strip Fly.io artefacts when ``include_fly_deploy=false``.
+
+    No Python deps to remove (flyctl is a system binary, not a pip package),
+    but we trim ``deployments.fly_io`` from ``config.yaml`` and the FLY_*
+    variables from ``.env.example`` so the generated project doesn't carry
+    dead config.
+    """
+    print("📝 Stripping Fly.io configuration...")
+
+    # 1. config.yaml: remove the entire deployments.fly_io block
+    config_path = project_dir / "config.yaml"
+    if config_path.exists():
+        content = config_path.read_text()
+        # The fly_io block sits under deployments: with consistent 4-space
+        # indentation. Match the block from `    fly_io:` through the next
+        # sibling key or EOF.
+        content = re.sub(
+            r"^    fly_io:\n(?:[ \t]{6,}.*\n)+",
+            "",
+            content,
+            flags=re.MULTILINE,
+        )
+        config_path.write_text(content)
+        print("  ✅ config.yaml: removed deployments.fly_io block")
+
+    # 2. .env.example: drop FLY_* lines
+    env_path = project_dir / ".env.example"
+    if env_path.exists():
+        lines = env_path.read_text().splitlines(keepends=True)
+        kept = [line for line in lines if not line.startswith("FLY_")]
+        env_path.write_text("".join(kept))
+        print("  ✅ .env.example: removed FLY_* variables")
+
+
+def remove_k8s_dependencies(project_dir: Path):
+    """Strip Kubernetes/Helm artefacts when ``include_k8s_deploy=false``.
+
+    Removes ``kr8s`` and ``ruamel.yaml`` from ``pyproject.toml`` (both are
+    only used by the helm deployer / k8s controller). Also drops K8S_* /
+    KUBE* vars from ``.env.example``.
+    """
+    print("📝 Stripping Kubernetes/Helm configuration...")
+
+    # 1. pyproject.toml: drop kr8s and ruamel.yaml.
+    # Match a single full line including its trailing newline. A simpler
+    # ``\s+"name>=...",?\n`` pattern would consume the prior line's trailing
+    # newline as part of ``\s+``, joining the surrounding lines together.
+    pyproject_path = project_dir / "pyproject.toml"
+    if pyproject_path.exists():
+        content = pyproject_path.read_text()
+        content = re.sub(
+            r'^[ \t]*"kr8s>=[\d.]+",\s*\n', "", content, flags=re.MULTILINE
+        )
+        content = re.sub(
+            r'^[ \t]*"ruamel\.yaml>=[\d.]+",\s*\n',
+            "",
+            content,
+            flags=re.MULTILINE,
+        )
+        pyproject_path.write_text(content)
+        print("  ✅ pyproject.toml: removed kr8s and ruamel.yaml")
+
+    # 2. .env.example: drop K8S_* / KUBE* / HELM_* lines
+    env_path = project_dir / ".env.example"
+    if env_path.exists():
+        lines = env_path.read_text().splitlines(keepends=True)
+        kept = [
+            line for line in lines if not line.startswith(("K8S_", "KUBE", "HELM_"))
+        ]
+        env_path.write_text("".join(kept))
+        print("  ✅ .env.example: removed K8S_/KUBE_/HELM_ variables")
+
+
 def copy_infra_secrets(project_dir: Path):
     """Copy infra/secrets directory while respecting .gitignore patterns."""
 
@@ -594,6 +725,21 @@ def main():
             update_config_yaml_temporal(project_dir)
             update_env_example_temporal(project_dir)
             update_docker_compose_temporal(project_dir)
+
+        # 7. Handle optional Postgres-default fallback to SQLite
+        if not answers.get("use_postgres", False):
+            print("\n🔧 Defaulting to SQLite (use_postgres=false)...")
+            remove_postgres_dependencies(project_dir)
+
+        # 8. Handle optional Fly.io deployment-target removal
+        if not answers.get("include_fly_deploy", False):
+            print("\n🔧 Stripping Fly.io artefacts (include_fly_deploy=false)...")
+            remove_fly_dependencies(project_dir)
+
+        # 9. Handle optional Kubernetes deployment-target removal
+        if not answers.get("include_k8s_deploy", False):
+            print("\n🔧 Stripping Kubernetes artefacts (include_k8s_deploy=false)...")
+            remove_k8s_dependencies(project_dir)
 
         print("\n✅ Post-generation setup complete!")
         print(f"\n📁 Your project is ready at: {project_dir}")

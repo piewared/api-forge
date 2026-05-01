@@ -442,15 +442,6 @@ class FlyIOAppConfig(_ConfigBase):
     )
 
 
-class FlyIOFksConfig(_ConfigBase):
-    """Fly.io FKS (Fly Kubernetes Service) cluster settings."""
-
-    name: str = Field(
-        default="",
-        description="FKS cluster name (empty = auto-generate unique name)",
-    )
-
-
 class FlyIODatabaseConfig(_ConfigBase):
     """Fly.io database deployment settings."""
 
@@ -478,10 +469,6 @@ class FlyIODeploymentConfig(_ConfigBase):
     app: FlyIOAppConfig = Field(
         default_factory=FlyIOAppConfig,
         description="App deployment settings",
-    )
-    fks: FlyIOFksConfig = Field(
-        default_factory=FlyIOFksConfig,
-        description="FKS cluster settings",
     )
     database: FlyIODatabaseConfig = Field(
         default_factory=FlyIODatabaseConfig,

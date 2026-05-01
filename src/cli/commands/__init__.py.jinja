@@ -1,38 +1,56 @@
 """CLI command modules organized by deployment target.
 
-This package provides the restructured CLI with separate command groups
-for each deployment target (dev, prod, k8s, fly) and utilities (entity, secrets, users).
+This package provides separate command groups for each deployment target
+(dev, prod{% if include_k8s_deploy %}, k8s{% endif %}{% if include_fly_deploy %}, fly{% endif %}) and utilities (entity, secrets, users).
 
 Command Groups:
 - dev: Development environment using Docker Compose
 - prod: Production Docker Compose deployment (includes 'prod db' subcommands)
+{%- if include_k8s_deploy %}
 - k8s: Kubernetes deployment using Helm (includes 'k8s db' subcommands)
+{%- endif %}
+{%- if include_fly_deploy %}
 - fly: Fly.io deployment (traditional Fly Machines)
+{%- endif %}
 - entity: Entity/model scaffolding
 - secrets: Secret management utilities
 - users: Keycloak user management (dev environment)
 """
 
+{%- if use_temporal %}
 from .activity import activity_app
+{%- endif %}
 from .config_validate import config_app
 from .dev import app as dev_app
 from .entity import entity_app
+{%- if include_fly_deploy %}
 from .fly import fly_app
+{%- endif %}
+{%- if include_k8s_deploy %}
 from .k8s import k8s_app
+{%- endif %}
 from .prod import prod_app
 from .secrets import secrets_app
 from .users import users_app
+{%- if use_temporal %}
 from .workflow import workflow_app
+{%- endif %}
 
 __all__ = [
     "config_app",
     "dev_app",
     "prod_app",
+{%- if include_k8s_deploy %}
     "k8s_app",
+{%- endif %}
+{%- if include_fly_deploy %}
     "fly_app",
+{%- endif %}
     "entity_app",
+{%- if use_temporal %}
     "workflow_app",
     "activity_app",
+{%- endif %}
     "secrets_app",
     "users_app",
 ]

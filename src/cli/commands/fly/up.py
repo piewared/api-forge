@@ -7,8 +7,8 @@ from typing import Annotated
 import typer
 from rich.table import Table
 
+from src.cli.commands.fly._prereq import check_prerequisites, get_fly_controller
 from src.cli.shared.console import console, with_error_handling
-from src.cli.shared.fly import check_prerequisites, get_fly_controller
 from src.infra.flyio.controller import FlyCtlControllerSync
 from src.infra.flyio.temporal import (
     run_temporal_namespace_init,

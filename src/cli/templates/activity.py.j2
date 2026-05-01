@@ -1,0 +1,35 @@
+"""{{activity_name}} activity."""
+
+from pydantic import BaseModel
+from temporalio import activity
+
+from src.app.worker.registry import activity_defn
+
+
+class {{activity_class}}Input(BaseModel):
+    """Input for the {{activity_name}} activity."""
+
+{% for field in fields %}
+    {{field.name}}: {{field.type}}{% if field.optional %} | None = None{% endif %}
+{% endfor %}
+
+
+class {{activity_class}}Result(BaseModel):
+    """Result of the {{activity_name}} activity."""
+
+    success: bool
+    message: str | None = None
+
+
+@activity_defn(queue="{{queue}}")
+async def {{activity_name}}(input: {{activity_class}}Input) -> {{activity_class}}Result:
+    """{{activity_name}} activity.
+
+    Activities run as regular async code outside the workflow's deterministic
+    sandbox — they're the right place for I/O, external API calls, DB writes,
+    anything non-deterministic. The workflow that calls this should pick a
+    sensible ``start_to_close_timeout`` and ``retry_policy``.
+    """
+    activity.logger.info("Running {{activity_name}}")
+    # TODO: replace with real activity logic
+    raise NotImplementedError("Implement {{activity_name}}")

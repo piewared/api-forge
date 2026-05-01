@@ -16,8 +16,8 @@ from src.cli.commands.db import (
     run_status,
 )
 from src.cli.commands.db.cli_helpers import execute_init, execute_verify
+from src.cli.commands.fly._prereq import check_prerequisites, get_fly_controller
 from src.cli.shared.console import console, with_error_handling
-from src.cli.shared.fly import check_prerequisites, get_fly_controller
 
 from . import fly_db_app
 from .select import _select_cluster
@@ -161,7 +161,7 @@ def sync(
     For unmanaged postgres: local secrets -> DB -> Fly secrets
     For managed postgres: local secrets -> DB, Fly superuser -> local file
     """
-    from src.cli.commands.db.runtime_fly import run_sync_fly
+    from src.cli.commands.fly.db_runtime import run_sync_fly
     from src.infra.flyio.db_settings import FlyDbSettings as InfraFlyDbSettings
 
     controller = get_fly_controller()

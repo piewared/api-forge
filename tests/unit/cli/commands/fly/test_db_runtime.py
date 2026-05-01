@@ -3,7 +3,7 @@
 from contextlib import nullcontext
 from unittest.mock import patch
 
-from src.cli.commands.db.runtime_fly import get_fly_runtime
+from src.cli.commands.fly.db_runtime import get_fly_runtime
 
 
 class TestFlyRuntimeFactory:
@@ -37,7 +37,7 @@ class TestFlyRuntimeFactory:
         with cm:
             pass
 
-    @patch("src.cli.commands.db.runtime_fly.fly_postgres_port_forward_if_needed")
+    @patch("src.cli.commands.fly.db_runtime.fly_postgres_port_forward_if_needed")
     def test_port_forward_calls_fly_port_forward(
         self,
         mock_port_forward,

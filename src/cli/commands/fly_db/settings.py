@@ -5,7 +5,8 @@ from hashlib import md5
 from urllib.parse import urlparse, urlunparse
 
 from src.app.runtime.config.config_loader import update_env_file
-from src.cli.commands.db import DbRuntime, get_fly_runtime
+from src.cli.commands.db import DbRuntime
+from src.cli.commands.fly.db_runtime import get_fly_runtime
 from src.cli.shared.config import load_processed_config, load_raw_config
 from src.cli.shared.console import console
 from src.infra.flyio import FlyCtlControllerSync

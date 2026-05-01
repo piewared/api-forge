@@ -199,8 +199,6 @@ config:
       region: "${FLY_REGION:-iad}"
       app:
         name: "${FLY_APP_NAME:-}"
-      fks:
-        name: "${FLY_FKS_CLUSTER_NAME:-}"
       database:
         name: "${FLY_DB_NAME:-}"
         vm_memory_mb: 512

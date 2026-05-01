@@ -5,8 +5,8 @@ from typing import Annotated
 import typer
 from rich.table import Table
 
+from src.cli.commands.fly._prereq import check_prerequisites, get_fly_controller
 from src.cli.shared.console import console, with_error_handling
-from src.cli.shared.fly import check_prerequisites, get_fly_controller
 
 from . import fly_app
 from .settings import _get_app_name, _load_fly_app_settings

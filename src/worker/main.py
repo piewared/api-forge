@@ -4,6 +4,10 @@
 Temporal worker process entrypoint.
 Starts workers for all discovered task queues or specified queues.
 Handles graceful shutdown on SIGINT/SIGTERM.
+
+Imports of ``temporalio`` are deferred inside function bodies so this
+module stays importable when the dep is absent (``use_temporal=false``).
+The ``serve`` command itself fails fast with a clear message in that case.
 """
 
 from __future__ import annotations
@@ -12,36 +16,33 @@ import asyncio
 import signal
 import sys
 from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import typer
 from loguru import logger
-from temporalio.client import Client
-from temporalio.contrib.pydantic import pydantic_data_converter
-from temporalio.worker import Worker
-
-try:
-    # Only needed if you actually use TLS
-    from temporalio.service import TLSConfig
-except Exception:  # pragma: no cover
-    TLSConfig = None  # type: ignore[assignment, misc]
 
 from src.app.runtime.config.config_data import ConfigData
 from src.app.runtime.context import get_config
-from src.app.worker.manager import (
-    TemporalWorkerManager,  # your registry (with autodiscovery)
-)
+
+if TYPE_CHECKING:
+    # Type-only imports — never executed at runtime, so they don't pull
+    # ``temporalio`` into the import graph.
+    pass
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 
 async def _run_workers(
-    manager: TemporalWorkerManager,
-    client: Client,
+    manager: Any,
+    client: Any,
     task_queues: Sequence[str],
     drain_timeout: float,
 ) -> None:
     """Start workers for queues and drain gracefully on SIGINT/SIGTERM."""
-    workers: list[Worker] = [manager._build_worker(client, q) for q in task_queues]
+    # Type-only references; the actual classes come from the manager / client
+    # passed in by the caller, which lazy-imports temporalio after the
+    # ``temporal.enabled`` gate has confirmed the dep is available.
+    workers: list[Any] = [manager._build_worker(client, q) for q in task_queues]
     run_tasks = [
         asyncio.create_task(w.run(), name=f"worker:{q}")
         for w, q in zip(workers, task_queues, strict=True)
@@ -119,8 +120,33 @@ def serve(
     temporal_config = config.temporal
 
     if not temporal_config.enabled:
-        logger.error("Temporal is disabled by configuration.")
+        logger.error(
+            "Temporal is disabled by configuration "
+            "(temporal.enabled=false). Worker cannot start. "
+            "Set temporal.enabled=true and ensure the temporalio package is "
+            "installed (use_temporal=true at template generation time)."
+        )
         raise typer.Exit(code=2)
+
+    # Defer ``temporalio``-touching imports until after the enabled-gate so
+    # this module stays importable when the dep was stripped.
+    try:
+        from temporalio.client import Client
+        from temporalio.contrib.pydantic import pydantic_data_converter
+
+        try:
+            from temporalio.service import TLSConfig
+        except Exception:  # pragma: no cover
+            TLSConfig = None  # type: ignore[assignment, misc]
+
+        from src.app.worker.manager import TemporalWorkerManager
+    except ImportError as exc:
+        logger.error(
+            "temporalio is not installed. Run with use_temporal=true at "
+            "template generation, or `uv add temporalio` to install it. "
+            f"Original error: {exc}"
+        )
+        raise typer.Exit(code=2) from exc
 
     # Discover queues from code (single source of truth)
     manager = TemporalWorkerManager()

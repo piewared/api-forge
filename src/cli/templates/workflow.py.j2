@@ -1,0 +1,66 @@
+"""{{workflow_name}} workflow.
+
+Triggered from a domain endpoint via the canonical pattern:
+
+    client = await temporal_service.get_client()
+    handle = await {{workflow_name}}Workflow.start_workflow(
+        client,
+        input={{workflow_name}}Input(...),
+        id=f"{{workflow_name.lower()}}-{{ "{" }}entity.id{{ "}" }}",  # idempotent
+    )
+
+See ``docs/fastapi-temporal-workflows.md`` for the full pattern.
+"""
+
+from datetime import timedelta
+
+from pydantic import BaseModel
+from temporalio import workflow
+
+from src.app.worker.registry import workflow_defn
+from src.app.worker.workflows.base import BaseWorkflow
+
+
+class {{workflow_name}}Input(BaseModel):
+    """Input for the {{workflow_name}} workflow."""
+
+{% for field in fields %}
+    {{field.name}}: {{field.type}}{% if field.optional %} | None = None{% endif %}
+{% endfor %}
+
+
+class {{workflow_name}}Result(BaseModel):
+    """Result of the {{workflow_name}} workflow."""
+
+    success: bool
+    message: str | None = None
+
+
+@workflow_defn(queue="{{queue}}")
+class {{workflow_name}}Workflow(BaseWorkflow[{{workflow_name}}Input, {{workflow_name}}Result]):
+    """{{workflow_name}} workflow."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._status: str = "initialized"
+
+    @workflow.run
+    async def run(self, input: {{workflow_name}}Input) -> {{workflow_name}}Result:
+        """Workflow entry point.
+
+        Replace the body with your real orchestration. Typical shape:
+
+        result = await self.execute_activity(
+            some_activity,
+            SomeActivityInput(...),
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+        """
+        self._status = "running"
+        # TODO: replace with real workflow logic
+        raise NotImplementedError("Implement {{workflow_name}}Workflow.run")
+
+    @workflow.query(name="get_status")
+    def get_status(self) -> str:
+        """Inspect the workflow's current status without affecting it."""
+        return self._status

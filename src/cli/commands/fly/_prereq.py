@@ -2,7 +2,7 @@
 
 Consolidates the duplicated _get_fly_controller, _check_flyctl_installed,
 _check_authenticated, and _check_prerequisites that were copy-pasted across
-fly/, fly_db/, fly_auth, and fks modules.
+fly/, fly_db/, and fly_auth modules.
 """
 
 from __future__ import annotations

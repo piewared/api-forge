@@ -33,7 +33,21 @@ __all__ = ["app", "create_app", "configure_rate_limiter"]
 
 
 def _register_core_routers(app: FastAPI) -> None:
-    """Register framework-level routers that aren't entity-scoped."""
+    """Register framework-level routers that aren't entity-scoped.
+
+    Note: the Temporal workflows management router
+    (``src/app/api/http/routers/workflows.py``) is intentionally NOT
+    registered by default — exposing workflow start/list/get over HTTP
+    is a real attack surface and should be an explicit choice. To
+    enable it, gate its registration behind ``config.temporal.enabled``
+    here:
+
+        if config.temporal.enabled:
+            from src.app.api.http.routers.workflows import (
+                router as workflows_router,
+            )
+            app.include_router(workflows_router)
+    """
     app.include_router(health_router)
     app.include_router(router_jit, prefix="/auth")
     app.include_router(router_bff, prefix="/auth")

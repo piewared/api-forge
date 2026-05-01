@@ -1,0 +1,44 @@
+"""Unit tests for {{workflow_name}}Workflow.
+
+Workflow tests typically run inside a Temporal test environment so the
+workflow's deterministic replay semantics are exercised. The skeleton
+below uses ``temporalio.testing.WorkflowEnvironment``; flesh out the
+assertions as you fill in ``run()``.
+"""
+
+from __future__ import annotations
+
+import pytest
+from temporalio.client import Client
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Worker
+
+from src.app.worker.workflows.{{workflow_name.lower()}} import (
+    {{workflow_name}}Input,
+    {{workflow_name}}Result,
+    {{workflow_name}}Workflow,
+)
+
+
+@pytest.mark.asyncio
+async def test_{{workflow_name.lower()}}_workflow_skeleton() -> None:
+    """Replace this with a real test once ``run()`` has logic.
+
+    The default skeleton workflow raises ``NotImplementedError`` so a
+    successful execution is expected to surface that exception. Once you
+    implement ``run()``, replace the assertion accordingly.
+    """
+    async with await WorkflowEnvironment.start_local() as env:
+        client: Client = env.client
+        async with Worker(
+            client,
+            task_queue="test-{{workflow_name.lower()}}",
+            workflows=[{{workflow_name}}Workflow],
+        ):
+            with pytest.raises(Exception):  # NotImplementedError until you fill it in
+                await client.execute_workflow(
+                    {{workflow_name}}Workflow.run,
+                    {{workflow_name}}Input({% for field in fields %}{{field.name}}={% if field.type == 'str' %}"sample"{% elif field.type == 'int' %}0{% elif field.type == 'float' %}0.0{% elif field.type == 'bool' %}False{% else %}None{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}),
+                    id="test-{{workflow_name.lower()}}-1",
+                    task_queue="test-{{workflow_name.lower()}}",
+                )

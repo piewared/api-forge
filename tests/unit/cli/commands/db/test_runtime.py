@@ -50,12 +50,12 @@ def test_compose_runtime_factory(mock_get_conn, mock_get_settings):
     assert callable(runtime.is_bundled_postgres_enabled)
 
 
-@patch("src.cli.commands.db.runtime_k8s.get_db_settings")
-@patch("src.cli.commands.db.runtime_k8s.get_k8s_postgres_connection")
-@patch("src.cli.commands.db.runtime_k8s.postgres_port_forward_if_needed")
+@patch("src.cli.commands.k8s.db_runtime.get_db_settings")
+@patch("src.cli.commands.k8s.db_runtime.get_k8s_postgres_connection")
+@patch("src.cli.commands.k8s.db_runtime.postgres_port_forward_if_needed")
 def test_k8s_runtime_factory(mock_port_forward, mock_get_conn, mock_get_settings):
     """Test that get_k8s_runtime returns a properly configured DbRuntime."""
-    from src.cli.commands.db.runtime_k8s import get_k8s_runtime
+    from src.cli.commands.k8s.db_runtime import get_k8s_runtime
 
     runtime = get_k8s_runtime()
 
@@ -80,14 +80,14 @@ def test_compose_runtime_port_forward_returns_nullcontext():
         assert result is None
 
 
-@patch("src.cli.commands.db.runtime_k8s.postgres_port_forward_if_needed")
-@patch("src.cli.commands.db.runtime_k8s.get_namespace")
-@patch("src.cli.commands.db.runtime_k8s.get_postgres_label")
+@patch("src.cli.commands.k8s.db_runtime.postgres_port_forward_if_needed")
+@patch("src.cli.commands.k8s.db_runtime.get_namespace")
+@patch("src.cli.commands.k8s.db_runtime.get_postgres_label")
 def test_k8s_runtime_port_forward_uses_namespace_and_label(
     mock_get_label, mock_get_ns, mock_port_forward
 ):
     """Test that k8s runtime port_forward uses proper namespace and label."""
-    from src.cli.commands.db.runtime_k8s import get_k8s_runtime
+    from src.cli.commands.k8s.db_runtime import get_k8s_runtime
 
     mock_get_ns.return_value = "test-namespace"
     mock_get_label.return_value = "app=postgres"

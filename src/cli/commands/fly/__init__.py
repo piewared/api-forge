@@ -14,13 +14,11 @@ Additional commands:
 - machines: List/manage individual machines
 - apps: List all Fly.io apps
 
-For FKS (Fly Kubernetes Service) deployments, see the fks module (currently
-in private beta - not generally available).
 """
 
 import typer
 
-from src.cli.commands.fly_auth import fly_auth_app
+from src.cli.commands.fly.auth import fly_auth_app
 from src.cli.commands.fly_db import fly_db_app
 
 # Define fly_app before importing submodules so their @fly_app.command()

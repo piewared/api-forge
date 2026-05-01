@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
-from src.cli.shared.fly import (
+from src.cli.commands.fly._prereq import (
     _get_cached_latest_flyctl_version,
     _get_current_flyctl_version,
     _parse_version,
@@ -76,9 +76,11 @@ class TestCheckPrerequisites:
         controller = MagicMock()
 
         with (
-            patch("src.cli.shared.fly.check_flyctl_installed") as mock_installed,
-            patch("src.cli.shared.fly.check_authenticated") as mock_auth,
-            patch("src.cli.shared.fly.check_flyctl_version") as mock_version,
+            patch(
+                "src.cli.commands.fly._prereq.check_flyctl_installed"
+            ) as mock_installed,
+            patch("src.cli.commands.fly._prereq.check_authenticated") as mock_auth,
+            patch("src.cli.commands.fly._prereq.check_flyctl_version") as mock_version,
         ):
             check_prerequisites(controller)
 
@@ -92,11 +94,11 @@ class TestCheckPrerequisites:
 
         with (
             patch(
-                "src.cli.shared.fly.check_flyctl_installed",
+                "src.cli.commands.fly._prereq.check_flyctl_installed",
                 side_effect=typer.Exit(1),
             ) as mock_installed,
-            patch("src.cli.shared.fly.check_authenticated") as mock_auth,
-            patch("src.cli.shared.fly.check_flyctl_version") as mock_version,
+            patch("src.cli.commands.fly._prereq.check_authenticated") as mock_auth,
+            patch("src.cli.commands.fly._prereq.check_flyctl_version") as mock_version,
         ):
             with pytest.raises(typer.Exit):
                 check_prerequisites(controller)
@@ -166,11 +168,11 @@ class TestGetCachedLatestFlyctlVersion:
         state.parent.mkdir()
         state.write_text(json.dumps({"latest_release_version": "0.4.50"}))
 
-        with patch("src.cli.shared.fly.Path.home", return_value=tmp_path):
+        with patch("src.cli.commands.fly._prereq.Path.home", return_value=tmp_path):
             assert _get_cached_latest_flyctl_version() == (0, 4, 50)
 
     def test_returns_none_when_file_missing(self, tmp_path: Path) -> None:
-        with patch("src.cli.shared.fly.Path.home", return_value=tmp_path):
+        with patch("src.cli.commands.fly._prereq.Path.home", return_value=tmp_path):
             assert _get_cached_latest_flyctl_version() is None
 
     def test_returns_none_when_key_missing(self, tmp_path: Path) -> None:
@@ -178,7 +180,7 @@ class TestGetCachedLatestFlyctlVersion:
         state.parent.mkdir()
         state.write_text(json.dumps({"unrelated": "data"}))
 
-        with patch("src.cli.shared.fly.Path.home", return_value=tmp_path):
+        with patch("src.cli.commands.fly._prereq.Path.home", return_value=tmp_path):
             assert _get_cached_latest_flyctl_version() is None
 
 
@@ -187,7 +189,7 @@ class TestVersionWarningTimeGate:
 
     def test_warns_when_marker_missing(self, tmp_path: Path) -> None:
         marker = tmp_path / "nag-marker"
-        with patch("src.cli.shared.fly._NAG_MARKER_PATH", marker):
+        with patch("src.cli.commands.fly._prereq._NAG_MARKER_PATH", marker):
             assert _should_show_version_warning() is True
 
     def test_suppresses_within_interval(self, tmp_path: Path) -> None:
@@ -200,7 +202,7 @@ class TestVersionWarningTimeGate:
         import os as _os
 
         _os.utime(marker, (recent, recent))
-        with patch("src.cli.shared.fly._NAG_MARKER_PATH", marker):
+        with patch("src.cli.commands.fly._prereq._NAG_MARKER_PATH", marker):
             assert _should_show_version_warning() is False
 
     def test_warns_when_interval_elapsed(self, tmp_path: Path) -> None:
@@ -212,7 +214,7 @@ class TestVersionWarningTimeGate:
         # Set mtime to 8 days ago — past the 7-day window.
         old = _time.time() - 8 * 24 * 3600
         _os.utime(marker, (old, old))
-        with patch("src.cli.shared.fly._NAG_MARKER_PATH", marker):
+        with patch("src.cli.commands.fly._prereq._NAG_MARKER_PATH", marker):
             assert _should_show_version_warning() is True
 
 
@@ -223,16 +225,16 @@ class TestCheckFlyctlVersion:
         """No warn when running version >= recommendation."""
         marker = tmp_path / "nag-marker"
         with (
-            patch("src.cli.shared.fly._NAG_MARKER_PATH", marker),
+            patch("src.cli.commands.fly._prereq._NAG_MARKER_PATH", marker),
             patch(
-                "src.cli.shared.fly._get_current_flyctl_version",
+                "src.cli.commands.fly._prereq._get_current_flyctl_version",
                 return_value=(99, 0, 0),
             ),
             patch(
-                "src.cli.shared.fly._get_cached_latest_flyctl_version",
+                "src.cli.commands.fly._prereq._get_cached_latest_flyctl_version",
                 return_value=None,
             ),
-            patch("src.cli.shared.fly.console.warn") as mock_warn,
+            patch("src.cli.commands.fly._prereq.console.warn") as mock_warn,
         ):
             check_flyctl_version()
             mock_warn.assert_not_called()
@@ -241,16 +243,16 @@ class TestCheckFlyctlVersion:
     def test_warns_and_records_when_outdated(self, tmp_path: Path) -> None:
         marker = tmp_path / "nag-marker"
         with (
-            patch("src.cli.shared.fly._NAG_MARKER_PATH", marker),
+            patch("src.cli.commands.fly._prereq._NAG_MARKER_PATH", marker),
             patch(
-                "src.cli.shared.fly._get_current_flyctl_version",
+                "src.cli.commands.fly._prereq._get_current_flyctl_version",
                 return_value=(0, 1, 0),
             ),
             patch(
-                "src.cli.shared.fly._get_cached_latest_flyctl_version",
+                "src.cli.commands.fly._prereq._get_cached_latest_flyctl_version",
                 return_value=None,
             ),
-            patch("src.cli.shared.fly.console.warn") as mock_warn,
+            patch("src.cli.commands.fly._prereq.console.warn") as mock_warn,
         ):
             check_flyctl_version()
             mock_warn.assert_called_once()
@@ -260,12 +262,12 @@ class TestCheckFlyctlVersion:
         """If `fly version` failed to parse, skip silently — no false warnings."""
         marker = tmp_path / "nag-marker"
         with (
-            patch("src.cli.shared.fly._NAG_MARKER_PATH", marker),
+            patch("src.cli.commands.fly._prereq._NAG_MARKER_PATH", marker),
             patch(
-                "src.cli.shared.fly._get_current_flyctl_version",
+                "src.cli.commands.fly._prereq._get_current_flyctl_version",
                 return_value=None,
             ),
-            patch("src.cli.shared.fly.console.warn") as mock_warn,
+            patch("src.cli.commands.fly._prereq.console.warn") as mock_warn,
         ):
             check_flyctl_version()
             mock_warn.assert_not_called()

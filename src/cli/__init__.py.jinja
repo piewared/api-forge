@@ -1,14 +1,18 @@
 """Main CLI application module.
 
 This module provides the main entry point for the API Forge CLI.
-Commands are organized by deployment target (dev, prod, k8s, fly)
+Commands are organized by deployment target (dev, prod{% if include_k8s_deploy %}, k8s{% endif %}{% if include_fly_deploy %}, fly{% endif %})
 rather than by operation type (up, down, status).
 
 Command Groups:
 - dev: Development Docker Compose environment
 - prod: Production Docker Compose deployment (includes 'prod db' subcommands)
+{%- if include_k8s_deploy %}
 - k8s: Kubernetes Helm deployment (includes 'k8s db' subcommands)
+{%- endif %}
+{%- if include_fly_deploy %}
 - fly: Fly.io deployment (traditional Fly Machines)
+{%- endif %}
 - entity: Entity/model scaffolding
 - secrets: Secret management
 - users: Keycloak user management (dev)
@@ -17,16 +21,24 @@ Command Groups:
 import typer
 
 from .commands import (
+{%- if use_temporal %}
     activity_app,
+{%- endif %}
     config_app,
     dev_app,
     entity_app,
+{%- if include_fly_deploy %}
     fly_app,
+{%- endif %}
+{%- if include_k8s_deploy %}
     k8s_app,
+{%- endif %}
     prod_app,
     secrets_app,
     users_app,
+{%- if use_temporal %}
     workflow_app,
+{%- endif %}
 )
 from .context import build_cli_context
 
@@ -48,14 +60,20 @@ def _configure_context(ctx: typer.Context) -> None:
 # Register deployment target command groups
 app.add_typer(dev_app, name="dev", help="Development environment commands")
 app.add_typer(prod_app, name="prod", help="Production Docker Compose commands")
+{%- if include_k8s_deploy %}
 app.add_typer(k8s_app, name="k8s", help="Kubernetes Helm deployment commands")
+{%- endif %}
+{%- if include_fly_deploy %}
 app.add_typer(fly_app, name="fly", help="Fly.io deployment commands")
+{%- endif %}
 
 # Register utility command groups
 app.add_typer(config_app, name="config", help="Configuration validation")
 app.add_typer(entity_app, name="entity")
+{%- if use_temporal %}
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(activity_app, name="activity")
+{%- endif %}
 app.add_typer(secrets_app, name="secrets")
 app.add_typer(users_app, name="users")
 

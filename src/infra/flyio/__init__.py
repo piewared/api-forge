@@ -5,7 +5,7 @@ via the flyctl CLI tool.
 
 Example:
     from src.infra.flyio import FlyCtlController, FlyCtlControllerSync
-    from src.infra.k8s.utils import run_sync
+    from src.utils.run_sync import run_sync
 
     # Async usage
     controller = FlyCtlController()

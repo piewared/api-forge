@@ -10,7 +10,11 @@ _metadata:
   template_description: "Production-ready FastAPI template with hexagonal architecture"
   template_url: "https://github.com/piewared/api-forge"
 
-# Exclude patterns - don't render these as Jinja2 templates
+# Exclude patterns — files matching these are NOT copied to the generated
+# project. Note: copier only renders ``.jinja``-suffixed files as Jinja
+# templates; everything else is copied verbatim. Variable substitution on
+# non-jinja files (e.g., ``pyproject.toml``) happens in
+# ``scripts/post_gen_setup.py`` via regex.
 _exclude:
   - "copier.yml"
   - "copier.yaml"
@@ -59,6 +63,59 @@ _exclude:
   # Critical: Don't render bundled infrastructure files (they contain Jinja2-like syntax)
   # Development template file
   - "pyproject.toml.template_dev"
+  # Non-jinja siblings of the conditional CLI bootstrap files exist in the
+  # source so the template repo itself stays importable for development.
+  # Generated projects should use the .jinja-rendered versions instead — see
+  # the dance below. (See also ``src/cli/__init__.py.jinja`` etc.)
+  # ----- Conditional toggle exclusions -----
+  # Every fly-only file lives under one of these roots; same for k8s. Adding
+  # a new fly/k8s file requires zero copier.yml edits as long as it goes
+  # under the right subtree. If you find yourself adding a per-file
+  # conditional here, the source file probably belongs inside one of the
+  # existing roots instead.
+  #
+  # Each entry is a Jinja template string. When the toggle is True it
+  # renders to an empty string (a no-op pattern); when False it renders to
+  # the path to exclude. Per-entry templating is required because copier's
+  # _exclude is parsed as YAML *before* Jinja runs — control flow around
+  # list items would break the YAML parser.
+  #
+  # Fly.io support: CLI subtree, infra abstraction, tests, docs, .fly state.
+  - "{% if not include_fly_deploy %}src/cli/commands/fly{% endif %}"
+  - "{% if not include_fly_deploy %}src/cli/commands/fly/**{% endif %}"
+  - "{% if not include_fly_deploy %}src/cli/commands/fly_db{% endif %}"
+  - "{% if not include_fly_deploy %}src/cli/commands/fly_db/**{% endif %}"
+  - "{% if not include_fly_deploy %}src/infra/flyio{% endif %}"
+  - "{% if not include_fly_deploy %}src/infra/flyio/**{% endif %}"
+  - "{% if not include_fly_deploy %}tests/unit/cli/commands/fly{% endif %}"
+  - "{% if not include_fly_deploy %}tests/unit/cli/commands/fly/**{% endif %}"
+  - "{% if not include_fly_deploy %}tests/unit/cli/commands/fly_db{% endif %}"
+  - "{% if not include_fly_deploy %}tests/unit/cli/commands/fly_db/**{% endif %}"
+  - "{% if not include_fly_deploy %}tests/unit/infra/flyio{% endif %}"
+  - "{% if not include_fly_deploy %}tests/unit/infra/flyio/**{% endif %}"
+  - "{% if not include_fly_deploy %}tests/e2e/test_copier_to_deployment.py{% endif %}"
+  - "{% if not include_fly_deploy %}docs/fly{% endif %}"
+  - "{% if not include_fly_deploy %}docs/fly/**{% endif %}"
+  - "{% if not include_fly_deploy %}.fly{% endif %}"
+  - "{% if not include_fly_deploy %}.fly/**{% endif %}"
+  - "{% if not include_fly_deploy %}.env.fly{% endif %}"
+  # Kubernetes / Helm support: CLI subtree, helm deployer, k8s infra
+  # abstraction, tests, docs. ``src/infra/k8s/utils.py`` is preserved
+  # transitively as part of ``src/infra/k8s/`` — it's a shim re-export of
+  # ``src.utils.run_sync`` and disappears with the rest of the k8s subtree.
+  - "{% if not include_k8s_deploy %}src/cli/commands/k8s{% endif %}"
+  - "{% if not include_k8s_deploy %}src/cli/commands/k8s/**{% endif %}"
+  - "{% if not include_k8s_deploy %}src/cli/deployment/helm_deployer{% endif %}"
+  - "{% if not include_k8s_deploy %}src/cli/deployment/helm_deployer/**{% endif %}"
+  - "{% if not include_k8s_deploy %}src/infra/k8s{% endif %}"
+  - "{% if not include_k8s_deploy %}src/infra/k8s/**{% endif %}"
+  - "{% if not include_k8s_deploy %}tests/unit/cli/commands/k8s{% endif %}"
+  - "{% if not include_k8s_deploy %}tests/unit/cli/commands/k8s/**{% endif %}"
+  - "{% if not include_k8s_deploy %}tests/unit/infra/k8s{% endif %}"
+  - "{% if not include_k8s_deploy %}tests/unit/infra/k8s/**{% endif %}"
+  - "{% if not include_k8s_deploy %}docs/kubernetes{% endif %}"
+  - "{% if not include_k8s_deploy %}docs/kubernetes/**{% endif %}"
+  - "{% if not include_k8s_deploy %}helm.log{% endif %}"
 
 # Skip these if they already exist
 _skip_if_exists:
@@ -133,6 +190,24 @@ use_temporal:
 use_postgres:
   type: bool
   help: "Use PostgreSQL instead of SQLite?"
+  default: no
+
+# ---------------------------------------------------------------------------
+# Deployment-target toggles
+#
+# These exclude entire subtrees of the CLI and infrastructure code from the
+# generated project. Default is "no" for both — most projects only need one
+# deployment target (or none at all, for evaluation), so the template
+# defaults to a slim shape and lets users opt in.
+# ---------------------------------------------------------------------------
+include_fly_deploy:
+  type: bool
+  help: "Include Fly.io deployment support (api-forge-cli fly ...)?"
+  default: no
+
+include_k8s_deploy:
+  type: bool
+  help: "Include Kubernetes/Helm deployment support (api-forge-cli k8s ...)?"
   default: no
 
 include_example_routes:

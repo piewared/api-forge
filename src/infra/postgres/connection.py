@@ -406,7 +406,10 @@ def with_postgres_connection(
             # Get settings if not provided
             db_settings = settings
             if db_settings is None:
-                from src.cli.commands.db.runtime_fly import get_db_settings
+                # Import from the canonical location, not runtime_fly (which
+                # only happened to re-export it). Keeps this connection helper
+                # usable when the fly subtree is excluded by the template.
+                from src.cli.shared.config import get_db_settings
 
                 db_settings = get_db_settings()
 

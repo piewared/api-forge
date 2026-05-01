@@ -103,23 +103,6 @@ class FlyCtlController:
         build_only: bool = False,
         cwd: str | None = None,
     ) -> CommandResult: ...
-    async def fks_create(
-        self,
-        name: str,
-        region: str,
-        *,
-        org: str | None = None,
-        kubeconfig_output: str | None = None,
-    ) -> CommandResult: ...
-    async def fks_destroy(
-        self, cluster_name: str, *, confirm: bool = False
-    ) -> CommandResult: ...
-    async def fks_list(
-        self,
-    ) -> list[dict[str, Any]]: ...
-    async def fks_save_kubeconfig(
-        self, cluster_name: str, *, output: str | None = None
-    ) -> CommandResult: ...
     async def is_authenticated(
         self,
     ) -> bool: ...
@@ -268,23 +251,6 @@ class FlyCtlControllerSync:
         no_cache: bool = False,
         build_only: bool = False,
         cwd: str | None = None,
-    ) -> CommandResult: ...
-    def fks_create(
-        self,
-        name: str,
-        region: str,
-        *,
-        org: str | None = None,
-        kubeconfig_output: str | None = None,
-    ) -> CommandResult: ...
-    def fks_destroy(
-        self, cluster_name: str, *, confirm: bool = False
-    ) -> CommandResult: ...
-    def fks_list(
-        self,
-    ) -> list[dict[str, Any]]: ...
-    def fks_save_kubeconfig(
-        self, cluster_name: str, *, output: str | None = None
     ) -> CommandResult: ...
     def is_authenticated(
         self,

@@ -7,8 +7,8 @@ from typing import Annotated
 
 import typer
 
+from src.cli.commands.fly._prereq import check_flyctl_installed, get_fly_controller
 from src.cli.shared.console import console
-from src.cli.shared.fly import check_flyctl_installed, get_fly_controller
 
 # ---------------------------------------------------------------------------
 # Typer App

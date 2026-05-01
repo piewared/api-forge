@@ -393,20 +393,29 @@ class PostgresVerifier:
         """Verify TLS configuration.
 
         Skips check for Fly.io connections since they use WireGuard encryption
-        at the proxy level instead of PostgreSQL SSL.
+        at the proxy level instead of PostgreSQL SSL. The fly types are
+        imported lazily so generated projects without the flyio subtree
+        (``include_fly_deploy=false``) don't break here — by definition, no
+        fly connection can be present in those projects, so the check is moot.
         """
-        # Skip SSL check for Fly connections - they use WireGuard encryption
-        from src.infra.flyio.postgres_connection import (
-            FlyPostgresConnection,
-            FlyPostgresConnectionWithProxy,
-        )
-
-        if isinstance(conn, (FlyPostgresConnection, FlyPostgresConnectionWithProxy)):
-            self._ok(
-                "tls",
-                "TLS verification skipped (Fly.io uses WireGuard mesh encryption)",
+        try:
+            from src.infra.flyio.postgres_connection import (
+                FlyPostgresConnection,
+                FlyPostgresConnectionWithProxy,
             )
-            return
+
+            if isinstance(
+                conn, (FlyPostgresConnection, FlyPostgresConnectionWithProxy)
+            ):
+                self._ok(
+                    "tls",
+                    "TLS verification skipped (Fly.io uses WireGuard mesh encryption)",
+                )
+                return
+        except ImportError:
+            # ``include_fly_deploy=false`` — flyio subtree absent. Fall through
+            # to the standard TLS check.
+            pass
 
         ssl_mode = conn.scalar("SHOW ssl")
         if ssl_mode == "on":

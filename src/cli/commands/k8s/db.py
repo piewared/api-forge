@@ -11,10 +11,7 @@ from typing import Annotated
 
 import typer
 
-from src.cli.commands.db import (
-    DbRuntime,
-    get_k8s_runtime,
-)
+from src.cli.commands.db import DbRuntime
 from src.cli.commands.db.cli_helpers import (
     execute_backup,
     execute_init,
@@ -24,7 +21,10 @@ from src.cli.commands.db.cli_helpers import (
     execute_sync,
     execute_verify,
 )
-from src.cli.commands.db.runtime_k8s import resolve_statefulset_conflict
+from src.cli.commands.k8s.db_runtime import (
+    get_k8s_runtime,
+    resolve_statefulset_conflict,
+)
 from src.cli.context import get_cli_context
 from src.cli.deployment.helm_deployer import ConfigSynchronizer
 from src.cli.deployment.status_display import is_temporal_enabled

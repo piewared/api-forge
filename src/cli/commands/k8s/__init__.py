@@ -14,8 +14,8 @@ from src.cli.context import get_cli_context
 from src.cli.deployment.helm_deployer.deployer import get_deployer
 from src.cli.shared.console import console, with_error_handling
 
-from .k8s_db import k8s_db_app
-from .k8s_tls import check_cluster_issuer_ready, k8s_tls_app
+from .db import k8s_db_app
+from .tls import check_cluster_issuer_ready, k8s_tls_app
 
 # ---------------------------------------------------------------------------
 # Typer App

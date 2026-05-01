@@ -548,8 +548,12 @@ class HelmDeployer(BaseDeployer):
             for attempt in range(1, max_retries + 1):
                 try:
                     # Clear the settings cache to ensure fresh password values
-                    # after secret rotation/deployment
-                    from src.cli.commands.db.runtime_fly import get_db_settings
+                    # after secret rotation/deployment.
+                    # Import from the canonical location (shared/config) — not
+                    # runtime_fly, which only happens to re-export it via a
+                    # module-level import. That cross-domain coupling broke
+                    # generated projects that exclude the fly subtree.
+                    from src.cli.shared.config import get_db_settings
 
                     get_db_settings.cache_clear()
                     settings = get_db_settings()

@@ -4,12 +4,12 @@ from typing import Annotated
 
 import typer
 
-from src.cli.shared.console import console, with_error_handling
-from src.cli.shared.fly import (
+from src.cli.commands.fly._prereq import (
     check_authenticated,
     check_flyctl_installed,
     get_fly_controller,
 )
+from src.cli.shared.console import console, with_error_handling
 
 from . import fly_db_app
 from .select import _select_cluster
