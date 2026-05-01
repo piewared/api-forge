@@ -3,8 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
+{% if with_temporal %}
+from src.app.api.http.deps import get_db_session, get_temporal_service
+from src.app.core.services import TemporalClientService
+{% else %}
 from src.app.api.http.deps import get_db_session
-
+{% endif %}
 from .repository import {{entity_name}}Repository
 from .schemas import {{entity_name}}Create, {{entity_name}}Read, {{entity_name}}Update
 from .service import {{entity_name}}NotFoundError, {{entity_name}}Service
@@ -12,8 +16,17 @@ from .service import {{entity_name}}NotFoundError, {{entity_name}}Service
 
 def get_{{entity_name.lower()}}_service(
     session: Session = Depends(get_db_session),
+{%- if with_temporal %}
+    temporal: TemporalClientService = Depends(get_temporal_service),
+{%- endif %}
 ) -> {{entity_name}}Service:
-    return {{entity_name}}Service(session, {{entity_name}}Repository(session))
+    return {{entity_name}}Service(
+        session,
+        {{entity_name}}Repository(session),
+{%- if with_temporal %}
+        temporal,
+{%- endif %}
+    )
 
 
 router = APIRouter(

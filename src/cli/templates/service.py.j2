@@ -1,7 +1,15 @@
 """{{entity_name}} service: business logic and transaction boundary."""
 
 from sqlmodel import Session
-
+{% if with_temporal %}
+from src.app.core.services import TemporalClientService
+{%- if workflow_name %}
+from src.app.worker.workflows.{{workflow_name.lower()}} import (
+    {{workflow_name}}Input,
+    {{workflow_name}}Workflow,
+)
+{%- endif %}
+{% endif %}
 from .entity import {{entity_name}}
 from .repository import {{entity_name}}Repository
 from .schemas import {{entity_name}}Create, {{entity_name}}Read, {{entity_name}}Update
@@ -24,10 +32,18 @@ class {{entity_name}}Service:
     """
 
     def __init__(
-        self, session: Session, repository: {{entity_name}}Repository
+        self,
+        session: Session,
+        repository: {{entity_name}}Repository,
+{%- if with_temporal %}
+        temporal: TemporalClientService,
+{%- endif %}
     ) -> None:
         self._session = session
         self._repository = repository
+{%- if with_temporal %}
+        self._temporal = temporal
+{%- endif %}
 
     def create(self, data: {{entity_name}}Create) -> {{entity_name}}Read:
         # Add business rules / validation here.
@@ -78,3 +94,21 @@ class {{entity_name}}Service:
             self._session.rollback()
             raise
         return deleted
+{% if workflow_name %}
+
+    async def dispatch(self, {{entity_name.lower()}}_id: str) -> str:
+        """Dispatch a {{workflow_name}} workflow for this {{entity_name.lower()}}.
+
+        Canonical pattern: domain endpoint → service → workflow start.
+        Returns the workflow handle's ID so callers can poll/signal later.
+        Idempotent on the {{entity_name.lower()}} ID: a retry of the same call
+        dedupes via the workflow ID.
+        """
+        client = await self._temporal.get_client()
+        handle = await {{workflow_name}}Workflow.start_workflow(
+            client,
+            input={{workflow_name}}Input({{entity_name.lower()}}_id={{entity_name.lower()}}_id),
+            id=f"{{workflow_name.lower()}}-{{ "{" }}{{entity_name.lower()}}_id{{ "}" }}",
+        )
+        return handle.id
+{% endif %}

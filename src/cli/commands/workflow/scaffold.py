@@ -13,7 +13,17 @@ from src.utils.paths import get_project_root
 
 
 def sanitize_workflow_name(name: str) -> str:
-    """Strip non-alphanumerics and PascalCase the result."""
+    """Normalise a name to PascalCase, accepting snake_case, kebab-case,
+    camelCase, and already-PascalCase as input.
+
+    Note: ``str.capitalize()`` lowercases everything after the first letter,
+    so naive ``"OrderDispatch".capitalize()`` produces ``"Orderdispatch"`` —
+    a real bug if a user passes an already-cased name. We split on
+    lowercase→uppercase transitions first so PascalCase round-trips.
+    """
+    # Insert a space at every lowercase/digit → uppercase boundary so
+    # camelCase / PascalCase get split into their constituent words.
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
     words = re.findall(r"[a-zA-Z0-9]+", name)
     return "".join(word.capitalize() for word in words)
 

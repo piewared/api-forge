@@ -1,44 +1,41 @@
 """Unit tests for {{workflow_name}}Workflow.
 
-Workflow tests typically run inside a Temporal test environment so the
-workflow's deterministic replay semantics are exercised. The skeleton
-below uses ``temporalio.testing.WorkflowEnvironment``; flesh out the
-assertions as you fill in ``run()``.
+The skeleton below is a placeholder: ``run()`` raises ``NotImplementedError``
+on purpose so a green test wouldn't mean anything. Once you fill in the
+workflow body, replace this skipped placeholder with a real test that
+exercises the workflow under ``temporalio.testing.WorkflowEnvironment``.
 """
 
 from __future__ import annotations
 
 import pytest
-from temporalio.client import Client
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
 
 from src.app.worker.workflows.{{workflow_name.lower()}} import (
-    {{workflow_name}}Input,
-    {{workflow_name}}Result,
-    {{workflow_name}}Workflow,
+    {{workflow_name}}Input,  # noqa: F401  (referenced by your real test)
+    {{workflow_name}}Result,  # noqa: F401
+    {{workflow_name}}Workflow,  # noqa: F401
 )
 
 
 @pytest.mark.asyncio
-async def test_{{workflow_name.lower()}}_workflow_skeleton() -> None:
-    """Replace this with a real test once ``run()`` has logic.
+async def test_{{workflow_name.lower()}}_workflow_placeholder() -> None:
+    """Placeholder. Surfaces in CI as a `skip`, not a false `pass`.
 
-    The default skeleton workflow raises ``NotImplementedError`` so a
-    successful execution is expected to surface that exception. Once you
-    implement ``run()``, replace the assertion accordingly.
-    """
-    async with await WorkflowEnvironment.start_local() as env:
-        client: Client = env.client
-        async with Worker(
-            client,
-            task_queue="test-{{workflow_name.lower()}}",
-            workflows=[{{workflow_name}}Workflow],
-        ):
-            with pytest.raises(Exception):  # NotImplementedError until you fill it in
-                await client.execute_workflow(
+    When you implement {{workflow_name}}Workflow.run, delete this and
+    write real assertions, e.g.:
+
+        async with await WorkflowEnvironment.start_local() as env:
+            async with Worker(env.client, task_queue="t",
+                              workflows=[{{workflow_name}}Workflow]):
+                result = await env.client.execute_workflow(
                     {{workflow_name}}Workflow.run,
-                    {{workflow_name}}Input({% for field in fields %}{{field.name}}={% if field.type == 'str' %}"sample"{% elif field.type == 'int' %}0{% elif field.type == 'float' %}0.0{% elif field.type == 'bool' %}False{% else %}None{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}),
-                    id="test-{{workflow_name.lower()}}-1",
-                    task_queue="test-{{workflow_name.lower()}}",
+                    {{workflow_name}}Input(...),
+                    id="test-1",
+                    task_queue="t",
                 )
+                assert result.success is True
+    """
+    pytest.skip(
+        "Implement {{workflow_name}}Workflow.run, then replace this "
+        "placeholder with real assertions."
+    )

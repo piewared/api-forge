@@ -14,7 +14,14 @@ from .templates import render_template_to_file
 
 
 def sanitize_entity_name(name: str) -> str:
-    """Sanitize entity name to conform to Python naming conventions."""
+    """Sanitize entity name to PascalCase, accepting snake_case, kebab-case,
+    camelCase, and already-PascalCase as input.
+
+    Note: split on lowercase→uppercase boundaries first so that
+    ``"OrderItem"`` round-trips. Without that, ``str.capitalize()`` would
+    lowercase the second word ("Orderitem").
+    """
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
     words = re.findall(r"[a-zA-Z0-9]+", name)
     return "".join(word.capitalize() for word in words)
 
@@ -72,14 +79,39 @@ def prompt_for_fields() -> list[dict[str, str | bool]]:
 
 
 def create_entity_files(
-    entity_name: str, fields: list[dict[str, str | bool]], package_path: Path
+    entity_name: str,
+    fields: list[dict[str, str | bool]],
+    package_path: Path,
+    *,
+    with_temporal: bool = False,
+    workflow_name: str | None = None,
 ) -> None:
     """Create all entity files using Jinja2 templates.
 
     The router is colocated with the entity (``router.py``) so it's picked up
     by the auto-discovery loader at app startup — no edit to ``app.py`` needed.
+
+    Args:
+        entity_name: PascalCase name of the entity.
+        fields: list of ``{"name", "type", "optional", "description"}`` dicts.
+        package_path: target directory for the generated package.
+        with_temporal: when True, the service ctor accepts and stores a
+            ``TemporalClientService`` and the router's
+            ``get_<entity>_service`` factory injects it via FastAPI deps.
+            Auto-set when ``workflow_name`` is provided.
+        workflow_name: when set (e.g., ``"OrderDispatch"``), an async
+            ``dispatch()`` method is rendered into the service that starts
+            the corresponding workflow. Implies ``with_temporal=True``.
     """
-    context = {"entity_name": entity_name, "fields": fields}
+    if workflow_name and not with_temporal:
+        with_temporal = True
+
+    context = {
+        "entity_name": entity_name,
+        "fields": fields,
+        "with_temporal": with_temporal,
+        "workflow_name": workflow_name,
+    }
 
     render_template_to_file("entity.py.j2", package_path / "entity.py", context)
     render_template_to_file("table.py.j2", package_path / "table.py", context)

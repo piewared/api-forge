@@ -75,13 +75,37 @@ def add(
             "[yellow]⚠️ No fields defined. Creating entity with base fields only.[/yellow]"
         )
 
+    # Validate the --with-workflow option BEFORE we start scaffolding so a
+    # disabled-Temporal env doesn't leave a half-scaffolded entity behind.
+    workflow_pascal: str | None = None
+    if with_workflow:
+        if not get_config().temporal.enabled:
+            console.error(
+                "--with-workflow requires Temporal to be enabled "
+                "(config.temporal.enabled=true)."
+            )
+            console.print(
+                "  Either flip the config flag, or use FastAPI BackgroundTasks "
+                "for fire-and-forget async work."
+            )
+            raise typer.Exit(2)
+        from src.cli.commands.workflow.scaffold import sanitize_workflow_name
+
+        workflow_pascal = sanitize_workflow_name(with_workflow)
+
     console.print(f"\n[blue]Creating entity structure for: {entity_name}[/blue]")
 
     try:
         entity_package_path.mkdir(parents=True, exist_ok=True)
 
         console.print("[blue]📄 Creating entity files...[/blue]")
-        create_entity_files(entity_name, fields, entity_package_path)
+        create_entity_files(
+            entity_name,
+            fields,
+            entity_package_path,
+            with_temporal=workflow_pascal is not None,
+            workflow_name=workflow_pascal,
+        )
 
         console.print(
             f"\n[green]✅ Entity '{entity_name}' created successfully![/green]"
@@ -111,11 +135,12 @@ def add(
                 optional_text = " (optional)" if field["optional"] else ""
                 console.print(f"  - {field['name']}: {field['type']}{optional_text}")
 
-        # Optionally scaffold a workflow + wire a dispatch() method on the
-        # entity service. Done at the end so a workflow failure doesn't
-        # leave the entity half-scaffolded.
-        if with_workflow:
-            _scaffold_and_wire_workflow(entity_name, with_workflow)
+        # Optionally scaffold a matching workflow. The entity's service.py
+        # and router.py have already been rendered with the temporal hooks
+        # (ctor parameter, dispatch() method, FastAPI dep injection), so
+        # all that's left is generating the workflow module itself.
+        if workflow_pascal:
+            _scaffold_workflow_for_entity(entity_name, workflow_pascal)
 
         console.print(
             "\n[dim]💡 Restart your dev server to pick up the new router.[/dim]"
@@ -130,92 +155,28 @@ def add(
         raise typer.Exit(1) from e
 
 
-def _scaffold_and_wire_workflow(entity_name: str, workflow_name: str) -> None:
-    """Generate a workflow + insert a ``dispatch()`` method into the entity's
-    service that starts it. Surfaces the canonical wiring (TemporalClientService
-    + BaseWorkflow.start_workflow + idempotent ID) so newcomers don't have to
-    hunt for the pattern.
+def _scaffold_workflow_for_entity(entity_name: str, workflow_name: str) -> None:
+    """Render the workflow module that the entity's service.py + router.py
+    are already wired to call.
+
+    Caller is responsible for the ``temporal.enabled`` check and for passing
+    a sanitised PascalCase workflow name. The entity scaffold itself
+    (service.py, router.py) gets the TemporalClientService hookups via
+    Jinja conditionals at generation time, not via post-hoc edits.
     """
-    if not get_config().temporal.enabled:
-        console.error(
-            "--with-workflow requires Temporal to be enabled "
-            "(config.temporal.enabled=true)."
-        )
-        console.print(
-            "  Either flip the config flag, or use FastAPI BackgroundTasks "
-            "for fire-and-forget async work."
-        )
-        raise typer.Exit(2)
+    from src.cli.commands.workflow.scaffold import create_workflow_files
 
-    # Defer the imports so users without Temporal don't pay them on every
-    # ``entity add`` invocation.
-    from src.cli.commands.workflow.scaffold import (
-        create_workflow_files,
-        sanitize_workflow_name,
-    )
-
-    workflow_name = sanitize_workflow_name(workflow_name)
     console.print(
         f"\n[blue]🔄 Scaffolding workflow {workflow_name} for {entity_name}...[/blue]"
     )
 
-    # The workflow takes the entity's id as a single typed input.
+    # The workflow takes the entity's id as a single typed input. Matches
+    # the dispatch() method already rendered in the entity's service.py.
     fields = [{"name": f"{entity_name.lower()}_id", "type": "str", "optional": False}]
     wf_path, wf_test_path = create_workflow_files(workflow_name, fields)
 
     console.ok(f"Workflow scaffolded: {wf_path}")
     console.ok(f"Workflow test:       {wf_test_path}")
-
-    # Inject a dispatch() method into the entity's service.py.
-    service_path = (
-        get_project_root()
-        / "src"
-        / "app"
-        / "entities"
-        / "service"
-        / entity_name.lower()
-        / "service.py"
-    )
-    if not service_path.exists():
-        console.warn(
-            f"Couldn't find {service_path} — skipping dispatch() injection. "
-            f"Wire the workflow manually using {workflow_name}Workflow.start_workflow(...)."
-        )
-        return
-
-    dispatch_block = f'''
-
-    async def dispatch(self, {entity_name.lower()}_id: str) -> str:
-        """Dispatch a {workflow_name} workflow for this {entity_name.lower()}.
-
-        Canonical pattern: domain endpoint → service → workflow start.
-        Returns the workflow handle's ID so callers can poll/signal later.
-        Idempotent on (entity_id), so retries dedupe via the workflow ID.
-        """
-        from src.app.core.services import TemporalClientService
-        from src.app.worker.workflows.{workflow_name.lower()} import (
-            {workflow_name}Input,
-            {workflow_name}Workflow,
-        )
-
-        # NB: ``TemporalClientService`` should be injected via the service's
-        # ``__init__`` (see docs/fastapi-temporal-workflows.md). Replace the
-        # placeholder access below with your dependency-injected instance.
-        temporal: TemporalClientService = self._temporal  # type: ignore[attr-defined]
-        client = await temporal.get_client()
-        handle = await {workflow_name}Workflow.start_workflow(
-            client,
-            input={workflow_name}Input({entity_name.lower()}_id={entity_name.lower()}_id),
-            id=f"{workflow_name.lower()}-{{{entity_name.lower()}_id}}",  # idempotent
-        )
-        return handle.id
-'''
-    service_path.write_text(service_path.read_text().rstrip() + dispatch_block + "\n")
-    console.ok(f"Wired dispatch() into {service_path.relative_to(get_project_root())}")
-    console.print(
-        "  [dim]Note: inject TemporalClientService via the service's __init__ — "
-        "the generated dispatch() expects ``self._temporal``.[/dim]"
-    )
 
 
 @entity_app.command()
