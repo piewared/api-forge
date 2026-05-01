@@ -1,423 +1,374 @@
-# 🚀 FastAPI Production Template
+# API Forge — a FastAPI template that's actually opinionated
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Lint](https://img.shields.io/badge/lint-Ruff-informational)
 ![Types](https://img.shields.io/badge/types-MyPy-informational)
 ![Tests](https://img.shields.io/badge/tests-pytest-success)
-![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)
 
-A batteries-included FastAPI template for building scalable, production-oriented Python APIs. It features PostgreSQL, SQLAlchemy, SQLModel, Pydantic, Redis, and Temporal, along with optional OIDC authentication. A Dockerized development environment and a unified project CLI help streamline local development and cloud deployment.
+A production-shaped FastAPI template that ships the boring decisions already
+made. OIDC + BFF authentication, type-safe persistence, durable workflows,
+clean-architecture scaffolding, and your choice of deployment target — all
+behind one CLI.
 
-Build your next SaaS backend, internal API gateway, or microservice with a pre-configured FastAPI stack and practical starting points for authentication, security, and modern deployment workflows.
+```bash
+copier copy --trust gh:piewared/api-forge my-service
+cd my-service && uv sync
+uv run api-forge-cli dev up        # full stack in Docker, hot reload
+```
 
-
-### **Included Stack**
-
-* **FastAPI** – high-performance Python web framework
-* **SQLAlchemy** and **SQLModel** – ORM and typed models for data persistence
-* **Pydantic** – data validation and type safety
-* **PostgreSQL** – production-ready relational database (bundled or external)
-* **Redis** – caching, sessions, and rate limiting
-* **Temporal** – background workflows and reliable task orchestration
-* **Docker** – containerized development and deployment
-* **Kubernetes** – scalable cloud deployment support
+Open `http://localhost:8000/docs` and you have a running, authenticated,
+type-checked API.
 
 ---
 
-## Table of Contents
+## What you actually get
 
-- [Features at a Glance](#features-at-a-glance)
-- [Who Is This For?](#who-is-this-for)
-- [Requirements](#requirements)
-- [Quick Start](#quick-start)
-- [Project CLI](#project-cli)
-- [Configuration & Auth](#configuration--auth)
-- [Development & Testing](#development--testing)
-- [Project Structure](#project-structure)
-- [More Documentation](#more-documentation)
-- [License](#license)
-- [Support](#support)
+**A scaffold that encodes good patterns.** One CLI command produces a fully
+wired entity — domain model, persistence model, repository, request/response
+DTOs, application service with proper transaction boundaries, and an HTTP
+router that's auto-discovered at startup. No edits to `app.py` ever.
 
----
+```bash
+api-forge-cli entity add Order
+# → entities/service/order/{entity, table, repository, schemas, service, router}.py
+# → endpoints live at /api/v1/orders/ — no wiring required
+```
 
-## Features at a Glance
+**BFF authentication that's not boilerplate.** OIDC Authorization Code +
+PKCE with server-side sessions, HttpOnly signed cookies, CSRF protection,
+client fingerprinting, and JWKS-based token validation. Pre-seeded
+Keycloak in dev, managed IdP (Google / Microsoft / Okta / Auth0 / Cognito)
+in prod via config. The hard parts have already been gotten wrong by
+someone else.
 
-### Authentication & Security
+**Durable workflows when you need them.** Temporal scaffolding with
+typed input/result, auto-discovered workflow + activity registry, and
+the canonical "endpoint → service → workflow start" pattern wired in
+one command:
 
-- **BFF pattern** with HttpOnly session cookies (no tokens in the browser)
-- **OIDC** with multiple providers (Keycloak for dev/test; managed IdP for prod)
-- **PKCE + nonce + state** with JWKS-based token validation
-- **CSRF protection** for state-changing requests (origin allowlist + CSRF token)
-- **Client fingerprinting** to bind sessions to user agents
-- **Rate limiting** backed by Redis
-- Sensible **CORS** and security headers for production
+```bash
+api-forge-cli entity add Order --with-workflow OrderDispatch
+# → also generates the workflow module and adds an async dispatch()
+#   method to OrderService that starts it with idempotent IDs
+```
 
-### Development Experience
+**Pick your deployment target.** Docker Compose for prod, Kubernetes via
+Helm, or Fly.io. Each is an opt-in toggle at template-generation time — if
+you don't need k8s, the Helm machinery never lands in your repo.
 
-- **Unified CLI**: `api-forge-cli` for dev, prod (Docker Compose), and k8s
-- **Hot reload** dev server with a single command to spin up the full stack
-- **Docker Compose stack**: Keycloak (dev/test), PostgreSQL, Redis, Temporal
-- Pre-seeded Keycloak realm/users for local auth flows
-- Structured logging with request tracing
-- Entity code generation: create new CRUD entities with one command
-
-> In **production**, use a managed IdP (Identity Provider) such as Azure AD, Okta, Auth0, Google, AWS Cognito, etc.
-
-### Architecture & Quality
-
-- Clean Architecture with DDD-inspired layering
-- SQLModel + Pydantic for type-safe persistence and validation
-- Ruff for lint/format, MyPy for static types, pytest for tests (unit, integration, E2E)
+**Dev/prod parity by default.** The dev stack is the prod stack: same
+PostgreSQL, same Redis, same Temporal, same Keycloak (dev only) — all
+in Docker Compose, started with one command.
 
 ---
 
-## Who Is This For?
+## Quick start
 
-This template is a good fit if:
+### 1. Generate a project
 
-- You’re building a **backend-for-frontend (BFF)** serving web or SPA clients
-- You want **OIDC login with server-side sessions** instead of rolling your own
-- You care about a **dev environment that looks like production**
-- You plan to deploy with **Docker Compose** and/or **Kubernetes**
+```bash
+uv tool install copier         # or: pip install -U copier
+copier copy --trust gh:piewared/api-forge my-service
+cd my-service
+```
 
-It may not be ideal if:
+Copier asks a handful of questions. The defaults give you a slim project
+(no fly, no k8s); opt in to deployment targets you actually use:
 
-- You only need a minimal toy API with no external infra
-- You don’t want Docker or external services in your workflow
+| Question                | Default | What it controls                                         |
+|-------------------------|---------|----------------------------------------------------------|
+| `use_redis`             | yes     | Redis caching, sessions, rate limiting                   |
+| `use_temporal`          | yes     | Temporal workflow scaffolding + worker                   |
+| `use_postgres`          | no      | Postgres deps + URL (default is SQLite for fast start)   |
+| `include_fly_deploy`    | no      | `api-forge-cli fly` command + Fly.io infra adapter       |
+| `include_k8s_deploy`    | no      | `api-forge-cli k8s` command + Helm deployer + manifests  |
+
+Toggling these off doesn't comment-out code — entire subtrees are
+excluded from the generated project. You only carry what you use.
+
+> ⚠️ Copier needs `--trust` for templates with post-generation hooks.
+> The hooks are open source — see `copier.yml` and `scripts/post_gen_setup.py`.
+
+### 2. Install + run
+
+```bash
+uv sync
+cp .env.example .env
+uv run api-forge-cli dev up
+```
+
+The dev stack pulls and runs PostgreSQL, Redis, Temporal, Keycloak, and
+the API itself in Docker. First run takes a minute or two; subsequent
+starts are seconds.
+
+Once healthy:
+
+| What                          | URL                                                       |
+|-------------------------------|-----------------------------------------------------------|
+| API                           | `http://localhost:8000`                                   |
+| Interactive docs              | `http://localhost:8000/docs`                              |
+| Keycloak (dev only)           | `http://localhost:8080` &nbsp; (admin / admin)            |
+| Temporal UI                   | `http://localhost:8082`                                   |
+
+### 3. Iterate
+
+```bash
+api-forge-cli dev logs api      # tail just the API
+api-forge-cli dev restart api   # restart after dependency changes
+api-forge-cli dev down          # stop everything
+```
+
+### 4. Update later
+
+```bash
+copier update    # pull template improvements; merges with your changes
+```
+
+---
+
+## CLI tour
+
+Everything lives under `api-forge-cli`. Subcommands group by concern:
+
+```bash
+api-forge-cli --help
+```
+
+```
+dev        Development environment commands
+prod       Production Docker Compose commands
+k8s        Kubernetes Helm deployment commands       (toggle: include_k8s_deploy)
+fly        Fly.io deployment commands                (toggle: include_fly_deploy)
+config     Configuration validation
+entity     Entity scaffolding (add / rm / ls)
+workflow   Temporal workflow scaffolding             (when use_temporal=true)
+activity   Temporal activity scaffolding             (when use_temporal=true)
+secrets    Secret generation and management
+users      Keycloak user management (dev)
+```
+
+### Scaffolding
+
+```bash
+# CRUD entity — entity / table / repo / schemas / service / router + tests
+api-forge-cli entity add Product
+
+# Entity + Temporal workflow, fully wired:
+# - service.py auto-imports TemporalClientService and stores it
+# - router.py injects the temporal dep via FastAPI
+# - service.dispatch(<id>) starts the workflow with an idempotent ID
+api-forge-cli entity add Order --with-workflow OrderDispatch
+
+# Standalone workflow / activity — when the work spans multiple entities,
+# is scheduled, or isn't tied to a specific entity's lifecycle. Pick an
+# orchestrator entity and wire dispatch() there manually.
+api-forge-cli workflow add OrderFulfillment   # spans Order + Inventory + Shipment
+api-forge-cli activity add send_welcome_email
+```
+
+### Iteration
+
+```bash
+api-forge-cli dev up              # local Docker Compose, hot reload
+api-forge-cli fly sync            # push current code to Fly main app (fast path)
+api-forge-cli fly up              # full Fly stack (services + main app)
+api-forge-cli k8s up              # deploy via Helm
+```
+
+`fly sync` is the tight code-iteration loop: skips the supporting-services
+phase and pre-flight, just builds and ships the main app image. `fly up`
+is the full reconcile (Redis + Temporal + Postgres + main app).
+
+---
+
+## Architecture, briefly
+
+```
+HTTP request
+   │
+   ▼  router.py        — thin handler: delegates to service
+   ▼  service.py       — owns transactions; raises domain errors
+   ▼  repository.py    — CRUD against the table
+   ▼  table.py         — SQLModel persistence
+   ▼  entity.py        — Pydantic domain model with invariants
+```
+
+Services own commit/rollback. Routers translate domain errors to HTTP
+status codes. Entities never import SQLModel (persistence stays at the
+edge). Each new entity follows this shape because the scaffold encodes
+it. **[Deep dive →](docs/fastapi-clean-architecture-overview.md)**
+
+For background work, two layers of choice:
+
+| Need                                 | Use                  |
+|--------------------------------------|----------------------|
+| Durable, retryable, replayable       | **Temporal** (scaffolded) |
+| Fire-and-forget after the response   | FastAPI `BackgroundTasks` |
+
+The architecture doc explains the asymmetry and shows the canonical
+patterns for both.
+
+---
+
+## Authentication
+
+OIDC Authorization Code + PKCE with server-side sessions:
+
+* All web auth endpoints under `/auth/web` (`login`, `callback`, `me`,
+  `refresh`, `logout`).
+* HttpOnly + signed session cookies; CSRF token rotated on refresh.
+* `redirect_uri` is server-configured — never trusted from the client.
+* Client fingerprinting binds sessions to the user agent.
+* JWKS-based JWT validation for non-cookie clients (mobile, service-to-
+  service).
+
+Dev: pre-seeded Keycloak realm. Prod: configure any managed IdP (Azure AD,
+Okta, Auth0, Google, Cognito) by setting `oidc.providers` in `config.yaml`.
+
+**[Auth deep dive →](docs/fastapi-auth-oidc-bff.md)** &nbsp;·&nbsp;
+**[Sessions & cookies →](docs/fastapi-sessions-and-cookies.md)**
+
+---
+
+## Configuration
+
+`config.yaml` is the single source of truth, with environment variable
+substitution everywhere:
+
+```yaml
+database:
+  url: "${DATABASE_URL:-sqlite:///./database.db}"
+redis:
+  enabled: true
+  url: "${REDIS_URL:-redis://localhost:6379}"
+temporal:
+  enabled: true
+  url: "${TEMPORAL_URL:-temporal:7233}"
+oidc:
+  providers:
+    google:
+      issuer: "${OIDC_GOOGLE_ISSUER:-https://accounts.google.com}"
+      client_id: "${OIDC_GOOGLE_CLIENT_ID}"
+      client_secret: "${OIDC_GOOGLE_CLIENT_SECRET}"
+```
+
+`.env` provides per-environment values. Pydantic models enforce the
+shape at startup. Service feature flags (`redis.enabled`, `temporal.enabled`)
+are honoured at runtime — disable Temporal and the workflow scaffolds
+refuse to run, the worker exits cleanly, and rate-limiting falls back to
+in-memory.
+
+**[Configuration reference →](docs/configuration.md)**
+
+---
+
+## Testing
+
+```bash
+uv run pytest                  # everything
+uv run pytest tests/unit/      # unit only — fast, no infra
+uv run pytest tests/integration/   # needs dev stack running
+uv run pytest tests/e2e/       # full auth + workflow paths
+```
+
+**[Testing strategy →](docs/fastapi-testing-strategy.md)**
+
+---
+
+## Deployment
+
+Three first-class targets, each opt-in via copier:
+
+| Target           | Command                       | When                                  |
+|------------------|-------------------------------|---------------------------------------|
+| Docker Compose   | `api-forge-cli prod up`       | Single host, simple ops               |
+| Kubernetes       | `api-forge-cli k8s up`        | Multi-node, autoscaling, your cluster |
+| Fly.io           | `api-forge-cli fly up`        | Managed multi-region, no ops          |
+
+For Fly, `fly sync` is the dev loop — fast iteration on the main app
+without touching supporting services.
+
+* **[Docker Compose production →](docs/fastapi-production-deployment-docker-compose.md)**
+* **[Kubernetes deployment →](docs/kubernetes/fastapi-kubernetes-deployment.md)**
+* **[Fly.io deployment →](docs/fly/fastapi-flyio-kubernetes.md)**
+
+---
+
+## Project structure
+
+```
+my-service/
+├── my_service/                       # Your application package
+│   ├── app/
+│   │   ├── api/http/                 # FastAPI factory, middleware, routers
+│   │   │   ├── app.py                # Slim create_app() factory
+│   │   │   ├── lifespan.py           # Startup/shutdown sequencing
+│   │   │   ├── deps.py               # Cross-cutting FastAPI dependencies
+│   │   │   └── routers/              # Auth + auto-discovery loader
+│   │   ├── core/services/            # Cross-cutting infra (JWT, OIDC, Redis, …)
+│   │   ├── entities/                 # Domain entities (CLI scaffolds here)
+│   │   │   ├── core/                 # Auth-essential (User, UserIdentity)
+│   │   │   └── service/              # Generated CRUD entities
+│   │   │       └── <name>/{entity, table, repository, schemas, service, router}.py
+│   │   ├── runtime/                  # Config loading, DB init
+│   │   └── worker/                   # Temporal workflows + activities
+│   └── cli/                          # api-forge-cli commands
+├── tests/                            # Unit, integration, e2e
+├── docs/                             # Architecture, auth, deployment guides
+├── docker-compose.dev.yml            # Dev stack
+├── docker-compose.prod.yml           # Prod-shaped Compose stack
+├── config.yaml                       # Single-source config with env substitution
+└── pyproject.toml
+```
+
+---
+
+## Who this is for
+
+A good fit if:
+* You're building a backend serving web/SPA clients and want **OIDC sessions
+  done correctly** instead of rolling your own.
+* You want **production-shaped local dev** — same Postgres, same Redis, same
+  Temporal — without a full afternoon of setup.
+* You want a scaffold that encodes architectural decisions, so a feature is
+  one CLI command instead of seven files of boilerplate.
+
+Probably not a fit if:
+* You want a minimal "hello world" REST API with zero infra.
+* You don't want Docker in your workflow.
+* You're committed to a stack the template doesn't speak (Django, Flask + SQL
+  Alchemy classic, etc.).
+
+---
+
+## Documentation
+
+* **[Complete guide](docs/index.md)** — overview, quick start, project structure
+* **[Clean architecture](docs/fastapi-clean-architecture-overview.md)** — layering, scaffold patterns, async-work decisions
+* **[Authentication & OIDC](docs/fastapi-auth-oidc-bff.md)** — BFF pattern, providers, frontend integration
+* **[Sessions & cookies](docs/fastapi-sessions-and-cookies.md)** — CSRF, fingerprinting, rotation
+* **[Temporal workflows](docs/fastapi-temporal-workflows.md)** — workflows, activities, schedules
+* **[Docker dev environment](docs/fastapi-docker-dev-environment.md)** — service URLs, troubleshooting
+* **[Database migrations](docs/database-migrations.md)** — Alembic with auto-discovery
+* **[Testing strategy](docs/fastapi-testing-strategy.md)** — unit/integration/e2e
+* **[JavaScript OIDC client](docs/examples-javascript-oidc-client.md)** &nbsp;·&nbsp; **[Python OIDC client](docs/examples-python-oidc-client.md)**
 
 ---
 
 ## Requirements
 
-**Core**
-
-- Python **3.13+**
-- **Docker** & **Docker Compose**
-- **uv** (recommended) or **pip** + virtualenv
-
-**Optional**
-
-- **Helm** v3.0+ and **kubectl** with a cluster (or minikube) for Kubernetes deployments
+* Python **3.13+**
+* **Docker** & **Docker Compose**
+* **uv** (recommended) or **pip** + virtualenv
+* **Helm v3** + **kubectl** if generating with `include_k8s_deploy=yes`
+* **`fly` CLI** if generating with `include_fly_deploy=yes`
 
 ---
 
-## Quick Start
-
-### 1. Create a project from the template
-
-```bash
-# Using uv (recommended - faster)
-uv tool install copier
-copier copy --trust gh:piewared/api-forge your-project-name
-
-# Or using pip
-pip install -U copier
-copier copy https://github.com/piewared/api-forge your-project-name
-
-cd your-project-name
-````
-
-> ⚠️ Security note: Copier requires the use of `--trust` for templates that do more than simple file copying. The template is fully open source, so you can review the repository (for example, the `copier.yml` file and any tasks/hooks) before running the copier command.
-
-### 2. Install dependencies & project
-
-```bash
-# Recommended: uv
-uv sync
-
-# Or with pip (inside a venv)
-# python -m venv .venv
-# source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-# pip install -e .
-```
-
-### 3. Configure environment
-
-```bash
-cp .env.example .env
-```
-
-### 4. Start the dev stack
-
-```bash
-api-forge-cli deploy up dev
-# Or, if you prefer not to install the script:
-# uv run api-forge-cli deploy up dev
-```
-
-Once services are healthy, open:
-
-* API: `http://localhost:8000`
-* Docs: `http://localhost:8000/docs`
-* Keycloak (dev only): `http://localhost:8080` (admin/admin)
-* Temporal UI: `http://localhost:8082`
-
-Keycloak is **dev/test only**. In production, use a managed IdP (see [Configuration & Auth](#configuration--auth)).
-
-### 5. Updating from template (optional)
-
-Copier makes it easy to pull in template updates:
-
-```bash
-# Update your project with the latest template changes
-copier update
-
-# Or specify a particular version/tag
-copier update --vcs-ref=v1.2.3
-```
-
-Copier will intelligently merge template changes with your customizations.
-
----
-
-## Project CLI
-
-When you install the project (via `uv sync` or `pip install -e .`), you get a **project CLI**:
-
-* As a script: `api-forge-cli`
-* Or via uv: `uv run api-forge-cli ...`
-
-Common examples:
-
-```bash
-# Development environment (Docker Compose + hot reload)
-api-forge-cli deploy up dev
-api-forge-cli deploy status dev
-api-forge-cli deploy down dev
-
-# Production-like stack (Docker Compose)
-api-forge-cli deploy up prod
-api-forge-cli deploy status prod
-api-forge-cli deploy down prod --volumes
-
-# Kubernetes (requires cluster/minikube)
-api-forge-cli deploy up k8s
-api-forge-cli deploy status k8s
-api-forge-cli deploy down k8s
-
-# Database management (Kubernetes)
-api-forge-cli k8s db init      # Initialize database with roles/schema
-api-forge-cli k8s db verify    # Verify database setup and credentials
-api-forge-cli k8s db sync      # Sync local password files to database
-api-forge-cli k8s db status    # Show database health metrics
-api-forge-cli k8s db backup    # Create database backup
-```
-
-### Entity scaffolding
-
-Generate CRUD endpoints and supporting layers for a new domain entity:
-
-```bash
-api-forge-cli entity add Product
-api-forge-cli entity ls
-api-forge-cli entity rm Product --force
-```
-
-The generator creates:
-
-* Domain **entity** (validation, invariants)
-* SQLModel **table**
-* **Repository** (CRUD + queries)
-* **Router** (CRUD endpoints) auto-registered with FastAPI
-
----
-
-## Configuration & Auth
-
-### Config layers
-
-Configuration is centralized in **`config.yaml`** with environment variable substitution (`${VAR_NAME:-default}`):
-
-| Layer         | Description                               |
-| ------------- | ----------------------------------------- |
-| `.env`        | Environment-specific values               |
-| `config.yaml` | Structured defaults with env substitution |
-| Startup       | Pydantic models for validation and types  |
-
-Key sections:
-
-* `app` – app metadata, session, CORS, host config
-* `database` – DB URL, pool, timeouts
-* `redis` – cache and session store
-* `temporal` – workflow connection
-* `oidc.providers` – OIDC provider definitions
-* `jwt` – token validation rules
-* `rate_limiter` – per-endpoint throttling
-* `logging` – structured logging config
-
-### Auth model (BFF + OIDC)
-
-* Auth uses OIDC **Authorization Code + PKCE** with **server-side sessions**
-* The **OIDC `redirect_uri`** is defined **server-side** in `config.yaml`, not taken from clients
-* Clients can pass an optional `return_to` parameter (relative path or allowlisted host) for post-login redirect
-* The app:
-
-  * stores state and PKCE verifier (e.g. in Redis)
-  * validates `state` and `nonce` on callback
-  * issues an HttpOnly, signed session cookie
-  * rotates session ID and CSRF token on refresh
-
-### Cookies & cross-site usage
-
-* Cookies are always **HttpOnly**
-* In **production**, require `Secure=true` and HTTPS
-* For cross-site frontends, use `SameSite=None` + `Secure=true`
-* Configure `CLIENT_ORIGINS` (comma-separated in `.env`) to control allowed origins
-
-### Authentication endpoints
-
-All web auth endpoints live under `/auth/web`:
-
-* `GET /auth/web/login` – start OIDC login (uses server-configured `redirect_uri`)
-* `GET /auth/web/callback` – handle OIDC callback, validate tokens, set session cookie
-* `GET /auth/web/me` – return auth state and a CSRF token
-* `POST /auth/web/refresh` – rotate session and CSRF token
-* `POST /auth/web/logout` – invalidate session; supports RP-initiated logout if the IdP does
-
-Client examples:
-
-* [`docs/clients/javascript.md`](docs/clients/javascript.md)
-* [`docs/clients/python.md`](docs/clients/python.md)
-
-### Dev vs prod auth
-
-* **Dev/Test**
-
-  * Local Keycloak, pre-seeded realm/users
-  * Redirect URI: `http://localhost:8000/auth/web/callback`
-
-* **Production**
-
-  * Managed IdP (Azure AD, Okta, Auth0, Google, etc.)
-  * Redirect URI: `https://your-api.com/auth/web/callback`
-  * Configure `issuer`, `client_id`, `client_secret`, and JWKS validation
-  * Use strong `SESSION_SIGNING_SECRET`, HTTPS, and secure cookies
-
----
-
-## Development & Testing
-
-### Typical dev loop
-
-1. Start dev stack: `api-forge-cli deploy up dev`
-2. Work on entities, services, and routers
-3. Run tests
-4. Stop dev stack: `api-forge-cli deploy down dev`
-
-### Testing
-
-```bash
-# Full test suite
-uv run pytest
-
-# With coverage
-uv run pytest --cov=your_package
-
-# Targeted suites
-uv run pytest tests/unit/
-uv run pytest tests/integration/
-uv run pytest tests/e2e/
-```
-
-* **Unit** – domain logic and small units
-* **Integration** – DB + external services
-* **E2E** – full auth + workflows (assumes dev stack is running)
-
-### Troubleshooting (high level)
-
-Common checks:
-
-* **Services up?** – `api-forge-cli deploy status dev`
-* **Logs** – `docker compose -f docker-compose.dev.yml logs [service]`
-* **Ports in use?** – `netstat`/`ss` on `:8000`, `:8080`, `:5432`, etc.
-
-See [`docs/troubleshooting.md`](docs/troubleshooting.md) for detailed commands and Kubernetes-specific tips.
-
----
-
-## Project Structure
-
-```text
-api_project_template/
-├── src/
-│   ├── app/
-│   │   ├── api/             # FastAPI routers, dependencies, BFF endpoints
-│   │   ├── core/            # Auth, config, security, JWT/JWKS/session services
-│   │   ├── entities/        # Domain entities + SQLModel tables (CLI generates here)
-│   │   ├── runtime/         # App startup, config loading, DB init
-│   │   ├── service/         # Application/business services
-│   │   └── worker/          # Background/Temporal worker wiring
-│   ├── cli/                 # Typer-powered api-forge-cli commands
-│   ├── dev/                 # Dev helpers (Keycloak bootstrap, fixtures)
-│   ├── utils/               # Shared utilities
-│   └── worker/              # Worker entrypoints outside app package
-├── infra/
-│   ├── docker/              # Dockerfile fragments and compose helpers
-│   ├── scripts/             # Deployment + maintenance scripts
-│   └── secrets/             # Secret generation templates (kept empty in git)
-├── k8s/                     # Kubernetes manifests and helper scripts
-├── docs/                    # Architecture, auth, deployment, troubleshooting guides
-├── examples/                # Client + workflow examples
-├── tests/                   # Unit, integration, and template (Copier) tests
-├── scripts/                 # Additional automation scripts
-├── data/                    # Local volumes for dev services (postgres, redis, logs)
-├── logs/                    # Host-level logs when running outside Docker
-├── docker-compose.dev.yml   # Dev stack (Keycloak, Postgres, Redis, Temporal, API)
-├── docker-compose.prod.yml  # Production-like compose stack
-├── config.yaml              # Application configuration defaults
-├── copier.yml               # Copier template definition/questions
-└── pyproject.toml           # Project dependencies + tooling config
-```
-
-The Dockerized dev stack stores persistent volumes under `data/` (e.g., `data/postgres` and `data/redis`). Removing those directories resets local databases, caches, and logs.
-
----
-
-## 📚 Documentation
-
-Comprehensive guides for using and deploying API Forge:
-
-### Getting Started
-- **[Complete Documentation Guide](./docs/index.md)** - Start here for a full overview, quick start, and project structure
-
-### Core Concepts
-- **[Authentication & OIDC](./docs/fastapi-auth-oidc-bff.md)** - Session-based authentication with BFF pattern, OIDC providers (Google, Microsoft, Keycloak), login flows, and frontend integration
-- **[Sessions & Cookies](./docs/fastapi-sessions-and-cookies.md)** - HttpOnly cookies, CSRF protection, SameSite attributes, client fingerprinting, and session rotation
-- **[Clean Architecture](./docs/fastapi-clean-architecture-overview.md)** - Entity-Repository-Service-API layering, separation of concerns, dependency injection, and testing strategies
-
-### Development
-- **[Docker Development Environment](./docs/fastapi-docker-dev-environment.md)** - Local development with PostgreSQL, Redis, Temporal, and Keycloak in Docker Compose
-- **[Temporal Workflows](./docs/fastapi-temporal-workflows.md)** - Async background tasks, workflow design, activities, worker setup, and monitoring
-- **[Testing Strategy](./docs/fastapi-testing-strategy.md)** - Unit tests, integration tests, fixtures, pytest configuration, and CI/CD integration
-
-### Deployment
-- **[Kubernetes Deployment](./docs/fastapi-kubernetes-deployment.md)** - Production K8s deployment with secrets, ConfigMaps, health checks, HPA, and monitoring
-- **[Docker Compose Production](./docs/fastapi-production-deployment-docker-compose.md)** - Production deployment with TLS/mTLS, secret management, and security hardening
-
-### Additional Resources
-- **Dev environment**: `docs/fastapi-docker-dev-environment.md`
-- **Client examples**: `docs/clients/`
-- **Troubleshooting**: `docs/troubleshooting.md`
-
----
-
-## License
+## License & support
 
 MIT — see [`LICENSE`](LICENSE).
 
----
-
-## Support
-
-* Open an issue for bugs or feature requests
-* Use Discussions for Q&A and ideas
-
----
-
-**Quick create**
-
-```bash
-copier copy --trust gh:piewared/api-forge your-project-name
-```
-> ⚠️ Security note: Copier requires the use of `--trust` for templates that do more than simple file copying. The template is fully open source, so you can review the repository (for example, the `copier.yml` file and any tasks/hooks) before running the copier command.
+Bugs and feature requests via GitHub Issues. Questions and ideas via
+Discussions.
