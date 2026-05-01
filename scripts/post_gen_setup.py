@@ -742,28 +742,28 @@ def main():
             remove_k8s_dependencies(project_dir)
 
         print("\n✅ Post-generation setup complete!")
-        print(f"\n📁 Your project is ready at: {project_dir}")
-        print("\n🚀 Next steps:")
-        print(f"   1. cd {project_dir}")
-        print("   2. Deactivate any active virtual environment: deactivate (if needed)")
-        print("   3. cp .env.example .env and configure your environment")
-        print("   4. Install dependencies: uv sync")
-        print("   5. Generate secrets (required for production/k8s deployments):")
-        print("      uv run api-forge-cli secrets generate --pki")
+        print(f"\n📁 Project ready at: {project_dir}\n")
+        print("🚀 Get started:")
+        print(f"   cd {project_dir}")
+        print("   cp .env.example .env         # then edit")
+        print("   uv sync")
         print(
-            "      (Use --pki to include TLS certificates for PostgreSQL, Redis, Temporal)"
+            "   source .venv/bin/activate    # so `api-forge-cli` works without `uv run`"
         )
-        print("   6. Deploy:")
-        print(
-            "      • Development (Docker Compose):   uv run api-forge-cli deploy up dev"
-        )
-        print(
-            "      • Production (Docker Compose):    uv run api-forge-cli deploy up prod"
-        )
-        print(
-            "      • Production (Kubernetes):        uv run api-forge-cli deploy up k8s"
-        )
-        print("\n💡 View all CLI commands: uv run api-forge-cli --help")
+        print("   api-forge-cli dev up")
+
+        deploy_targets = [("prod", "Docker Compose (prod)")]
+        if answers.get("include_fly_deploy", False):
+            deploy_targets.append(("fly", "Fly.io"))
+        if answers.get("include_k8s_deploy", False):
+            deploy_targets.append(("k8s", "Kubernetes"))
+
+        print("\n📦 Deploy (generate secrets first):")
+        print("   api-forge-cli secrets generate --pki")
+        for cmd, label in deploy_targets:
+            print(f"   api-forge-cli {cmd} up    # {label}")
+
+        print("\n💡 All commands: api-forge-cli --help")
 
     except Exception as e:
         print(f"\n❌ Setup error: {e}")

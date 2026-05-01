@@ -9,7 +9,7 @@ from rich.prompt import Prompt
 
 from src.cli.commands.entity.templates import render_template_to_file
 from src.cli.shared.console import console
-from src.utils.paths import get_project_root
+from src.utils.paths import get_package_root, get_project_root
 
 
 def sanitize_activity_name(name: str) -> str:
@@ -61,14 +61,7 @@ def prompt_for_input_fields() -> list[dict[str, str | bool]]:
 
 
 def get_activity_module_path(activity_name: str) -> Path:
-    return (
-        get_project_root()
-        / "src"
-        / "app"
-        / "worker"
-        / "activities"
-        / f"{activity_name}.py"
-    )
+    return get_package_root() / "app" / "worker" / "activities" / f"{activity_name}.py"
 
 
 def get_activity_test_path(activity_name: str) -> Path:

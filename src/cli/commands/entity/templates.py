@@ -7,12 +7,12 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from src.utils.paths import get_project_root
+from src.utils.paths import get_package_root
 
 
 def get_template_env() -> Environment:
     """Get Jinja2 environment for template rendering."""
-    template_dir = get_project_root() / "src" / "cli" / "templates"
+    template_dir = get_package_root() / "cli" / "templates"
     return Environment(loader=FileSystemLoader(Path(template_dir)))
 
 

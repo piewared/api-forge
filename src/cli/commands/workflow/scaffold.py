@@ -9,7 +9,7 @@ from rich.prompt import Prompt
 
 from src.cli.commands.entity.templates import render_template_to_file
 from src.cli.shared.console import console
-from src.utils.paths import get_project_root
+from src.utils.paths import get_package_root, get_project_root
 
 
 def sanitize_workflow_name(name: str) -> str:
@@ -73,8 +73,7 @@ def prompt_for_input_fields() -> list[dict[str, str | bool]]:
 def get_workflow_module_path(workflow_name: str) -> Path:
     """Where the generated workflow lives on disk."""
     return (
-        get_project_root()
-        / "src"
+        get_package_root()
         / "app"
         / "worker"
         / "workflows"

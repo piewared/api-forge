@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.prompt import Prompt
 
 from src.cli.shared.console import console
-from src.utils.paths import get_project_root
+from src.utils.paths import get_package_root
 
 from .templates import render_template_to_file
 
@@ -124,11 +124,4 @@ def create_entity_files(
 
 def get_entity_package_path(entity_name: str) -> Path:
     """Return the on-disk path for a given entity package."""
-    return (
-        get_project_root()
-        / "src"
-        / "app"
-        / "entities"
-        / "service"
-        / entity_name.lower()
-    )
+    return get_package_root() / "app" / "entities" / "service" / entity_name.lower()

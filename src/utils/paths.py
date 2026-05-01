@@ -25,3 +25,16 @@ def get_project_root() -> Path:
 
     # Fallback to four levels up (src/cli/commands/shared.py -> project root)
     return Path(__file__).parent.parent.parent.parent
+
+
+def get_package_root() -> Path:
+    """Return the directory containing the Python package source.
+
+    Why: post-gen copier renames ``src/`` → ``<package_name>/``. Hardcoded
+    ``get_project_root() / "src"`` paths break in generated projects because
+    the bare-string ``"src"`` segment is invisible to the post-gen
+    ``src.`` → ``<pkg>.`` rewriter. Resolving from ``__file__`` survives
+    the rename: this module lives at ``<root>/utils/paths.py`` in both
+    the source template and any generated project.
+    """
+    return Path(__file__).resolve().parent.parent

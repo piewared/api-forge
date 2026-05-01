@@ -9,7 +9,7 @@ from rich.table import Table
 
 from src.app.runtime.context import get_config
 from src.cli.shared.console import console
-from src.utils.paths import get_project_root
+from src.utils.paths import get_package_root
 
 from .scaffold import (
     create_entity_files,
@@ -247,8 +247,7 @@ def ls() -> None:
         Panel.fit("[bold cyan]Project Entities[/bold cyan]", border_style="cyan")
     )
 
-    project_root = get_project_root()
-    service_entities_dir = project_root / "src" / "app" / "entities" / "service"
+    service_entities_dir = get_package_root() / "app" / "entities" / "service"
 
     if not service_entities_dir.exists():
         console.print(
