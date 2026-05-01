@@ -1,6 +1,9 @@
 """Status display utilities for deployment environments."""
 
+from __future__ import annotations
+
 import os
+from typing import TYPE_CHECKING, Any
 
 import requests  # type: ignore
 from dotenv.main import load_dotenv
@@ -14,14 +17,40 @@ from src.dev.dev_utils import (
     check_redis_status,
     check_temporal_status,
 )
-from src.infra.k8s import Kr8sController, run_sync
-from src.infra.k8s.controller import PodInfo, ServiceInfo
 
 from ...infra.utils.service_config import get_production_services, is_temporal_enabled
 from .health_checks import HealthChecker
 
-# Module-level controller singleton
-_controller = Kr8sController()
+if TYPE_CHECKING:
+    # Type-only imports — never executed at runtime, so they don't pull
+    # ``infra.k8s`` into the import graph for fly/dev/prod-only projects.
+    from src.infra.k8s.controller import PodInfo, ServiceInfo  # noqa: F401
+
+# Lazy singleton — created on first ``show_k8s_status`` call so projects
+# generated with ``include_k8s_deploy=false`` (no infra.k8s subtree) can
+# still import this module for dev/prod status displays.
+_controller: Any | None = None
+
+
+def _get_k8s_controller() -> Any:
+    """Lazily construct the Kr8sController. Imports infra.k8s only when called.
+
+    Raises ``ModuleNotFoundError`` with a clear message if k8s support
+    wasn't included at template generation time.
+    """
+    global _controller
+    if _controller is not None:
+        return _controller
+    try:
+        from src.infra.k8s import Kr8sController
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "Kubernetes status requires include_k8s_deploy=true at template "
+            "generation. Re-run copier with that toggle on, or use "
+            "`api-forge-cli prod status` / `dev status` instead."
+        ) from exc
+    _controller = Kr8sController()
+    return _controller
 
 
 class StatusDisplay:
@@ -92,10 +121,15 @@ class StatusDisplay:
         Args:
             namespace: Kubernetes namespace to check
         """
+        # Lazy imports — the rest of this module is usable without k8s.
+        from src.utils.run_sync import run_sync
+
+        controller = _get_k8s_controller()
+
         # Note: Header is printed by the calling command, don't duplicate
 
         # Get and format pod status
-        pods = run_sync(_controller.get_pods(namespace))
+        pods = run_sync(controller.get_pods(namespace))
         self.console.print("\n[bold cyan]Pods:[/bold cyan]")
         if pods:
             pods_output = self._format_pods_table(pods)
@@ -104,7 +138,7 @@ class StatusDisplay:
             self.console.print(f"  [dim]No pods found in namespace {namespace}[/dim]")
 
         # Get and format service status
-        services = run_sync(_controller.get_services(namespace))
+        services = run_sync(controller.get_services(namespace))
         self.console.print("\n[bold cyan]Services:[/bold cyan]")
         if services:
             services_output = self._format_services_table(services)

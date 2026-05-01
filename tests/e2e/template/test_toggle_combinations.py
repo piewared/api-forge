@@ -15,10 +15,12 @@ These tests are deliberately heavy (each ``copier copy`` takes a few
 seconds) but they're the only way to catch toggle-driven drift before
 users do.
 
-These tests do NOT run ``uv sync`` or actually exercise the generated
-CLI — that's an order of magnitude more expensive and is covered by
-``test_copier_to_deployment.py``. We just verify the static project
-structure is consistent with the toggles.
+In addition, the slow ``TestCliImportsSucceed`` class below runs
+``uv sync && uv run api-forge-cli --help`` against each generated
+project. That catches *import-time* bugs the static checks can't see —
+e.g. a stale ``from .runtime_fly`` left behind in a .jinja file, or a
+module-level ``import psycopg2`` that breaks the slimmest combo. Marked
+``slow`` so a normal ``pytest -m "not slow"`` run skips it.
 """
 
 from __future__ import annotations
@@ -351,3 +353,126 @@ class TestNoFKS:
         )
         assert "FKS" not in env
         assert "fks" not in cfg
+
+
+# ---------------------------------------------------------------------------
+# Import-time verification (slow)
+#
+# Static file-presence checks (above) catch toggle drift in the file layout
+# but they can't see import-time bugs in rendered code: a stale
+# `from .runtime_fly import ...` left in a .jinja, an unconditional
+# `import psycopg2` at module top, etc. Those slip through until a real user
+# runs `uv sync && api-forge-cli ...` — which is exactly the bug class that
+# triggered adding this section.
+#
+# Each `uv sync` is 30-90s, so the whole class is gated by `@pytest.mark.slow`
+# and pinned to a single xdist worker via `xdist_group` so the four projects
+# only get synced once each (module-scoped fixture).
+# ---------------------------------------------------------------------------
+
+
+def _uv_sync(project: Path) -> None:
+    """Run `uv sync` inside a generated project. Fails the test on non-zero exit."""
+    result = subprocess.run(
+        ["uv", "sync", "--quiet"],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            f"uv sync failed in {project} (exit {result.returncode})\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+
+
+def _run_cli(project: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a CLI command via `uv run` inside a generated project, no stdin."""
+    return subprocess.run(
+        ["uv", "run", *args],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        stdin=subprocess.DEVNULL,
+    )
+
+
+def _assert_no_import_failure(
+    result: subprocess.CompletedProcess[str], context: str
+) -> None:
+    """Fail loudly on tracebacks or import errors — the bug class we care about."""
+    assert result.returncode == 0, (
+        f"{context} exited {result.returncode}\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    for marker in ("Traceback", "ModuleNotFoundError", "ImportError"):
+        assert marker not in result.stderr, (
+            f"{marker} surfaced from {context}:\n{result.stderr}"
+        )
+
+
+@pytest.fixture(scope="module")
+def synced_minimal(project_minimal: Path) -> Path:
+    _uv_sync(project_minimal)
+    return project_minimal
+
+
+@pytest.fixture(scope="module")
+def synced_fly_only(project_fly_only: Path) -> Path:
+    _uv_sync(project_fly_only)
+    return project_fly_only
+
+
+@pytest.fixture(scope="module")
+def synced_k8s_only(project_k8s_only: Path) -> Path:
+    _uv_sync(project_k8s_only)
+    return project_k8s_only
+
+
+@pytest.fixture(scope="module")
+def synced_kitchen_sink(project_kitchen_sink: Path) -> Path:
+    _uv_sync(project_kitchen_sink)
+    return project_kitchen_sink
+
+
+@pytest.mark.slow
+@pytest.mark.serial
+@pytest.mark.xdist_group("template_e2e_sync")
+class TestCliImportsSucceed:
+    """`uv sync && api-forge-cli ...` must succeed in every toggle combination.
+
+    This is the only check that exercises the rendered code's import graph
+    end-to-end. It exists because file-presence checks let a real bug ship —
+    `ModuleNotFoundError: ... runtime_fly` in a freshly generated project.
+    """
+
+    @pytest.mark.parametrize(
+        "fixture_name",
+        [
+            "synced_minimal",
+            "synced_fly_only",
+            "synced_k8s_only",
+            "synced_kitchen_sink",
+        ],
+    )
+    def test_help_runs_cleanly(
+        self, fixture_name: str, request: pytest.FixtureRequest
+    ) -> None:
+        project = request.getfixturevalue(fixture_name)
+        result = _run_cli(project, ["api-forge-cli", "--help"])
+        _assert_no_import_failure(result, f"`api-forge-cli --help` ({fixture_name})")
+
+    def test_secrets_generate_pki_runs_in_minimal(self, synced_minimal: Path) -> None:
+        """Regression test for the exact command that surfaced the original bug.
+
+        `secrets generate --pki` in the slimmest combo hits the most stripped-down
+        import path — no fly, no k8s, no postgres. If any optional dep leaks
+        into the CLI's import graph, this command catches it.
+        """
+        result = _run_cli(
+            synced_minimal, ["api-forge-cli", "secrets", "generate", "--pki"]
+        )
+        _assert_no_import_failure(result, "`secrets generate --pki` (minimal)")

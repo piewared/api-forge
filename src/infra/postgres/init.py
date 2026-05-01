@@ -5,12 +5,8 @@ schemas, and setting up privileges. Used by the CLI `db init` command.
 """
 
 from src.cli.shared.console import console
-from src.infra.k8s.helpers import get_namespace, get_postgres_label
 
 from .connection import PostgresConnection
-
-K8S_NAMESPACE = get_namespace()
-POSTGRES_LABEL = get_postgres_label()
 
 
 class PostgresInitializer:

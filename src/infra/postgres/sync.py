@@ -7,11 +7,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import psycopg2
-
 from src.cli.deployment.status_display import is_temporal_enabled
 from src.cli.shared.console import console
 from src.infra.constants import DEFAULT_CONSTANTS
+from src.infra.postgres.connection import _psycopg2  # lazy psycopg2 accessor
 from src.infra.utils.service_config import is_bundled_postgres_enabled
 
 from .connection import PostgresConnection
@@ -154,7 +153,7 @@ class PostgresPasswordSync:
         db = database or s.app_db
 
         try:
-            with psycopg2.connect(
+            with _psycopg2().connect(
                 host=s.host,
                 port=s.port,
                 dbname=db,
@@ -166,6 +165,6 @@ class PostgresPasswordSync:
                     cur.execute("SELECT 1")
             self._console.ok(f"Verified {user} can connect to {db}")
             return True
-        except psycopg2.OperationalError as e:
+        except _psycopg2().OperationalError as e:
             self._console.error(f"Verification failed for {user}: {e}")
             return False

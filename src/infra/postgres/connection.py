@@ -1,20 +1,50 @@
 """PostgreSQL connection management.
 
 Provides centralized database settings and connection utilities.
+
+``psycopg2`` is imported lazily so this module stays importable when
+``use_postgres=false`` strips the dep — only the connection-establishing
+methods need it. ``DbSettings`` and the URL-building helpers work for
+both Postgres and SQLite users (the latter just never call ``connect``).
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, Literal, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar
 from urllib.parse import quote_plus, urlencode
 
-import psycopg2
-import psycopg2.extensions
-import psycopg2.extras
 from pydantic import BaseModel
 
 from src.app.runtime.config.config_data import DatabaseConfig
 from src.cli.shared.secrets import get_password
+
+if TYPE_CHECKING:
+    # Type-only references so the module imports without psycopg2 installed.
+    import psycopg2  # noqa: F401
+    import psycopg2.extensions  # noqa: F401
+    import psycopg2.extras  # noqa: F401
+
+
+def _psycopg2() -> Any:
+    """Lazy import of psycopg2; raises ImportError with a clear message
+    if the dep was stripped at template generation (``use_postgres=false``).
+    """
+    try:
+        import psycopg2 as _p
+        import psycopg2.extensions  # noqa: F401  # registers types on import
+        import psycopg2.extras  # noqa: F401
+
+        return _p
+    except ImportError as exc:
+        raise ImportError(
+            "PostgreSQL connection requires psycopg2. The dep was stripped "
+            "because the project was generated with use_postgres=false. "
+            "Install it with `uv add psycopg2-binary` if you're switching "
+            "to Postgres."
+        ) from exc
+
 
 # Type variable for function return type
 T = TypeVar("T")
@@ -120,7 +150,7 @@ class DbSettings(BaseModel):
     def load(
         cls,
         db_config: DatabaseConfig,
-    ) -> "DbSettings":
+    ) -> DbSettings:
         """Load settings from application config.
 
         Args:
@@ -181,7 +211,7 @@ class PostgresConnection:
         self._current_database: str | None = None  # Track connected database
 
     def get_dsn(self, database: str | None = None) -> dict[str, Any]:
-        """Get connection parameters for psycopg2.connect().
+        """Get connection parameters for _psycopg2().connect().
 
         Args:
             database: Override database name
@@ -256,7 +286,7 @@ class PostgresConnection:
             or self._current_database != target_db
         ):
             self.close()  # Close existing connection if any
-            self._conn = psycopg2.connect(**self.get_dsn(database))
+            self._conn = _psycopg2().connect(**self.get_dsn(database))
             self._current_database = target_db
         return self._conn
 
@@ -268,7 +298,7 @@ class PostgresConnection:
         """
         self.close()  # Close existing connection if any
         target_db = database or self._settings.app_db
-        self._conn = psycopg2.connect(**self.get_dsn(database))
+        self._conn = _psycopg2().connect(**self.get_dsn(database))
         self._current_database = target_db
         return self._conn
 
@@ -288,14 +318,14 @@ class PostgresConnection:
             Tuple of (success, message)
         """
         try:
-            with psycopg2.connect(**self.get_dsn(database)) as conn:
+            with _psycopg2().connect(**self.get_dsn(database)) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT version()")
                     row = cur.fetchone()
                     if row:
                         return True, f"Connected: {row[0]}"
                     return True, "Connected"
-        except psycopg2.OperationalError as e:
+        except _psycopg2().OperationalError as e:
             print(e)
             return False, f"Connection failed: {e}"
         except Exception as e:
@@ -314,7 +344,7 @@ class PostgresConnection:
         call close() when done to properly cleanup.
         """
         conn = self.ensure_connected(database)
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(cursor_factory=_psycopg2().extras.RealDictCursor) as cur:
             cur.execute(sql, params)
             if cur.description:
                 return [dict(row) for row in cur.fetchall()]
@@ -329,7 +359,7 @@ class PostgresConnection:
         """
         conn = self.ensure_connected(database)
         # Must commit/rollback any pending transaction before changing autocommit
-        if conn.status != psycopg2.extensions.STATUS_READY:
+        if conn.status != _psycopg2().extensions.STATUS_READY:
             conn.rollback()
         old_autocommit = conn.autocommit
         try:
@@ -360,7 +390,7 @@ class PostgresConnection:
         """Get the database settings."""
         return self._settings
 
-    def __enter__(self) -> "PostgresConnection":
+    def __enter__(self) -> PostgresConnection:
         return self
 
     def __exit__(self, *args: Any) -> None:

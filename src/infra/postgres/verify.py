@@ -10,13 +10,9 @@ from enum import Enum
 from rich.table import Table
 
 from src.cli.shared.console import console
-from src.infra.k8s.helpers import get_namespace, get_postgres_label
 from src.infra.utils.service_config import is_temporal_enabled
 
 from .connection import PostgresConnection
-
-K8S_NAMESPACE = get_namespace()
-POSTGRES_LABEL = get_postgres_label()
 
 
 class CheckStatus(Enum):

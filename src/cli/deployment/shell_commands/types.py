@@ -3,8 +3,13 @@
 This module contains all dataclasses and type definitions used across
 the shell command modules.
 
-Note: CommandResult and ReplicaSetInfo are re-exported from src.infra.k8s.controller
-for backward compatibility. New code should import directly from there.
+``CommandResult`` and ``ReplicaSetInfo`` were historically re-exported
+here from ``src.infra.k8s.controller`` for backward compatibility. The
+re-export is gated on the k8s subtree being present so projects
+generated with ``include_k8s_deploy=false`` can still import this
+module — those projects only ever exercise dev/prod paths that don't
+need either type at runtime. New code should import the k8s types
+directly from their canonical location.
 """
 
 from __future__ import annotations
@@ -12,8 +17,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-# Re-export Kubernetes types from canonical location
-from src.infra.k8s.controller import CommandResult, ReplicaSetInfo
+try:
+    from src.infra.k8s.controller import CommandResult, ReplicaSetInfo
+except ModuleNotFoundError:
+    # k8s subtree excluded by the template toggle. The names are still
+    # available as opaque ``Any``s so downstream type hints don't break.
+    from typing import Any as CommandResult  # type: ignore[assignment]
+    from typing import Any as ReplicaSetInfo  # type: ignore[assignment]
 
 __all__ = [
     "CommandResult",
