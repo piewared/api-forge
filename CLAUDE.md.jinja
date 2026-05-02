@@ -2,8 +2,30 @@
 
 {{ project_description }}
 
-A FastAPI service. Application package is `{{ package_name }}/`; CLI is
-`api-forge-cli`. Generated from [API Forge](https://github.com/piewared/api-forge).
+This project was scaffolded from the
+[API Forge](https://github.com/piewared/api-forge) copier template, which
+ships the boring decisions already made:
+
+- **Layered clean architecture with auto-discovery** — five-file entity
+  packages (entity, table, repository, schemas, service, router) wired up
+  by the CLI; new endpoints require zero edits to `app.py` or migration
+  imports.
+- **BFF + OIDC authentication** — Authorization Code + PKCE, server-side
+  sessions, signed HttpOnly cookies, CSRF rotation, client fingerprinting,
+  JWKS-based JWT validation. Pre-seeded Keycloak in dev; managed IdP in prod.
+{% if use_temporal %}- **Durable workflows via Temporal** — auto-discovered workflow + activity
+  registry; canonical *endpoint → service → workflow start* pattern with
+  idempotent dispatch IDs.
+{% endif %}{% if use_redis %}- **Redis-backed sessions, caching, and rate limiting** — graceful in-memory
+  fallback when Redis is disabled at runtime.
+{% endif %}- **Production-shaped local dev** — same PostgreSQL{% if use_redis %}, Redis{% endif %}{% if use_temporal %}, Temporal{% endif %}
+  stack in dev as in prod, brought up with one CLI command.
+- **Multi-target deployment** — Docker Compose{% if include_k8s_deploy %}, Kubernetes via Helm{% endif %}{% if include_fly_deploy %}, Fly.io{% endif %},
+  gated at generation time so you only carry what you use.
+- **Type-checked, linted, and tested** — MyPy, Ruff, and pytest preconfigured
+  with a unit / integration / e2e split.
+
+Application package is `{{ package_name }}/`; CLI is `api-forge-cli`.
 
 ## What to know first
 
