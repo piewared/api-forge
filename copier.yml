@@ -63,6 +63,10 @@ _exclude:
   # Critical: Don't render bundled infrastructure files (they contain Jinja2-like syntax)
   # Development template file
   - "pyproject.toml.template_dev"
+  # Template-repo CLAUDE.md is GitNexus-specific tooling for *this* repo's
+  # development. The generated project uses the rendered ``CLAUDE.md.jinja``
+  # instead — exclude the verbatim copy so the two don't collide.
+  - "CLAUDE.md"
   # Non-jinja siblings of the conditional CLI bootstrap files exist in the
   # source so the template repo itself stays importable for development.
   # Generated projects should use the .jinja-rendered versions instead — see

@@ -550,7 +550,10 @@ def remove_fly_dependencies(project_dir: Path):
     """
     print("📝 Stripping Fly.io configuration...")
 
-    # 1. config.yaml: remove the entire deployments.fly_io block
+    # 1. config.yaml: remove the entire deployments.fly_io block, and the
+    #    deployments: parent if fly_io was its only child (otherwise YAML
+    #    parses the empty mapping as None and ``ConfigData.deployments``
+    #    rejects it — the field is typed ``DeploymentsConfig``, not optional).
     config_path = project_dir / "config.yaml"
     if config_path.exists():
         content = config_path.read_text()
@@ -559,6 +562,14 @@ def remove_fly_dependencies(project_dir: Path):
         # sibling key or EOF.
         content = re.sub(
             r"^    fly_io:\n(?:[ \t]{6,}.*\n)+",
+            "",
+            content,
+            flags=re.MULTILINE,
+        )
+        # If `  deployments:` now has no indented children (next line is a
+        # 2-space sibling key, or EOF), strip the parent line too.
+        content = re.sub(
+            r"^  deployments:\n(?=  \S|\Z)",
             "",
             content,
             flags=re.MULTILINE,

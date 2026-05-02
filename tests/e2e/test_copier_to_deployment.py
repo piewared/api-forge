@@ -50,7 +50,12 @@ class TestCopierToDeployment:
         project_name = "e2e_test_project"
         project_dir = temp_project_dir
 
-        # Define answers
+        # Define answers. Two non-default toggles are required:
+        # - ``use_postgres=true`` so ``test_07_docker_compose_prod_deployment``
+        #   has psycopg2 installed and a postgres-shaped database.url.
+        # - ``include_k8s_deploy=true`` so ``test_08_kubernetes_deployment``
+        #   has the ``api-forge-cli k8s ...`` subtree available (the entire
+        #   ``src/cli/commands/k8s/`` directory is excluded otherwise).
         answers = {
             "project_name": "E2E Test API",
             "project_slug": project_name,
@@ -58,6 +63,8 @@ class TestCopierToDeployment:
             "author_name": "E2E Tester",
             "author_email": "e2e@test.com",
             "python_version": "3.13",
+            "use_postgres": "true",
+            "include_k8s_deploy": "true",
         }
 
         # Build copier command with --data flags
@@ -405,7 +412,7 @@ class TestCopierToDeployment:
             cwd=project_dir,
         )
 
-        assert "deploy" in result.stdout, "deploy command not in CLI help"
+        assert "prod" in result.stdout, "prod command not in CLI help"
         assert "secrets" in result.stdout, "secrets command not in CLI help"
         assert "entity" in result.stdout, "entity command not in CLI help"
 

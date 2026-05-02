@@ -1,13 +1,26 @@
-"""{{entity_name}} API router with CRUD operations."""
+"""{{entity_name}} API router with CRUD operations.
+
+Authentication is enforced at the router level via ``dependencies=[...]`` so
+every endpoint below is authenticated by default — there's no per-endpoint
+``_user`` boilerplate to forget. If a route needs the user object (audit
+logging, ownership checks), declare ``user: User = Depends(get_authenticated_user)``
+in that endpoint's signature; FastAPI dedupes the call within a request.
+
+For a public endpoint, override with ``dependencies=[]`` on that route.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
 {% if with_temporal %}
-from src.app.api.http.deps import get_db_session, get_temporal_service
+from src.app.api.http.deps import (
+    get_authenticated_user,
+    get_db_session,
+    get_temporal_service,
+)
 from src.app.core.services import TemporalClientService
 {% else %}
-from src.app.api.http.deps import get_db_session
+from src.app.api.http.deps import get_authenticated_user, get_db_session
 {% endif %}
 from .repository import {{entity_name}}Repository
 from .schemas import {{entity_name}}Create, {{entity_name}}Read, {{entity_name}}Update
@@ -32,6 +45,7 @@ def get_{{entity_name.lower()}}_service(
 router = APIRouter(
     prefix="/api/v1/{{entity_name.lower()}}s",
     tags=["{{entity_name.lower()}}s"],
+    dependencies=[Depends(get_authenticated_user)],
 )
 
 

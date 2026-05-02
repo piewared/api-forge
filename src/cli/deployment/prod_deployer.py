@@ -196,7 +196,13 @@ class ProdDeployer(BaseDeployer):
                                 f"[yellow]Warning: Could not remove {dir_path}: {e}[/yellow]"
                             )
 
-                # Retry failed directories with sudo
+                # Retry failed directories from inside a privileged Docker
+                # container. The files we couldn't unlink are owned by uid 0
+                # inside the container, but the host user is unprivileged. A
+                # one-shot ``alpine rm -rf`` running as root inside Docker
+                # has the right permissions and avoids host-side ``sudo``,
+                # which (a) wouldn't work in CI without a tty/sudoers entry
+                # and (b) is a hostile prompt for an interactive user.
                 if failed_dirs:
                     dir_list = ", ".join(
                         [str(d.relative_to(self.project_root)) for d in failed_dirs]
@@ -205,12 +211,25 @@ class ProdDeployer(BaseDeployer):
                         f"[yellow]Elevated permissions required to remove: {dir_list}[/yellow]"
                     )
                     self.console.print(
-                        "[yellow]Using sudo to remove Docker-created files...[/yellow]"
+                        "[yellow]Removing Docker-created files via a privileged container...[/yellow]"
                     )
-                    for dir_path in failed_dirs:
-                        self.run_command(
-                            ["sudo", "rm", "-rf", str(dir_path)], check=False
-                        )
+                    container_targets = [
+                        f"/data/{p.relative_to(data_dir)}" for p in failed_dirs
+                    ]
+                    self.run_command(
+                        [
+                            "docker",
+                            "run",
+                            "--rm",
+                            "-v",
+                            f"{data_dir}:/data",
+                            "alpine",
+                            "rm",
+                            "-rf",
+                            *container_targets,
+                        ],
+                        check=False,
+                    )
                 self.console.ok("Data directories removed")
 
         else:

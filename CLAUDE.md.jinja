@@ -1,0 +1,382 @@
+# {{ project_name }}
+
+{{ project_description }}
+
+A FastAPI service. Application package is `{{ package_name }}/`; CLI is
+`api-forge-cli`. Generated from [API Forge](https://github.com/piewared/api-forge).
+
+## What to know first
+
+Adding a feature is a single CLI command — `api-forge-cli entity add Widget`
+— that generates a fully wired vertical slice (domain, persistence, repo,
+DTOs, service, router) auto-discovered at startup. **Use the CLI rather than
+hand-writing entity packages**; the conventions described below are
+encoded in the scaffold and hand-rolled code drifts.
+
+## Architecture in one diagram
+
+```
+HTTP request
+   │
+   ▼  router.py        — thin handler; auth at router level; translates errors
+   ▼  service.py       — owns transactions; raises domain errors
+   ▼  repository.py    — CRUD against the table; flush+refresh; never commits
+   ▼  table.py         — SQLModel persistence row
+   ▼  entity.py        — Pydantic domain model (no SQLModel imports)
+```
+
+Dependencies point **inward**. The domain entity never imports SQLModel.
+Routers never call `session.commit()`. Repositories never call
+`session.commit()`. The application service is the only layer that commits.
+
+This is layered clean architecture, not strict hexagonal: services take a
+concrete `sqlmodel.Session` rather than a `UnitOfWork` port. Introduce a
+port-and-adapter seam locally on a specific entity if you need one.
+
+### Two kinds of "service"
+
+The word "service" means two different things in two different places:
+
+| Where | What | Examples |
+|---|---|---|
+| `{{ package_name }}/app/core/services/` | **Infrastructure services** — cross-cutting adapters | JWT verification, OIDC client, session storage{% if use_redis %}, Redis{% endif %}{% if use_temporal %}, Temporal client{% endif %} |
+| `{{ package_name }}/app/entities/<group>/<name>/service.py` | **Application services** — per-entity business logic + transaction boundary | `WidgetService`, `OrderService` |
+
+When this guide says "the service layer" it always means the second.
+
+## Adding a feature — the canonical workflow
+
+**Step 1.** Generate the entity:
+
+```bash
+api-forge-cli entity add Widget
+```
+
+You'll be prompted for fields (name, type, optional, description). The
+scaffold writes these six files into
+`{{ package_name }}/app/entities/service/widget/`:
+
+```
+entity.py      # Pydantic domain model
+table.py       # SQLModel persistence row
+repository.py  # CRUD; flushes & refreshes; never commits
+schemas.py     # WidgetCreate / WidgetRead / WidgetUpdate DTOs
+service.py     # Business logic + commit/rollback
+router.py      # /api/v1/widgets/* — auto-discovered at startup
+```
+
+**No edits to `app.py` are required.** The router-discovery loader walks
+`entities/**/router.py` at startup; the table-discovery loader walks
+`entities/**/table.py` for Alembic. Restart the server (or hot-reload picks
+it up in dev) and the endpoints are live.
+
+{% if use_temporal %}**Step 1b (workflow combo).** When the entity has a durable async lifecycle:
+
+```bash
+api-forge-cli entity add Order --with-workflow OrderDispatch
+```
+
+This additionally:
+- adds a `TemporalClientService` parameter to the service constructor,
+- wires `get_<entity>_service` in the router to inject it via FastAPI deps,
+- generates `{{ package_name }}/app/worker/workflows/order_dispatch.py`,
+- adds an async `dispatch(<id>)` method to the service that starts the
+  workflow with an idempotent ID.
+
+{% endif %}**Step 2.** Generate a migration if persistence changed:
+
+```bash
+api-forge-cli db revision -m "add widget"
+api-forge-cli db upgrade
+```
+
+Alembic's `env.py` calls `entities.loader.get_metadata()`, which walks every
+`table.py` — new tables are seen automatically.
+
+**Step 3.** Write tests next to the entity. The service is the highest-value
+target: business logic without booting FastAPI or hitting a database.
+
+## Project layout
+
+```
+{{ project_slug }}/
+├── {{ package_name }}/
+│   ├── app/
+│   │   ├── api/http/                 # FastAPI factory, middleware, routers
+│   │   │   ├── app.py                # create_app() — slim factory, do not bloat
+│   │   │   ├── lifespan.py           # Startup/shutdown sequencing
+│   │   │   ├── deps.py               # Cross-cutting FastAPI dependencies
+│   │   │   ├── middleware/           # CORS, security headers, request log, limiter
+│   │   │   └── routers/
+│   │   │       ├── auth.py           # JIT (mobile / service-to-service)
+│   │   │       ├── auth_bff_enhanced.py  # BFF flow (web / SPA)
+│   │   │       ├── health.py
+│   │   │       └── loader.py         # entity-router auto-discovery
+│   │   ├── core/
+│   │   │   ├── services/             # Infra services (JWT, OIDC{% if use_redis %}, Redis{% endif %}{% if use_temporal %}, Temporal{% endif %}, sessions)
+│   │   │   ├── policies/             # Authorization policies
+│   │   │   └── security.py           # CSRF, signing
+│   │   ├── entities/
+│   │   │   ├── core/                 # Auth-essential (User, UserIdentity)
+│   │   │   ├── service/              # Generated CRUD entities live here
+│   │   │   └── loader.py             # table-discovery for Alembic
+│   │   └── runtime/                  # Config loading, DB init
+{% if use_temporal %}│   ├── worker/                       # Temporal workflows + activities
+{% endif %}│   └── cli/                          # api-forge-cli commands
+├── tests/                            # unit / integration / e2e
+├── docs/                             # Architecture, auth, deployment guides
+├── docker-compose.dev.yml            # Dev stack (PostgreSQL{% if use_redis %}, Redis{% endif %}{% if use_temporal %}, Temporal{% endif %}, Keycloak)
+├── docker-compose.prod.yml           # Prod-shaped Compose stack
+├── config.yaml                       # Single-source config with ${ENV} substitution
+└── pyproject.toml
+```
+
+## CLI cheatsheet
+
+Everything lives under `api-forge-cli`:
+
+```bash
+api-forge-cli --help            # discover commands
+api-forge-cli dev up            # full stack in Docker, hot reload
+api-forge-cli dev logs api      # tail just the API
+api-forge-cli dev restart api   # restart after dependency changes
+api-forge-cli dev down          # stop everything
+
+api-forge-cli entity add <Name>             # CRUD entity (the canonical workflow)
+api-forge-cli entity rm <Name>              # delete the package directory
+api-forge-cli entity ls                     # list scaffolded entities
+{% if use_temporal %}api-forge-cli entity add <Name> --with-workflow <WfName>
+api-forge-cli workflow add <WfName>         # standalone workflow (cross-entity)
+api-forge-cli activity add <name>           # standalone activity
+{% endif %}
+api-forge-cli config validate                # validate config.yaml + env
+api-forge-cli db revision -m "..."           # alembic autogenerate
+api-forge-cli db upgrade                     # apply migrations
+api-forge-cli secrets generate               # rotate signing/cookie keys
+api-forge-cli users create --email ...       # seed Keycloak (dev)
+
+api-forge-cli prod up           # production Docker Compose
+{% if include_k8s_deploy %}api-forge-cli k8s up            # deploy via Helm
+{% endif %}{% if include_fly_deploy %}api-forge-cli fly up            # full Fly.io stack
+api-forge-cli fly sync          # fast iteration: just the main app image
+{% endif %}```
+
+## Persistence
+
+### Entity vs. table — they are different files for a reason
+
+- `entity.py` is a pure Pydantic model. Business invariants and identity live
+  here. It must not import SQLModel or SQLAlchemy.
+- `table.py` is a SQLModel `table=True` row. Column types, server defaults,
+  indices, `onupdate` triggers belong here. The domain doesn't see them.
+
+Server-managed columns (`id`, `created_at`, `updated_at`) come from the
+`EntityTable` base. `id` is a Python-side UUID; `updated_at` has an
+`onupdate=func.now()` trigger so the database refreshes it on every flush.
+
+### Repository contract
+
+The scaffold-generated repository follows a strict contract:
+
+- **Never call `commit()` or `rollback()`.** The service owns the
+  transaction.
+- **`create()` flushes and refreshes**, then re-validates the entity from the
+  refreshed row. This populates server-generated columns and surfaces
+  constraint errors synchronously.
+- **`update()` flushes and refreshes**, and skips a whitelist of immutable
+  columns (`id`, `created_at`) when copying entity → row. This protects the
+  immutable fields even if a caller bypasses the service.
+- **`get()` / `list_all()` are read-only.** They translate rows → entities
+  via `Entity.model_validate(row, from_attributes=True)`.
+
+### Service contract — the unit of work
+
+Every public method on an application service:
+
+1. Reads or constructs the entity.
+2. Calls one or more repository methods.
+3. **Commits on success, rolls back on any exception.**
+4. Returns a DTO (`*Read`), never a raw entity or row.
+
+```python
+def create(self, data: WidgetCreate) -> WidgetRead:
+    widget = Widget(**data.model_dump())
+    try:
+        created = self._repository.create(widget)
+        self._session.commit()
+    except Exception:
+        self._session.rollback()
+        raise
+    return WidgetRead.model_validate(created)
+```
+
+Domain errors are typed (`WidgetNotFoundError(LookupError)`); the router
+translates them to HTTP status codes.
+
+Compare entities by `.id` (or by DTO). Pydantic's default equality is
+field-by-field including timestamps, so `entity_a == entity_b` is rarely what
+you want.
+
+## Authentication & security
+
+### BFF + OIDC by default
+
+Web clients (browser/SPA) use the **Backend-for-Frontend** flow:
+
+- All web auth endpoints under `/auth/web` (`login`, `callback`, `me`,
+  `refresh`, `logout`).
+- OIDC Authorization Code + PKCE.
+- Server-side sessions, signed HttpOnly cookies, CSRF token rotated on
+  refresh, client fingerprinting binds the session to the user agent.
+- `redirect_uri` is server-configured — never trusted from the client.
+
+Non-cookie clients (mobile, service-to-service) use JWKS-based JWT validation
+under `/auth/*`.
+
+Dev uses a pre-seeded Keycloak realm. Prod uses any managed IdP (Google,
+Microsoft, Okta, Auth0, Cognito) configured via `oidc.providers` in
+`config.yaml`.
+
+### Router-level auth (the convention to follow)
+
+The scaffold puts auth on the router itself, not on each endpoint:
+
+```python
+router = APIRouter(
+    prefix="/api/v1/widgets",
+    tags=["widgets"],
+    dependencies=[Depends(get_authenticated_user)],
+)
+```
+
+Implications:
+
+- Every endpoint on the router is authenticated by default. You can't forget
+  it on a new endpoint.
+- If an endpoint needs the user object (audit, ownership), declare
+  `user: User = Depends(get_authenticated_user)` in that endpoint's
+  signature; FastAPI dedupes the call within the request.
+- For a public endpoint, override on that route with `dependencies=[]`.
+
+### Don'ts
+
+- Don't disable CSRF in production. The dev/test bypass is logged loudly at
+  startup and only applies when `app.environment` is `development` or `test`.
+- Don't put secrets as literals in `config.yaml`. Use `${ENV_VAR}`
+  substitution. Real secrets come from `.env` (dev), Docker secrets (Compose
+  prod){% if include_k8s_deploy %}, Kubernetes Secrets (k8s){% endif %}{% if include_fly_deploy %}, or Fly.io secrets (Fly){% endif %}.
+- Don't expose the workflows management router (`/workflows`). It's
+  intentionally **not** registered in `app.py` because it's a real attack
+  surface. Gate it behind explicit auth + config if you need it.
+
+## Configuration
+
+`config.yaml` is the single source of truth:
+
+```yaml
+database:
+  url: "${DATABASE_URL:-sqlite:///./database.db}"
+{% if use_redis %}redis:
+  enabled: true
+  url: "${REDIS_URL:-redis://localhost:6379}"
+{% endif %}{% if use_temporal %}temporal:
+  enabled: true
+  url: "${TEMPORAL_URL:-temporal:7233}"
+{% endif %}oidc:
+  providers:
+    google:
+      issuer: "${OIDC_GOOGLE_ISSUER:-https://accounts.google.com}"
+      client_id: "${OIDC_GOOGLE_CLIENT_ID}"
+      client_secret: "${OIDC_GOOGLE_CLIENT_SECRET}"
+```
+
+`.env` provides per-environment values. Pydantic models in
+`{{ package_name }}/app/runtime/config/` enforce shape at startup — the app
+fails fast on misconfiguration.
+
+Service feature flags are honoured at runtime:
+{% if use_redis %}- `redis.enabled = false` → app storage falls back to in-memory; rate
+  limiter falls back to in-memory.
+{% endif %}{% if use_temporal %}- `temporal.enabled = false` → workflow scaffolds refuse to start; the
+  worker exits cleanly.
+{% endif %}
+
+## Async work {% if use_temporal %}— Temporal vs. BackgroundTasks{% endif %}
+
+{% if use_temporal %}Two ways to run async work from a request handler. Pick based on the
+guarantees you actually need:
+
+| Need | Use |
+|---|---|
+| Durable; survives crashes/restarts | **Temporal workflow** |
+| Retries with exponential backoff | **Temporal workflow** |
+| Schedules / cron-style recurring | **Temporal workflow** |
+| Long-running (minutes to days) | **Temporal workflow** |
+| Cross-process coordination | **Temporal workflow** |
+| Fire-and-forget; no guarantees | FastAPI **`BackgroundTasks`** |
+| Confirmation email after request | FastAPI **`BackgroundTasks`** |
+
+Workflows live in `{{ package_name }}/app/worker/workflows/` and activities in
+`{{ package_name }}/app/worker/activities/`. Both are auto-discovered by queue
+via the `@workflow_defn(queue=...)` and `@activity_defn(queue=...)`
+decorators in `worker/registry.py`.
+
+The canonical pattern is **endpoint → service → workflow start**. The
+service owns idempotency-token generation and the start call; the workflow
+itself does the durable work.{% else %}For fire-and-forget work after the response, use FastAPI's
+`BackgroundTasks`. For anything where losing the work on a process restart
+would be wrong (payments, order processing, anything that touches money or
+external systems), regenerate the project with `use_temporal=true` — the
+template's Temporal scaffolding handles durability, retries, and schedules.{% endif %}
+
+## Testing
+
+```bash
+uv run pytest                      # everything
+uv run pytest tests/unit/          # unit only — fast, no infra
+uv run pytest tests/integration/   # needs dev stack running
+uv run pytest tests/e2e/           # full auth + workflow paths
+```
+
+Per-layer test strategy:
+
+| Layer | Type | Approach |
+|---|---|---|
+| Entity | Unit | Validate Pydantic invariants directly |
+| Repository | Integration | In-memory SQLite, exercise real SQL |
+| Service | Unit | Mock the repository, assert commit on success / rollback on failure |
+| Router | Integration | `TestClient`, override `get_<entity>_service` to a stub |
+
+Service tests are the highest value per line. Don't mock the database in
+integration tests — the prod migration paths matter, and mocked DB tests pass
+while real ones fail.
+
+## What not to do (sharp edges)
+
+- **Don't edit `app.py`** to register a new entity router. The auto-discovery
+  loader handles it. If you find yourself there, you're working around the
+  scaffold.
+- **Don't import SQLModel from `entity.py`.** Persistence stays at the edge.
+- **Don't put `session.commit()` in a router or repository.** The service is
+  the only layer that commits.
+- **Don't bypass the DTO layer.** `*Create` / `*Read` / `*Update` exist so
+  server-managed fields can't be set by clients and the API can evolve
+  independently of the persistence model.
+- **Don't hand-roll a new entity** when `api-forge-cli entity add` will do it.
+- **Don't catch exceptions in the router to mask domain errors.** Let the
+  service raise typed domain exceptions; translate them to HTTP at the
+  router boundary only.
+
+## Where to read more
+
+- `docs/index.md` — full guide
+- `docs/fastapi-clean-architecture-overview.md` — layering, scaffold patterns
+- `docs/fastapi-auth-oidc-bff.md` — BFF flow, providers, frontend integration
+- `docs/fastapi-sessions-and-cookies.md` — CSRF, fingerprinting, rotation
+{% if use_temporal %}- `docs/fastapi-temporal-workflows.md` — workflows, activities, schedules
+{% endif %}- `docs/fastapi-docker-dev-environment.md` — service URLs, troubleshooting
+- `docs/database-migrations.md` — Alembic with auto-discovery
+- `docs/fastapi-testing-strategy.md` — unit / integration / e2e
+{% if include_k8s_deploy %}- `docs/kubernetes/fastapi-kubernetes-deployment.md`
+{% endif %}{% if include_fly_deploy %}- `docs/fly/fastapi-flyio-kubernetes.md`
+{% endif %}

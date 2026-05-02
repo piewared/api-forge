@@ -1,10 +1,18 @@
-"""Book API router with CRUD operations."""
+"""Book API router with CRUD operations.
+
+Authentication is enforced at the router level via ``dependencies=[...]`` so
+every endpoint below is authenticated by default — there's no per-endpoint
+``_user`` boilerplate to forget. If a route needs the user object (audit
+logging, ownership checks), declare ``user: User = Depends(get_authenticated_user)``
+in that endpoint's signature; FastAPI dedupes the call within a request.
+
+For a public endpoint, override with ``dependencies=[]`` on that route.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
 from src.app.api.http.deps import get_authenticated_user, get_db_session
-from src.app.entities.core.user import User
 
 from .repository import BookRepository
 from .schemas import BookCreate, BookRead, BookUpdate
@@ -17,7 +25,11 @@ def get_book_service(
     return BookService(session, BookRepository(session))
 
 
-router = APIRouter(prefix="/api/v1/books", tags=["books"])
+router = APIRouter(
+    prefix="/api/v1/books",
+    tags=["books"],
+    dependencies=[Depends(get_authenticated_user)],
+)
 
 
 @router.post(
@@ -28,7 +40,6 @@ router = APIRouter(prefix="/api/v1/books", tags=["books"])
 async def create_book(
     data: BookCreate,
     service: BookService = Depends(get_book_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> BookRead:
     """Create a new book."""
     return service.create(data)
@@ -38,7 +49,6 @@ async def create_book(
 async def get_book(
     item_id: str,
     service: BookService = Depends(get_book_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> BookRead:
     """Get a book by ID."""
     result = service.get(item_id)
@@ -52,7 +62,6 @@ async def update_book(
     item_id: str,
     data: BookUpdate,
     service: BookService = Depends(get_book_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> BookRead:
     """Update a book (partial update — only sent fields change)."""
     try:
@@ -65,7 +74,6 @@ async def update_book(
 async def delete_book(
     item_id: str,
     service: BookService = Depends(get_book_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> None:
     """Delete a book."""
     if not service.delete(item_id):
@@ -75,7 +83,6 @@ async def delete_book(
 @router.get("/", response_model=list[BookRead])
 async def list_books(
     service: BookService = Depends(get_book_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> list[BookRead]:
     """List all books."""
     return service.list()

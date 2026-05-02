@@ -1,10 +1,18 @@
-"""Product API router with CRUD operations."""
+"""Product API router with CRUD operations.
+
+Authentication is enforced at the router level via ``dependencies=[...]`` so
+every endpoint below is authenticated by default — there's no per-endpoint
+``_user`` boilerplate to forget. If a route needs the user object (audit
+logging, ownership checks), declare ``user: User = Depends(get_authenticated_user)``
+in that endpoint's signature; FastAPI dedupes the call within a request.
+
+For a public endpoint, override with ``dependencies=[]`` on that route.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
 from src.app.api.http.deps import get_authenticated_user, get_db_session
-from src.app.entities.core.user import User
 
 from .repository import ProductRepository
 from .schemas import ProductCreate, ProductRead, ProductUpdate
@@ -17,7 +25,11 @@ def get_product_service(
     return ProductService(session, ProductRepository(session))
 
 
-router = APIRouter(prefix="/api/v1/products", tags=["products"])
+router = APIRouter(
+    prefix="/api/v1/products",
+    tags=["products"],
+    dependencies=[Depends(get_authenticated_user)],
+)
 
 
 @router.post(
@@ -28,7 +40,6 @@ router = APIRouter(prefix="/api/v1/products", tags=["products"])
 async def create_product(
     data: ProductCreate,
     service: ProductService = Depends(get_product_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> ProductRead:
     """Create a new product."""
     return service.create(data)
@@ -38,7 +49,6 @@ async def create_product(
 async def get_product(
     item_id: str,
     service: ProductService = Depends(get_product_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> ProductRead:
     """Get a product by ID."""
     result = service.get(item_id)
@@ -52,7 +62,6 @@ async def update_product(
     item_id: str,
     data: ProductUpdate,
     service: ProductService = Depends(get_product_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> ProductRead:
     """Update a product (partial update — only sent fields change)."""
     try:
@@ -65,7 +74,6 @@ async def update_product(
 async def delete_product(
     item_id: str,
     service: ProductService = Depends(get_product_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> None:
     """Delete a product."""
     if not service.delete(item_id):
@@ -75,7 +83,6 @@ async def delete_product(
 @router.get("/", response_model=list[ProductRead])
 async def list_products(
     service: ProductService = Depends(get_product_service),
-    _user: User = Depends(get_authenticated_user),
 ) -> list[ProductRead]:
     """List all products."""
     return service.list()

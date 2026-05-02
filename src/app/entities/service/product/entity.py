@@ -1,7 +1,5 @@
 """Entity: Product."""
 
-from typing import Any
-
 from src.app.entities.core._base import Entity
 
 
@@ -10,15 +8,8 @@ class Product(Entity):
 
     This is the domain model that contains business logic and validation.
     It inherits from Entity to get auto-generated UUID identifiers.
+
+    Compare instances by ``.id`` (or by a DTO) — Pydantic's default ``__eq__``
+    is field-by-field and includes timestamps, so two instances of the same
+    persisted entity loaded a microsecond apart will not compare equal.
     """
-
-    def __eq__(self, other: Any) -> bool:
-        """Compare products by business attributes, ignoring timestamps."""
-        if not isinstance(other, Product):
-            return False
-
-        return self.id == other.id
-
-    def __hash__(self) -> int:
-        """Hash based on business attributes, ignoring timestamps."""
-        return hash((self.id,))

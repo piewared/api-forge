@@ -22,8 +22,7 @@ from __future__ import annotations
 import typer
 
 from src.cli.shared.console import console
-from src.infra.flyio.controller import FlyCtlControllerSync
-from src.infra.flyio.controller.types import CommandResult
+from src.infra.flyio.controller import CommandResult, FlyCtlControllerSync
 from src.infra.flyio.port_forward import ensure_app_machines_running
 from src.utils.paths import get_project_root
 

@@ -4,6 +4,15 @@ API Forge organises code in concentric layers so business rules stay
 independent of FastAPI, the database, and external services. New entities are
 scaffolded with all five layers in place, ready to grow.
 
+> **Framing.** This is *layered clean architecture*, not strict
+> hexagonal/ports-and-adapters. The application service receives a concrete
+> `sqlmodel.Session` rather than an abstract `UnitOfWork` port — a deliberate
+> pragmatic compromise that keeps the scaffold short and avoids a layer of
+> indirection most teams never need. If you require a strict port-and-adapter
+> seam (e.g., to swap persistence engines or run domain tests against an
+> in-memory unit of work), introduce it on the entities you need it for; the
+> scaffold won't fight you.
+
 ## The five files per entity
 
 When you run `api-forge-cli entity add Widget`, the scaffold drops a single

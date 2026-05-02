@@ -71,6 +71,37 @@ prod_db_app = typer.Typer(
 )
 
 
+@prod_db_app.callback()
+def _ensure_postgres_project() -> None:
+    """Refuse early if the project was generated without PostgreSQL support.
+
+    Every subcommand under ``prod db`` ultimately needs ``psycopg2`` (the CLI
+    drives schema init, role setup, migrations, and verification through it).
+    When the template was generated with ``use_postgres=false`` the dep is
+    stripped at post-gen time and ``database.url`` defaults to SQLite. In
+    that case, spinning up a bundled-Postgres container or contacting an
+    external Postgres host is incoherent — fail before any side effects
+    (network manipulation, container build, .env mutation) and tell the
+    user how to switch.
+    """
+    try:
+        import psycopg2  # noqa: F401
+    except ImportError as ie:
+        console.print(
+            "[red]❌ This project was generated with use_postgres=false[/red]"
+        )
+        console.print(
+            "[dim]The PostgreSQL driver (psycopg2) is not installed, so "
+            "`prod db` subcommands cannot manage a Postgres database.[/dim]"
+        )
+        console.print(
+            "[dim]To switch to PostgreSQL: install the driver with "
+            "`uv add psycopg2-binary` and update `config.yaml` "
+            "(database.url) to a postgres:// URL.[/dim]"
+        )
+        raise typer.Exit(1) from ie
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------

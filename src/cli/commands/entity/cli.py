@@ -172,7 +172,9 @@ def _scaffold_workflow_for_entity(entity_name: str, workflow_name: str) -> None:
 
     # The workflow takes the entity's id as a single typed input. Matches
     # the dispatch() method already rendered in the entity's service.py.
-    fields = [{"name": f"{entity_name.lower()}_id", "type": "str", "optional": False}]
+    fields: list[dict[str, str | bool]] = [
+        {"name": f"{entity_name.lower()}_id", "type": "str", "optional": False}
+    ]
     wf_path, wf_test_path = create_workflow_files(workflow_name, fields)
 
     console.ok(f"Workflow scaffolded: {wf_path}")
