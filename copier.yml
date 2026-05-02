@@ -64,9 +64,14 @@ _exclude:
   # Development template file
   - "pyproject.toml.template_dev"
   # Template-repo CLAUDE.md is GitNexus-specific tooling for *this* repo's
-  # development. The generated project uses the rendered ``CLAUDE.md.jinja``
-  # instead — exclude the verbatim copy so the two don't collide.
-  - "CLAUDE.md"
+  # development; the downstream project gets the rendered ``CLAUDE.md.jinja``.
+  # We intentionally do NOT add ``- "CLAUDE.md"`` here: copier evaluates
+  # ``_exclude`` against the *destination* path, and ``CLAUDE.md.jinja``
+  # strips to ``CLAUDE.md`` in the destination — so excluding ``CLAUDE.md``
+  # would silently exclude the rendered file too. Instead we rely on
+  # copier's overwrite-on-collision semantics (sources processed in sorted
+  # order, later writes win): ``CLAUDE.md.jinja`` sorts after ``CLAUDE.md``,
+  # so the rendered content correctly clobbers the verbatim gitnexus copy.
   # Non-jinja siblings of the conditional CLI bootstrap files exist in the
   # source so the template repo itself stays importable for development.
   # Generated projects should use the .jinja-rendered versions instead — see
