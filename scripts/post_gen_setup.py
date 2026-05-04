@@ -6,7 +6,6 @@ This script runs after the template has been copied to customize files
 that can't contain Jinja2 templates (like pyproject.toml).
 """
 
-import random
 import re
 import sys
 from pathlib import Path
@@ -78,86 +77,39 @@ def update_pyproject_toml(project_dir: Path, answers: dict):
 
 
 def fix_all_src_references(project_dir: Path, package_name: str):
+    """Rewrite ``src.`` references throughout the project to ``{package_name}.``.
+
+    Delegates to ``rename_helpers.rewrite_package_references`` so the regex
+    set is shared with the reverse direction used by ``api-forge-cli update``.
     """
-    Globally replace all 'src.' references with '{package_name}.' across the entire project.
+    from rename_helpers import rewrite_package_references
 
-    This is more robust than targeting specific files/patterns because it catches:
-    - Python imports (from src.app, import src.cli, etc.)
-    - Docker COPY commands (COPY src/ src/)
-    - YAML command arrays (["python", "-m", "src.worker.main"])
-    - File paths (/app/src/worker/)
-    - Module strings ("src.app.worker.activities")
-    """
-    # File extensions and patterns to process
-    # NOTE: *.j2 is included because cli/templates/*.j2 emit `from src.app...`
-    # imports; without rewrite, post-template `entity add` produces broken code.
-    patterns = ["*.py", "*.yml", "*.yaml", "*.j2", "Dockerfile", "docker-compose*.yml"]
-
-    files_to_process = []
-    for pattern in patterns:
-        if pattern == "Dockerfile":
-            dockerfile = project_dir / "Dockerfile"
-            if dockerfile.exists():
-                files_to_process.append(dockerfile)
-        elif pattern.startswith("docker-compose"):
-            files_to_process.extend(project_dir.glob(pattern))
-        else:
-            files_to_process.extend(project_dir.rglob(pattern))
-
-    # Also add src_main.py explicitly
-    src_main = project_dir / "src_main.py"
-    if src_main.exists():
-        files_to_process.append(src_main)
-
-    fixed_count = 0
-
-    for file_path in files_to_process:
-        try:
-            # Skip files in certain directories
-            if any(
-                skip in file_path.parts
-                for skip in [".venv", "__pycache__", ".git", "node_modules", "data"]
-            ):
-                continue
-
-            content = file_path.read_text()
-            original_content = content
-
-            # Replace Python imports: from src. / import src.
-            content = re.sub(r"\bfrom src\.", f"from {package_name}.", content)
-            content = re.sub(r"\bimport src\.", f"import {package_name}.", content)
-
-            # Replace string literals in quotes: "src.worker.main" -> "{package_name}.worker.main"
-            content = re.sub(
-                r'"src\.(app|cli|dev|utils|worker)', rf'"{package_name}.\1', content
-            )
-            content = re.sub(
-                r"'src\.(app|cli|dev|utils|worker)", rf"'{package_name}.\1", content
-            )
-
-            # Replace file paths: /app/src/ -> /app/{package_name}/
-            content = re.sub(r"/app/src/", f"/app/{package_name}/", content)
-
-            # Replace Docker COPY: COPY src/ src/ -> COPY {package_name}/ {package_name}/
-            content = re.sub(
-                r"COPY(\s+--chown=\S+)?\s+src/\s+src/",
-                rf"COPY\1 {package_name}/ {package_name}/",
-                content,
-            )
-
-            if content != original_content:
-                file_path.write_text(content)
-                fixed_count += 1
-        except Exception as e:
-            print(f"⚠️  Error processing {file_path}: {e}")
-
-    if fixed_count > 0:
-        print(f"✅ Fixed src references in {fixed_count} files")
+    rewrite_package_references(project_dir, frm="src", to=package_name)
 
 
 def rename_package_directory(project_dir: Path, package_name: str):
-    """Rename the template package directory to the actual package name."""
-    # The template has a 'src' directory that needs to be renamed to package_name
+    """Rename the template package directory to the actual package name.
+
+    Three states this handles:
+
+    1. Fresh generation: ``src/`` exists, ``<package_name>/`` does not. Plain
+       rename — the simple case.
+    2. Up-to-date: only ``<package_name>/`` exists. No-op.
+    3. Raw ``copier update``: both exist. Copier doesn't know about the
+       post-gen rename, so it re-rendered template files into a fresh
+       ``src/`` next to the user's ``<package_name>/``. We do a per-file
+       reconciliation since Copier already discarded the diff info needed
+       for a real three-way merge:
+
+       - new files (only in ``src/``)  → moved into ``<package_name>/``
+       - byte-identical duplicates    → dropped
+       - files that differ            → stashed as ``<file>.template-update``
+                                        next to the user's copy for review
+
+       Then the ``src/`` shell is removed. Users who hit this path get a
+       printed hint pointing them at ``api-forge-cli update`` for cleaner
+       updates next time.
+    """
     src_dir = project_dir / "src"
     package_dir = project_dir / package_name
 
@@ -165,10 +117,56 @@ def rename_package_directory(project_dir: Path, package_name: str):
         print(f"📁 Renaming src/ → {package_name}/")
         src_dir.rename(package_dir)
         print(f"✅ Package directory renamed to {package_name}/")
-    elif package_dir.exists():
+        return
+
+    if not src_dir.exists():
         print(f"✅ Package directory {package_name}/ already exists")
-    else:
-        print(f"⚠️  Neither src/ nor {package_name}/ found")
+        return
+
+    # Both exist → raw `copier update` path. Reconcile.
+    import shutil
+
+    print(
+        f"🔁 Detected raw `copier update` (both src/ and {package_name}/ exist). "
+        "Reconciling…"
+    )
+    new_files: list[Path] = []
+    conflicts: list[Path] = []
+    unchanged = 0
+
+    for src_file in src_dir.rglob("*"):
+        if src_file.is_dir():
+            continue
+        rel = src_file.relative_to(src_dir)
+        target = package_dir / rel
+
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src_file), str(target))
+            new_files.append(rel)
+        elif src_file.read_bytes() == target.read_bytes():
+            src_file.unlink()
+            unchanged += 1
+        else:
+            stash = target.with_name(target.name + ".template-update")
+            shutil.move(str(src_file), str(stash))
+            conflicts.append(rel)
+
+    shutil.rmtree(src_dir, ignore_errors=True)
+
+    print(f"  ✅ {len(new_files)} new file(s) added under {package_name}/")
+    print(f"  ✅ {unchanged} file(s) unchanged")
+    if conflicts:
+        print(f"  ⚠️  {len(conflicts)} file(s) differ — review *.template-update:")
+        for p in conflicts[:10]:
+            print(f"      {package_name}/{p}.template-update")
+        if len(conflicts) > 10:
+            print(f"      ... and {len(conflicts) - 10} more")
+        print(f"     find {package_name} -name '*.template-update' to list all")
+    print(
+        "  💡 For cleaner updates next time, run `api-forge-cli update` "
+        "instead of `copier update` directly."
+    )
 
 
 def should_copy_file(file_path: Path, base_dir: Path, gitignore_patterns: list) -> bool:
@@ -276,38 +274,46 @@ def update_config_yaml(project_dir: Path, answers: dict):
         print("✅ config.yaml updated (Redis disabled)")
 
 
-def update_config_seed(project_dir: Path):
-    """Update config.yaml to set a random seed value for deterministic name generation."""
-    print("📝 Updating config.yaml (generating random seed)...")
+def update_config_seed(project_dir: Path, answers: dict):
+    """Set a deterministic seed in config.yaml derived from ``project_slug``.
 
+    The seed has to be stable across ``copier update`` runs: post-gen runs
+    three times during update (old-render temp, destination, new-render
+    temp), and a non-deterministic seed produces a different value in
+    each — copier then flags every update as a config.yaml conflict.
+    Deriving the seed from ``project_slug`` makes every render produce
+    the same value, so the file is byte-identical and merges cleanly.
+    """
     config_path = project_dir / "config.yaml"
-
     if not config_path.exists():
         print(f"⚠️  config.yaml not found at {config_path}")
         return
 
-    # Read the file
-    with open(config_path) as f:
-        content = f.read()
+    content = config_path.read_text()
+    match = re.search(r"^(  seed:\s*)(\d+)", content, flags=re.MULTILINE)
+    if match is None:
+        print("⚠️  config.yaml has no `config.seed` key; skipping")
+        return
 
-    # Generate a random 7-digit seed (matches existing format)
-    random_seed = random.randint(1000000, 9999999)
+    # 7-digit deterministic seed: SHA-1(project_slug) mod 9_000_000 + 1_000_000.
+    # Hash gives stable, well-distributed values; the modulo keeps it in
+    # the historical 7-digit range so existing consumers don't care.
+    import hashlib
 
-    # Replace the seed value using regex (no external dependencies needed)
-    content = re.sub(
-        r"(config:\s*\n\s*seed:\s*)\d+",
-        rf"\g<1>{random_seed}",
-        content,
-        flags=re.MULTILINE,
+    slug = answers.get("project_slug", "")
+    digest = hashlib.sha1(slug.encode("utf-8")).hexdigest()
+    seed = int(digest, 16) % 9_000_000 + 1_000_000
+
+    if int(match.group(2)) == seed:
+        # Already at the target value (subsequent post-gen runs).
+        return
+
+    print(f"📝 Updating config.yaml seed (deterministic from project_slug={slug})")
+    content = (
+        content[: match.start()] + match.group(1) + str(seed) + content[match.end() :]
     )
-
-    # Write atomically using temp file
-    temp_path = config_path.with_suffix(".tmp")
-    with open(temp_path, "w") as f:
-        f.write(content)
-    temp_path.replace(config_path)
-
-    print(f"✅ config.yaml updated (seed={random_seed})")
+    config_path.write_text(content)
+    print(f"✅ config.yaml updated (seed={seed})")
 
 
 def update_env_example(project_dir: Path, answers: dict):
@@ -705,7 +711,7 @@ def main():
     # Run setup steps
     try:
         # 1. Generate random seed for deterministic name generation
-        update_config_seed(project_dir)
+        update_config_seed(project_dir, answers)
 
         # 2. Ensure infra/secrets directory structure
         copy_infra_secrets(project_dir)

@@ -25,6 +25,7 @@ from .commands import (
     k8s_app,
     prod_app,
     secrets_app,
+    update_app,
     users_app,
     workflow_app,
 )
@@ -57,6 +58,7 @@ app.add_typer(entity_app, name="entity")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(activity_app, name="activity")
 app.add_typer(secrets_app, name="secrets")
+app.add_typer(update_app, name="update")
 app.add_typer(users_app, name="users")
 
 

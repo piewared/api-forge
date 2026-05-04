@@ -122,8 +122,16 @@ api-forge-cli dev down          # stop everything
 ### 4. Update later
 
 ```bash
-copier update    # pull template improvements; merges with your changes
+api-forge-cli update    # pull template improvements; merges with your changes
 ```
+
+Use `api-forge-cli update` rather than `copier update` directly. The
+template renames `src/` → `<package_name>/` after generation, which
+Copier doesn't know about; the wrapper handles the rename dance so
+Copier's three-way merge sees a tree shaped the way it expects, then
+restores the package layout afterwards. Net effect: template changes
+land as staged-but-uncommitted edits ready for `git diff --staged` and
+your usual review.
 
 ---
 

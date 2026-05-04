@@ -21,6 +21,7 @@ from .fly import fly_app
 from .k8s import k8s_app
 from .prod import prod_app
 from .secrets import secrets_app
+from .update import update_app
 from .users import users_app
 from .workflow import workflow_app
 
@@ -34,5 +35,6 @@ __all__ = [
     "workflow_app",
     "activity_app",
     "secrets_app",
+    "update_app",
     "users_app",
 ]

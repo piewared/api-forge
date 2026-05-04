@@ -176,6 +176,7 @@ api-forge-cli db revision -m "..."           # alembic autogenerate
 api-forge-cli db upgrade                     # apply migrations
 api-forge-cli secrets generate               # rotate signing/cookie keys
 api-forge-cli users create --email ...       # seed Keycloak (dev)
+api-forge-cli update                          # pull template improvements (use this, not raw `copier update`)
 
 api-forge-cli prod up           # production Docker Compose
 {% if include_k8s_deploy %}api-forge-cli k8s up            # deploy via Helm
@@ -388,6 +389,14 @@ while real ones fail.
 - **Don't catch exceptions in the router to mask domain errors.** Let the
   service raise typed domain exceptions; translate them to HTTP at the
   router boundary only.
+- **Don't run `copier update` directly.** Use `api-forge-cli update`
+  instead — the template renames `src/` → `{{ package_name }}/` after
+  generation, and Copier doesn't know about that rename. The wrapper
+  handles the round-trip so Copier's three-way merge sees the layout it
+  expects. Raw `copier update` produces a half-merged tree (Copier writes
+  to `src/`, the partial-recovery in `scripts/post_gen_setup.py` then
+  scatters `.template-update` files for hand-merging). The wrapper
+  refuses to run on a dirty working tree; commit or stash first.
 
 ## Where to read more
 
