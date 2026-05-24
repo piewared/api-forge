@@ -1,8 +1,8 @@
 import pytest
 import typer
 
-from src.cli.deployment.helm_deployer.image_builder import DeploymentError
 from src.cli.shared.console import with_error_handling
+from src.cli.shared.errors import DeploymentError
 
 
 def test_with_error_handling_handles_deployment_error():

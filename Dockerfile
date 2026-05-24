@@ -66,7 +66,7 @@ WORKDIR /app
 
 # Copy application code
 COPY --chown=appuser:appgroup src/ src/
-COPY --chown=appuser:appgroup src_main.py ./
+COPY --chown=appuser:appgroup main.py ./
 COPY --chown=appuser:appgroup config.yaml ./
 
 # Copy universal entrypoint script
@@ -101,4 +101,4 @@ RUN install -d -m 0700 -o appuser -g appgroup /app/keys && \
     install -d -m 0700 -o appuser -g appgroup /app/certs
 
 # Start application
-CMD ["uvicorn", "src_main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -52,7 +52,7 @@ uv sync
 uv run api-forge-cli deploy up dev
 
 # Run the application
-uvicorn src_main:app --reload
+uvicorn main:app --reload
 ```
 
 Visit http://localhost:8000/docs for interactive API documentation.
@@ -121,7 +121,7 @@ my-project/
 ├── k8s/                              # Kubernetes manifests
 ├── infra/                            # Infrastructure scripts and secrets
 ├── config.yaml                       # Application configuration
-├── src_main.py                       # Application entrypoint
+├── main.py                           # Application entrypoint
 └── pyproject.toml                    # Dependencies and tooling
 ```
 
@@ -216,7 +216,7 @@ API Forge includes a CLI for common development tasks:
 uv run api-forge-cli deploy up dev       # Start Docker services
 uv run api-forge-cli deploy down dev     # Stop services
 uv run api-forge-cli deploy status dev   # Check service status
-uvicorn src_main:app --reload           # Start FastAPI server
+uvicorn main:app --reload           # Start FastAPI server
 
 # Database migrations
 uv run api-forge-cli k8s db migrate upgrade             # Apply migrations

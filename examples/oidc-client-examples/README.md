@@ -185,7 +185,7 @@ Before running the examples, make sure to:
 1. **Start your API Forge backend**:
    ```bash
    uv run api-forge-cli deploy up dev
-   uvicorn src_main:app --reload
+   uvicorn main:app --reload
    ```
 
 2. **Configure your OIDC provider** (e.g., Google):

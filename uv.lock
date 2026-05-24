@@ -90,7 +90,7 @@ requires-dist = [
     { name = "cachetools", specifier = ">=5.3.3" },
     { name = "click", specifier = ">=8.2.1" },
     { name = "fastapi", specifier = ">=0.116.1" },
-    { name = "fastapi-limiter", specifier = ">=0.1.6" },
+    { name = "fastapi-limiter", specifier = ">=0.1.6,<0.2" },
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "kr8s", specifier = ">=0.20.14" },

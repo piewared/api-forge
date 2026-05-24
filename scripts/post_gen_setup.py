@@ -66,7 +66,11 @@ def update_pyproject_toml(project_dir: Path, answers: dict):
         print("  ⚙️  Removing Redis dependencies (use_redis=false)...")
         # Remove Redis and fastapi-limiter dependencies
         content = re.sub(r'\s+"redis\[hiredis\]>=[\d.]+",\n', "", content)
-        content = re.sub(r'\s+"fastapi-limiter>=[\d.]+",\n', "", content)
+        content = re.sub(
+            r'\s+(?:#[^\n]*\n\s+)*"fastapi-limiter>=[\d.]+(?:,<[\d.]+)?",\n',
+            "",
+            content,
+        )
         content = re.sub(r'\s+"aioredis>=[\d.]+",\n', "", content)
         print("  ✅ Redis dependencies removed")
 
@@ -230,7 +234,7 @@ def remove_redis_dependencies(project_dir: Path):
     # Remove all Redis-related dependencies
     redis_patterns = [
         r'\s+"redis\[hiredis\]>=[\d.]+",?\n',
-        r'\s+"fastapi-limiter>=[\d.]+",?\n',
+        r'\s+(?:#[^\n]*\n\s+)*"fastapi-limiter>=[\d.]+(?:,<[\d.]+)?",?\n',
         r'\s+"aioredis>=[\d.]+",?\n',
     ]
 

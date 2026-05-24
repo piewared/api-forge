@@ -29,7 +29,7 @@ uv run api-forge-cli deploy up dev
 uv run api-forge-cli deploy status dev
 
 # Start your FastAPI application
-uvicorn src_main:app --reload
+uvicorn main:app --reload
 ```
 
 Your FastAPI application will be available at http://localhost:8000 with automatic reload on code changes.
@@ -93,7 +93,7 @@ docker-compose -f docker-compose.dev.yml logs -f postgres
 ### Start FastAPI Server
 
 ```bash
-uvicorn src_main:app --reload
+uvicorn main:app --reload
 ```
 
 Starts your FastAPI application with:
@@ -287,7 +287,7 @@ CSRF_SIGNING_SECRET=dev-csrf-secret-change-in-production
 
 4. **Start FastAPI application**:
    ```bash
-   uvicorn src_main:app --reload
+   uvicorn main:app --reload
    ```
 
 5. **Make code changes** - FastAPI auto-reloads

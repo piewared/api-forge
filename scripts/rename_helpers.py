@@ -53,12 +53,6 @@ def _candidate_files(project_dir: Path) -> list[Path]:
         else:
             files.extend(project_dir.rglob(pattern))
 
-    # ``src_main.py`` is a single-file module sibling to the package; it
-    # references the package by name and needs the same treatment.
-    src_main = project_dir / "src_main.py"
-    if src_main.exists():
-        files.append(src_main)
-
     return files
 
 
@@ -74,8 +68,12 @@ def rewrite_package_references(
     Covers:
     - Python imports: ``from <frm>.x`` and ``import <frm>.x``.
     - Dotted module strings inside quotes: ``"<frm>.app.worker.main"``,
-      ``'<frm>.cli'`` (limited to a known top-level whitelist so we don't
-      eat unrelated ``.app``/``.cli`` package names users may have).
+      ``'<frm>.cli'`` (limited to the known top-level packages —
+      ``app``, ``cli``, ``dev``, ``infra``, ``utils``, ``worker`` — so we
+      don't eat unrelated subpackage names users may have). When adding a
+      new top-level package under ``src/``, extend this whitelist; the
+      generated project's tests will start failing with
+      ``ModuleNotFoundError: No module named 'src'`` otherwise.
     - Docker file paths: ``/app/<frm>/`` → ``/app/<to>/``.
     - Docker COPY commands: ``COPY <frm>/ <frm>/`` → ``COPY <to>/ <to>/``.
     """
@@ -94,12 +92,12 @@ def rewrite_package_references(
         content = re.sub(rf"\bfrom {frm_re}\.", f"from {to}.", content)
         content = re.sub(rf"\bimport {frm_re}\.", f"import {to}.", content)
         content = re.sub(
-            rf'"{frm_re}\.(app|cli|dev|utils|worker)',
+            rf'"{frm_re}\.(app|cli|dev|infra|utils|worker)',
             rf'"{to}.\1',
             content,
         )
         content = re.sub(
-            rf"'{frm_re}\.(app|cli|dev|utils|worker)",
+            rf"'{frm_re}\.(app|cli|dev|infra|utils|worker)",
             rf"'{to}.\1",
             content,
         )
