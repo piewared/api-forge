@@ -356,6 +356,66 @@ class TestNoFKS:
 
 
 # ---------------------------------------------------------------------------
+# Cross-cutting: post-gen rewriter must be idempotent on generated output.
+#
+# After ``copier copy`` + the ``_tasks`` hook, no ``src.<top-level>``
+# substring should remain anywhere in the generated tree — the rewriter
+# already swapped them all for ``<package_name>.<top-level>``. Running it
+# again with a different target name must therefore touch zero files.
+#
+# This catches the bug class behind issue D: a test fixture (or any file)
+# whose source contains literal ``from src.app`` / ``"src.cli`` substrings
+# that the *first* rewriter pass at post-gen rewrites — silently
+# invalidating the fixture's own assertions. Re-running here surfaces any
+# residual placeholder-prefixed substring as a non-zero ``fixed`` count.
+# ---------------------------------------------------------------------------
+
+
+class TestRewriterIdempotency:
+    """``rewrite_package_references`` must be a no-op on a generated project."""
+
+    @pytest.mark.parametrize(
+        "fixture_name",
+        [
+            "project_minimal",
+            "project_fly_only",
+            "project_k8s_only",
+            "project_kitchen_sink",
+        ],
+    )
+    def test_rewriter_is_noop_on_generated_project(
+        self, fixture_name: str, request: pytest.FixtureRequest
+    ) -> None:
+        """If any file in the generated project still carries a
+        ``src.<top-level>`` substring after generation, ``fixed`` will be
+        non-zero and the failing-file list will pinpoint the regression."""
+        # Import lazily so this test file imports cleanly even if the
+        # template's scripts/ dir layout changes.
+        import sys
+
+        scripts_dir = TEMPLATE_DIR / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from rename_helpers import rewrite_package_references  # noqa: PLC0415
+
+        project = request.getfixturevalue(fixture_name)
+
+        # Use a clearly-bogus target so any rewrite is obviously a bug, not a
+        # collision with the real package name.
+        fixed = rewrite_package_references(
+            project, frm="src", to="__SENTINEL_DO_NOT_MERGE__", verbose=False
+        )
+        assert fixed == 0, (
+            f"{fixed} file(s) in {fixture_name} still contained placeholder-"
+            f"prefixed substrings after generation — the post-gen rewriter "
+            f"missed them on the first pass, or a test fixture's own source "
+            f"contains literal placeholder substrings that the rewriter "
+            f"silently mangles. Inspect with: "
+            f"`git -C {project} diff` to see which files changed."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Import-time verification (slow)
 #
 # Static file-presence checks (above) catch toggle drift in the file layout
