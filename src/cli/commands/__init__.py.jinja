@@ -4,7 +4,7 @@ This package provides separate command groups for each deployment target
 (dev, prod{% if include_k8s_deploy %}, k8s{% endif %}{% if include_fly_deploy %}, fly{% endif %}) and utilities (entity, secrets, users).
 
 Command Groups:
-- dev: Development environment using Docker Compose
+- dev: Development environment using Docker Compose (includes 'dev db' subcommands)
 - prod: Production Docker Compose deployment (includes 'prod db' subcommands)
 {%- if include_k8s_deploy %}
 - k8s: Kubernetes deployment using Helm (includes 'k8s db' subcommands)

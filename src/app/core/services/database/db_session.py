@@ -8,7 +8,8 @@ from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session, create_engine
 
-from src.app.runtime.config.config_data import ConfigData
+from src.app.core.services.database.sqlite_pragmas import enforce_sqlite_foreign_keys
+from src.app.runtime.config.config_data import ConfigData, DatabaseConfig
 from src.app.runtime.context import get_config
 
 
@@ -26,11 +27,6 @@ class DbSessionService:
         )
         # Production-optimized engine configuration
         engine_kwargs = {
-            # Connection pool settings
-            "pool_size": db_config.pool_size,
-            "max_overflow": db_config.max_overflow,
-            "pool_timeout": db_config.pool_timeout,
-            "pool_recycle": db_config.pool_recycle,
             # Performance optimizations
             "pool_pre_ping": True,  # Validate connections before use
             "pool_reset_on_return": "commit",  # Auto-commit on connection return
@@ -40,25 +36,16 @@ class DbSessionService:
             "echo_pool": False,
             # Connection behavior
             "connect_args": self._get_connect_args(main_config),
+            **self._get_pool_kwargs(db_config),
         }
-
-        logger.info("Applying database-specific engine optimizations")
-        # Additional async pool settings for PostgreSQL
-        if "postgresql" in db_config.url:
-            engine_kwargs.update(
-                {
-                    # Async-specific optimizations
-                    "poolclass": None,  # Use default async pool
-                }
-            )
 
         logger.info(
             "Initializing database engine using connection string: {} and args {}",
             db_config.sanitized_connection_string,
             engine_kwargs,
         )
-        self._engine = create_engine(
-            main_config.database.connection_string, **engine_kwargs
+        self._engine = enforce_sqlite_foreign_keys(
+            create_engine(main_config.database.connection_string, **engine_kwargs)
         )
 
         # Log configuration for monitoring
@@ -73,11 +60,37 @@ class DbSessionService:
                 },
             )
 
-    def _get_connect_args(self, config: ConfigData) -> dict[str, Any]:
-        """Get database-specific connection arguments for optimization."""
-        connect_args = {}
+    def _get_pool_kwargs(self, db_config: DatabaseConfig) -> dict[str, Any]:
+        """Get connection-pool sizing arguments the target dialect accepts.
 
-        if "postgresql" in config.database.url:
+        SQLite selects a pool implementation based on the database it points
+        at, and the in-memory pool (``SingletonThreadPool``) rejects the
+        server-oriented sizing arguments outright — passing them raises
+        ``TypeError`` before the engine is ever built. SQLite is a local file
+        with a single writer, so pool sizing is meaningless for it regardless.
+        """
+        if db_config.is_sqlite:
+            return {}
+
+        return {
+            "pool_size": db_config.pool_size,
+            "max_overflow": db_config.max_overflow,
+            "pool_timeout": db_config.pool_timeout,
+            "pool_recycle": db_config.pool_recycle,
+        }
+
+    def _get_connect_args(self, config: ConfigData) -> dict[str, Any]:
+        """Get database-specific connection arguments for optimization.
+
+        Dispatches on the backend rather than searching the URL text: a
+        substring test matches anywhere in the string, so a password or
+        hostname containing "sqlite" or "postgresql" would select the wrong
+        branch.
+        """
+        connect_args = {}
+        backend = config.database.backend_name
+
+        if backend == "postgresql":
             # PostgreSQL-specific optimizations
             # Note: psycopg2 doesn't support 'server_settings' in connect_args.
             # Use 'options' parameter instead for server-side settings.
@@ -92,11 +105,13 @@ class DbSessionService:
                 }
             )
 
-        elif "sqlite" in config.database.url:
+        elif backend == "sqlite":
             # SQLite-specific optimizations
             connect_args.update(
                 {
-                    "check_same_thread": False,  # Required for async
+                    # SQLite pins a connection to its creating thread by
+                    # default; the app hands sessions to worker threads.
+                    "check_same_thread": False,
                     "timeout": 20,  # Lock timeout
                 }
             )

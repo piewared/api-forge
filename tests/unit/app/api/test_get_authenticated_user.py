@@ -280,19 +280,32 @@ class TestJWTAuthFailureModes:
         auth_client: TestClient,
         session: Session,
         jwt_verify_service: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Data integrity: an identity row points at a user_id that no longer
-        has a corresponding User row. The dep must surface this as 500, not
-        silently re-provision."""
+        """Data integrity: an identity row resolves to a user_id whose User row
+        cannot be read back. The dep must surface this as 500, not silently
+        re-provision.
+
+        The identity is persisted against a real user because ``user_id`` is a
+        NOT NULL foreign key — an orphan row is rejected by the database. The
+        lost-user condition this branch defends against (the user disappearing
+        between the identity lookup and the user fetch) is injected at the
+        repository instead.
+        """
+        owner = UserRepository(session).create(
+            User(first_name="Orphan", last_name="Owner", email="orphan@example.com")
+        )
         UserIdentityRepository(session).create(
             UserIdentity(
                 issuer="https://idp.test",
                 subject="orphan-subject",
                 uid_claim=None,
-                user_id="missing-user-id",
+                user_id=owner.id,
             )
         )
         session.commit()
+
+        monkeypatch.setattr(UserRepository, "get", lambda self, entity_id: None)
 
         jwt_verify_service.verify_jwt.return_value = _make_claims(
             subject="orphan-subject"

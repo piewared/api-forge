@@ -522,7 +522,9 @@ def remove_postgres_dependencies(project_dir: Path):
     if config_path.exists():
         content = config_path.read_text()
         content = re.sub(
-            r'(\bdatabase:\s*\n\s*url:\s*")\$\{DATABASE_URL:-postgresql\+asyncpg://[^}]+\}',
+            # Tolerate any postgres driver qualifier (postgresql, +psycopg2,
+            # +asyncpg) so this keeps matching if the default driver changes.
+            r'(\bdatabase:\s*\n\s*url:\s*")\$\{DATABASE_URL:-postgresql(?:\+\w+)?://[^}]+\}',
             r"\1${DATABASE_URL:-sqlite:///./database.db}",
             content,
         )

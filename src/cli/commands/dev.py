@@ -9,12 +9,14 @@ Commands:
     status  - Show status of development services
     logs    - View logs from a service
     restart - Restart a specific service
+    db      - Development database schema management
 """
 
 import subprocess
 
 import typer
 
+from src.cli.commands.dev_db import dev_db_app
 from src.cli.deployment.runtime import get_dev_runtime
 from src.cli.shared.console import console, with_error_handling
 
@@ -24,6 +26,8 @@ app = typer.Typer(
     help="🔧 Development environment commands (Docker Compose)",
     no_args_is_help=True,
 )
+
+app.add_typer(dev_db_app, name="db")
 
 
 # =============================================================================

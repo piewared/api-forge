@@ -6,12 +6,30 @@ from typing import Any
 import pytest
 from fastapi import Response
 from sqlalchemy import StaticPool
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
 from starlette.requests import Request
 
+from src.app.core.services.database.sqlite_pragmas import enforce_sqlite_foreign_keys
 from tests.utils import oct_jwk
 
 # Models will be imported within fixtures to control timing
+
+
+def _create_test_engine() -> Engine:
+    """Build an in-memory SQLite engine that mirrors production FK behavior.
+
+    Without the foreign-key pragma, SQLite accepts referential-integrity
+    violations that PostgreSQL rejects, letting FK-ordering bugs pass the whole
+    unit suite and surface only in a real deployment.
+    """
+    return enforce_sqlite_foreign_keys(
+        create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    )
 
 
 _HS_KEY = b"router-secret-key"
@@ -92,11 +110,7 @@ def response_factory() -> Callable[[], Any]:
 def persistent_session() -> Generator[Session]:
     """Create a persistent database session for session-scoped testing."""
     # Create engine first
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    engine = _create_test_engine()
 
     # Import models to register them with the metadata
     from src.app.entities.core.user import UserTable  # noqa: F401
@@ -113,11 +127,7 @@ def persistent_session() -> Generator[Session]:
 def session() -> Generator[Session]:
     """Create a fresh database session for testing."""
     # Create a unique engine for each test to avoid metadata conflicts
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    engine = _create_test_engine()
 
     # Import models to register them with the metadata
     # This needs to happen after engine creation but before table creation

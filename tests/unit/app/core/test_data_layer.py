@@ -252,6 +252,12 @@ class TestUserIdentityTable:
 
     def test_user_identity_table_creation(self, session: Session):
         """Test creating user identity table records."""
+        # user_id is a NOT NULL foreign key — the owning user must exist.
+        session.add(
+            UserTable(id="db-user-uuid-123", first_name="Db", last_name="Owner")
+        )
+        session.commit()
+
         identity_table = UserIdentityTable(
             id="test-id",
             issuer="https://db.auth.example.com",
@@ -271,6 +277,12 @@ class TestUserIdentityTable:
 
     def test_user_identity_table_unique_constraints(self, session: Session):
         """Test unique constraints on user identity table."""
+        # Both identities reference real users so the commit fails on the
+        # uniqueness constraint under test, not on the foreign key.
+        session.add(UserTable(id="user-uuid-123", first_name="A", last_name="One"))
+        session.add(UserTable(id="user-uuid-456", first_name="B", last_name="Two"))
+        session.commit()
+
         # Create first identity
         identity1 = UserIdentityTable(
             id="user1-id",
@@ -307,13 +319,27 @@ class TestUserIdentityRepository:
         """User identity repository instance."""
         return UserIdentityRepository(session)
 
-    def test_create_user_identity(self, identity_repo: UserIdentityRepository):
+    @pytest.fixture
+    def owner(self, session: Session) -> User:
+        """The user every identity in this class hangs off.
+
+        UserIdentity.user_id is a NOT NULL foreign key, so an identity without
+        an owning user is unrepresentable — in SQLite only when the foreign-key
+        pragma is on, and in PostgreSQL always.
+        """
+        return UserRepository(session).create(
+            User(first_name="Identity", last_name="Owner", email="owner@example.com")
+        )
+
+    def test_create_user_identity(
+        self, identity_repo: UserIdentityRepository, owner: User
+    ):
         """Test creating user identity through repository."""
         identity = UserIdentity(
             issuer="https://repo.auth.example.com",
             subject="repo-user-123",
             uid_claim="repo.auth.example.com|repo-user-123",
-            user_id="repo-user-uuid-123",
+            user_id=owner.id,
         )
 
         created_identity = identity_repo.create(identity)
@@ -322,13 +348,13 @@ class TestUserIdentityRepository:
         assert created_identity.issuer == "https://repo.auth.example.com"
         assert created_identity.subject == "repo-user-123"
 
-    def test_get_by_uid(self, identity_repo: UserIdentityRepository):
+    def test_get_by_uid(self, identity_repo: UserIdentityRepository, owner: User):
         """Test retrieving user identity by UID claim."""
         identity = UserIdentity(
             issuer="https://uid.auth.example.com",
             subject="uid-user-123",
             uid_claim="uid.auth.example.com|uid-user-123",
-            user_id="uid-user-uuid-123",
+            user_id=owner.id,
         )
         identity_repo.create(identity)
 
@@ -346,13 +372,15 @@ class TestUserIdentityRepository:
         result = identity_repo.get_by_uid("nonexistent-uid")
         assert result is None
 
-    def test_get_by_issuer_subject(self, identity_repo: UserIdentityRepository):
+    def test_get_by_issuer_subject(
+        self, identity_repo: UserIdentityRepository, owner: User
+    ):
         """Test retrieving user identity by issuer and subject."""
         identity = UserIdentity(
             issuer="https://issuer.auth.example.com",
             subject="issuer-user-123",
             uid_claim=None,  # No UID claim
-            user_id="issuer-user-uuid-123",
+            user_id=owner.id,
         )
         identity_repo.create(identity)
 

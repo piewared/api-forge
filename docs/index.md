@@ -73,6 +73,7 @@ Visit http://localhost:8000/docs for interactive API documentation.
 
 - **[Clean Architecture Overview](./fastapi-clean-architecture-overview.md)** - Entities, repositories, services, and API layers
 - **[Temporal Workflows](./fastapi-temporal-workflows.md)** - Background jobs and distributed workflows
+- **[Design decisions](./design/index.md)** - Architectural rationale: why the code is shaped the way it is
 
 ### Deployment
 

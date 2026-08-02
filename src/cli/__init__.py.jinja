@@ -5,7 +5,7 @@ Commands are organized by deployment target (dev, prod{% if include_k8s_deploy %
 rather than by operation type (up, down, status).
 
 Command Groups:
-- dev: Development Docker Compose environment
+- dev: Development Docker Compose environment (includes 'dev db' subcommands)
 - prod: Production Docker Compose deployment (includes 'prod db' subcommands)
 {%- if include_k8s_deploy %}
 - k8s: Kubernetes Helm deployment (includes 'k8s db' subcommands)

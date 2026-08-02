@@ -108,8 +108,8 @@ This additionally:
 {% endif %}**Step 2.** Generate a migration if persistence changed:
 
 ```bash
-api-forge-cli db revision -m "add widget"
-api-forge-cli db upgrade
+api-forge-cli dev db migrate revision -m "add widget"
+api-forge-cli dev db migrate upgrade
 ```
 
 Alembic's `env.py` calls `entities.loader.get_metadata()`, which walks every
@@ -172,10 +172,11 @@ api-forge-cli workflow add <WfName>         # standalone workflow (cross-entity)
 api-forge-cli activity add <name>           # standalone activity
 {% endif %}
 api-forge-cli config validate                # validate config.yaml + env
-api-forge-cli db revision -m "..."           # alembic autogenerate
-api-forge-cli db upgrade                     # apply migrations
+api-forge-cli dev db migrate revision -m "..."  # alembic autogenerate
+api-forge-cli dev db migrate upgrade            # apply migrations
+api-forge-cli dev db url                        # show the resolved dev DB URL
 api-forge-cli secrets generate               # rotate signing/cookie keys
-api-forge-cli users create --email ...       # seed Keycloak (dev)
+api-forge-cli users add <username> -e <email> -p <password>   # seed Keycloak (dev)
 api-forge-cli update                          # pull template improvements (use this, not raw `copier update`)
 
 api-forge-cli prod up           # production Docker Compose

@@ -19,7 +19,33 @@ API Forge uses **Alembic** for database schema migrations with automatic model d
 - **`migrations/env.py`** - Migration environment with dynamic model discovery
 - **`migrations/versions/`** - Individual migration scripts
 - **`src/app/entities/loader.py`** - Dynamic table discovery using `SQLModel.metadata`
-- **CLI commands** - `uv run api-forge-cli k8s db migrate ...`
+- **CLI commands** - `uv run api-forge-cli <target> db migrate ...`
+
+### Choosing a command group
+
+The `db migrate` surface is identical across deployment targets; only the
+target prefix changes, because each resolves a different database:
+
+| Target | Command prefix | Available when |
+|--------|----------------|----------------|
+| Local development | `api-forge-cli dev db migrate` | always |
+| Docker Compose (prod) | `api-forge-cli prod db migrate` | always |
+| Kubernetes | `api-forge-cli k8s db migrate` | `include_k8s_deploy=yes` |
+| Fly.io | `api-forge-cli fly db migrate` | `include_fly_deploy=yes` |
+
+The examples below use `k8s`. If your project was generated with the default
+deployment toggles (both off), substitute `dev` for local work — it resolves
+the `development` database straight from `config.yaml`, so you never need to
+build a `DATABASE_URL` by hand:
+
+```bash
+uv run api-forge-cli dev db url                       # confirm the target DB
+uv run api-forge-cli dev db migrate revision -m "add widget"
+uv run api-forge-cli dev db migrate upgrade
+```
+
+Unlike the deployment targets, `dev db` deliberately offers no role, backup,
+or reset workflows — the development database is expected to be disposable.
 
 ### How It Works
 

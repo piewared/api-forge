@@ -10,7 +10,10 @@ config:
     per_endpoint: true
     per_method: true
   database:
-    url: "${DATABASE_URL:-postgresql+asyncpg://appuser@postgres:5432/appdb}"
+    # psycopg2 (SQLAlchemy's default postgresql driver). The application uses
+    # synchronous SQLAlchemy/SQLModel sessions, so an async driver such as
+    # +asyncpg will not load here.
+    url: "${DATABASE_URL:-postgresql://appuser@postgres:5432/appdb}"
     pg_superuser: "${PG_SUPERUSER:-postgres}"
     pg_db: "${PG_DB:-postgres}"
     app_db: "${APP_DB:-appdb}"

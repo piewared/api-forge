@@ -57,7 +57,7 @@ def parse_service_defaults(
 
     temporal_default = _extract_default("TEMPORAL_URL")  # "temporal:7233"
     redis_default = _extract_default("REDIS_URL")  # "redis://localhost:6379"
-    db_default = _extract_default("DATABASE_URL")  # "postgresql+asyncpg://..."
+    db_default = _extract_default("DATABASE_URL")  # "postgresql://..."
 
     # Parse Temporal (bare host:port)
     t_host, _, t_port = temporal_default.partition(":")

@@ -172,6 +172,53 @@ class KeycloakClient:
 
         return bool(response.status_code == 204)
 
+    # Protocol Mappers
+    def get_protocol_mappers(
+        self, realm_name: str, client_uuid: str
+    ) -> list[dict[str, Any]]:
+        """Get the protocol mappers configured on a client.
+
+        Args:
+            realm_name: Name of the realm
+            client_uuid: UUID of the client
+
+        Returns:
+            List of protocol mapper configurations
+        """
+        url = urljoin(
+            self.base_url,
+            f"/admin/realms/{realm_name}/clients/{client_uuid}/protocol-mappers/models",
+        )
+
+        response = requests.get(url, headers=self._get_headers(), timeout=self.timeout)
+        response.raise_for_status()
+
+        return cast(list[dict[str, Any]], response.json())
+
+    def create_protocol_mapper(
+        self, realm_name: str, client_uuid: str, mapper_config: dict[str, Any]
+    ) -> bool:
+        """Add a protocol mapper to a client.
+
+        Args:
+            realm_name: Name of the realm
+            client_uuid: UUID of the client
+            mapper_config: Protocol mapper configuration dictionary
+
+        Returns:
+            True if created successfully, False otherwise
+        """
+        url = urljoin(
+            self.base_url,
+            f"/admin/realms/{realm_name}/clients/{client_uuid}/protocol-mappers/models",
+        )
+
+        response = requests.post(
+            url, json=mapper_config, headers=self._get_headers(), timeout=self.timeout
+        )
+
+        return bool(response.status_code == 201)
+
     # User Management
     def get_users(
         self, realm_name: str, username: str | None = None, limit: int = 100

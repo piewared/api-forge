@@ -519,7 +519,10 @@ class DatabaseConfig(_ConfigBase):
     """Database configuration model."""
 
     url: str = Field(
-        default="postgresql+asyncpg://user:password@postgres:5432/app_db",
+        # The application uses synchronous SQLAlchemy/SQLModel sessions, so
+        # the driver must be a sync DBAPI. Bare "postgresql" resolves to
+        # psycopg2, which is the declared dependency.
+        default="postgresql://user:password@postgres:5432/app_db",
         description="Database connection URL",
     )
     pg_superuser: str = Field(
@@ -659,10 +662,47 @@ class DatabaseConfig(_ConfigBase):
 
         return password
 
+    @property
+    def backend_name(self) -> str:
+        """The database backend, with any driver qualifier stripped.
+
+        ``postgresql+psycopg2`` -> ``postgresql``, ``sqlite+aiosqlite`` ->
+        ``sqlite``. Dialect decisions must key off this rather than the raw
+        drivername, which varies with the configured driver.
+        """
+        return self.parsed_url.get_backend_name()
+
+    @property
+    def is_sqlite(self) -> bool:
+        """Whether the configured database is SQLite."""
+        return self.backend_name == "sqlite"
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def connection_string(self) -> str:
         """Construct the database connection string with password if provided."""
+        if self.is_sqlite:
+            return self._sqlite_connection_string()
+
+        return self._postgres_connection_string()
+
+    def _sqlite_connection_string(self) -> str:
+        """Return the SQLite URL unchanged.
+
+        SQLite is a local file: it has no user, password, host, or port, and
+        its "database" is a filesystem path rather than a named database on a
+        server. The ``user``/``app_db``/password reconciliation and the
+        ``search_path`` option below are PostgreSQL concepts — applying them
+        here produced strings like ``postgresql://user@None:None/app_db``,
+        which cannot even be parsed into an engine.
+
+        The configured URL is already a valid SQLAlchemy URL, so it is passed
+        through verbatim, preserving any driver suffix and query parameters.
+        """
+        return self.url
+
+    def _postgres_connection_string(self) -> str:
+        """Build a PostgreSQL connection string with credentials resolved."""
         base_url = self.parsed_url
 
         if self.password and base_url.password != self.password:
@@ -683,6 +723,11 @@ class DatabaseConfig(_ConfigBase):
             )
             base_url = base_url.set(username=self.user)
 
+        # Preserve the configured driver (e.g. postgresql+psycopg2). The
+        # driver is the caller's explicit choice of DBAPI; rewriting it to a
+        # bare "postgresql://" silently swaps in SQLAlchemy's default driver.
+        scheme = base_url.drivername
+
         # URL-encode password to handle special characters
         if base_url.password:
             from urllib.parse import quote_plus
@@ -691,10 +736,10 @@ class DatabaseConfig(_ConfigBase):
             encoded_password = quote_plus(password_to_encode)
 
             # Build base connection string
-            conn_str = f"postgresql://{base_url.username}:{encoded_password}@{base_url.host}:{base_url.port}/{base_url.database}"
+            conn_str = f"{scheme}://{base_url.username}:{encoded_password}@{base_url.host}:{base_url.port}/{base_url.database}"
         else:
             # Build connection string without password
-            conn_str = f"postgresql://{base_url.username}@{base_url.host}:{base_url.port}/{base_url.database}"
+            conn_str = f"{scheme}://{base_url.username}@{base_url.host}:{base_url.port}/{base_url.database}"
 
         # Preserve existing query parameters from original URL
         if base_url.query:
@@ -704,11 +749,13 @@ class DatabaseConfig(_ConfigBase):
             existing_params = dict(base_url.query)
             conn_str += "?" + urlencode(existing_params)
 
-        # Add search_path=app ONLY for PostgreSQL in production mode
-        if self.environment_mode == "production" and base_url.drivername in (
-            "postgresql",
-            "postgres",
-        ):
+        # Add search_path=app ONLY for PostgreSQL in production mode.
+        # Keyed off the backend rather than the drivername: a driver-qualified
+        # URL such as "postgresql+psycopg2" is still PostgreSQL, and matching
+        # the raw drivername silently skipped this for every such config.
+        # "postgresql" is the only spelling SQLAlchemy 2.0 accepts — the legacy
+        # "postgres" alias was removed and cannot resolve to a dialect at all.
+        if self.environment_mode == "production" and self.backend_name == "postgresql":
             # Use & if query params already exist, otherwise ?
             separator = "&" if base_url.query else "?"
             conn_str += f"{separator}options=-csearch_path%3Dapp"

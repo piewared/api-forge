@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Keycloak setup script for development environment."""
 
+import os
 import sys
 import time
 from typing import Any, cast
@@ -8,6 +9,38 @@ from typing import Any, cast
 import requests  # type: ignore[import-untyped]
 
 from .keycloak_client import KeycloakClient
+
+# Keycloak puts only "account" in the `aud` claim of an access token unless the
+# client is given an audience mapper. The API validates `aud` against
+# config.jwt.audiences (config.yaml -> "${JWT_AUDIENCE:-api://default}"), so
+# without this mapper the dev realm mints tokens its own API rejects and the
+# Bearer-JWT path cannot be exercised at all.
+#
+# Read from the same environment variable config.yaml interpolates so the realm
+# and the API stay aligned when an operator overrides the default.
+DEFAULT_API_AUDIENCE = "api://default"
+AUDIENCE_MAPPER_NAME = "api-audience"
+
+
+def get_api_audience() -> str:
+    """Return the audience the API expects in incoming access tokens."""
+    return os.environ.get("JWT_AUDIENCE") or DEFAULT_API_AUDIENCE
+
+
+def build_audience_mapper(audience: str) -> dict[str, Any]:
+    """Build the protocol mapper that stamps `audience` into the access token."""
+    return {
+        "name": AUDIENCE_MAPPER_NAME,
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-audience-mapper",
+        "consentRequired": False,
+        "config": {
+            "included.custom.audience": audience,
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+        },
+    }
 
 
 class KeycloakSetup:
@@ -115,6 +148,38 @@ class KeycloakSetup:
         else:
             print(f"❌ Failed to create client '{client_id}'")
             sys.exit(1)
+
+    def ensure_audience_mapper(
+        self, realm_name: str = "test-realm", client_id: str = "test-client"
+    ) -> None:
+        """Ensure the client stamps the API's expected audience into its tokens.
+
+        Runs for both freshly created and pre-existing clients so realms seeded
+        by an earlier version of this script are repaired in place. Idempotent:
+        the mapper is only added when absent.
+
+        Args:
+            realm_name: Name of the realm
+            client_id: ID of the client
+        """
+        client = self.client.get_client_by_id(realm_name, client_id)
+        if not client:
+            print(f"❌ Cannot add audience mapper: client '{client_id}' not found")
+            return
+
+        audience = get_api_audience()
+        mappers = self.client.get_protocol_mappers(realm_name, client["id"])
+
+        if any(mapper.get("name") == AUDIENCE_MAPPER_NAME for mapper in mappers):
+            print(f"✅ Audience mapper already present (aud '{audience}')")
+            return
+
+        if self.client.create_protocol_mapper(
+            realm_name, client["id"], build_audience_mapper(audience)
+        ):
+            print(f"✅ Added audience mapper (aud '{audience}')")
+        else:
+            print(f"❌ Failed to add audience mapper for '{audience}'")
 
     def set_client_secret(self, realm_name: str, client_uuid: str, secret: str) -> None:
         """Set the secret for a client.
@@ -235,6 +300,7 @@ class KeycloakSetup:
             f"OIDC_DEFAULT_END_SESSION_ENDPOINT={self.base_url}/realms/{realm_name}/protocol/openid-connect/logout"
         )
         print("OIDC_DEFAULT_REDIRECT_URI=http://localhost:8000/auth/web/callback")
+        print(f"JWT_AUDIENCE={get_api_audience()}")
         print("=" * 60)
 
     def setup_all(self) -> None:
@@ -248,6 +314,9 @@ class KeycloakSetup:
 
             print("📱 Creating test client...")
             self.create_client()
+
+            print("🎯 Ensuring audience mapper...")
+            self.ensure_audience_mapper()
 
             print("👥 Creating test users...")
             self.create_test_users()
