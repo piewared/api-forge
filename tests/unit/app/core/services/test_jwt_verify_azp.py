@@ -175,6 +175,37 @@ class TestMultiAudienceAzp:
         assert "Missing azp for multi-audience token" in exc.value.detail
 
 
+class TestGeneratorVerifierRoundTrip:
+    """The generator and the verifier must agree on a spec-shaped token.
+
+    Before the azp fixes these two disagreed: the generator could only emit
+    ``azp == aud[0]``, and the verifier only accepted that same shape — so the
+    pair was self-consistent but rejected every real IdP's tokens.
+    """
+
+    async def test_token_minted_with_an_explicit_client_azp_verifies(
+        self,
+        jwt_generate_service: Any,
+        jwt_verify_service: JwtVerificationService,
+        config: ConfigData,
+        secret_for_jwt_generation: str,
+        kid_for_jwt: str,
+    ) -> None:
+        with with_context(config_override=config):
+            token = jwt_generate_service.generate_jwt(
+                subject="keycloak-user-123",
+                issuer=_ISSUER,
+                audience=[_API_AUDIENCE, "account"],
+                azp=_CLIENT_ID,
+                secret=secret_for_jwt_generation,
+                kid=kid_for_jwt,
+            )
+
+        claims = await _verify(jwt_verify_service, config, token)
+
+        assert claims.subject == "keycloak-user-123"
+
+
 class TestSingleAudienceAzpUnchanged:
     async def test_client_id_azp_verifies(
         self,

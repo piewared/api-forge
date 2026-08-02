@@ -20,6 +20,7 @@ class JwtGeneratorService:
         valid_after_seconds: int = 0,
         issuer: str | None = None,
         audience: str | list[str] | None = None,
+        azp: str | None = None,
         algorithm: str = "HS256",
         include_jti: bool = True,
         secret: str | None = None,
@@ -34,6 +35,10 @@ class JwtGeneratorService:
             valid_after_seconds: Time in seconds before the token is valid (default: 0)
             issuer: Issuer (iss) claim (defaults to config issuer)
             audience: Audience (aud) claim (defaults to config audiences)
+            azp: Authorized party (azp) claim — the client id the token was
+                issued to. Takes precedence over an ``azp`` in ``claims``.
+                When omitted, multi-audience tokens fall back to the primary
+                audience for compatibility; see the note where it is resolved.
             algorithm: Signing algorithm (default: HS256)
             include_jti: Whether to include a unique JWT ID claim (default: True)
             secret: Optional secret key for signing. If None, will use config secret.
@@ -77,11 +82,28 @@ class JwtGeneratorService:
         # Build the audience claim. If audience is not specified, use config audiences
         aud = audience or config.jwt.audiences or ["api"]
 
-        # If audience is a list with multiple entries, make sure to include an authorized party (azp) claim
-        if isinstance(aud, list) and len(aud) > 1:
-            if claims is None:
-                claims = {}
-            claims["azp"] = aud[0]  # Authorized party is the first audience
+        # Resolve the authorized party. Precedence: the explicit argument, then
+        # an ``azp`` supplied through ``claims`` (how the token helpers route it
+        # from ``**extra_claims``), then a fallback for multi-audience tokens.
+        resolved_azp = azp if azp is not None else (claims or {}).get("azp")
+
+        if resolved_azp is None and isinstance(aud, list) and len(aud) > 1:
+            # OIDC Core 3.1.3.7 says azp SHOULD be present once aud holds more
+            # than one entry, and this service has no client id of its own to
+            # name there. Fall back to the primary audience so the token stays
+            # verifiable rather than emitting none at all.
+            #
+            # This is a compatibility default, not the specification's meaning:
+            # azp identifies the *client* the token was issued to, which is
+            # normally not an audience member. Callers minting a token for a
+            # specific client should pass ``azp`` explicitly.
+            resolved_azp = aud[0]
+            logger.debug(
+                "No azp supplied for multi-audience token; defaulting to the "
+                "primary audience {!r}. Pass azp explicitly to name the "
+                "authorized party.",
+                resolved_azp,
+            )
 
         payload = {
             "iss": issuer or f"api-{config.app.environment}",
@@ -96,14 +118,19 @@ class JwtGeneratorService:
         if include_jti:
             payload["jti"] = generate_token(16)  # Use authlib's secure token generator
 
-        # Add custom claims (filter out standard JWT claims to avoid conflicts)
+        # Add custom claims (filter out standard JWT claims to avoid conflicts).
+        # ``azp`` is excluded here and set below so the explicit argument keeps
+        # precedence over a value passed through ``claims``.
         if claims:
             filtered_claims = {
                 k: v
                 for k, v in claims.items()
-                if k not in {"iss", "sub", "aud", "exp", "iat", "nbf", "jti"}
+                if k not in {"iss", "sub", "aud", "exp", "iat", "nbf", "jti", "azp"}
             }
             payload.update(filtered_claims)
+
+        if resolved_azp is not None:
+            payload["azp"] = resolved_azp
 
         try:
             # Use authlib's JWT encoding with proper header
