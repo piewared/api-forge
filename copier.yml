@@ -238,4 +238,14 @@ license:
 # Tasks to run after generation
 _tasks:
   # Post-generation setup (edits pyproject.toml, renames src, copies infrastructure)
-  - "python3 scripts/post_gen_setup.py ."
+  #
+  #
+  # The operation is passed through so the script can skip the package rename
+  # during `copier update`. Copier renders the old and new template versions
+  # into its own temporary reference copies and runs tasks in each of them, as
+  # well as in the destination. Renaming there would leave the reference copies
+  # under `<package_name>/` while the destination is still `src/`, so every
+  # hunk touching the package tree would silently fail to apply and the whole
+  # application diff would be dropped. `api-forge-cli update` owns the rename
+  # for that path. The remaining steps are idempotent and still run on update.
+  - "python3 scripts/post_gen_setup.py . {{ _copier_operation }}"

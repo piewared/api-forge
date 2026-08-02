@@ -74,8 +74,19 @@ def rewrite_package_references(
       new top-level package under ``src/``, extend this whitelist; the
       generated project's tests will start failing with
       ``ModuleNotFoundError: No module named 'src'`` otherwise.
-    - Docker file paths: ``/app/<frm>/`` → ``/app/<to>/``.
+    - Docker container paths: ``/app/<frm>`` → ``/app/<to>``, whether or not a
+      trailing slash follows. ``/app/<frm>:ro`` (a bind-mount target) and
+      ``"/app/<frm>"`` (a ``sys.path`` entry) both occur in the template.
+    - Relative host paths: ``./<frm>`` and ``../../../<frm>`` → the same
+      prefix with ``<to>``. These are the *host* side of Compose bind mounts;
+      missing them leaves a mount pointing at a directory that no longer
+      exists, which Docker then silently re-creates as an empty root-owned
+      tree. Anchored to an explicit ``./``/``../`` prefix so unrelated
+      absolute paths (``/usr/<frm>``) are never touched.
     - Docker COPY commands: ``COPY <frm>/ <frm>/`` → ``COPY <to>/ <to>/``.
+
+    Path rules use a ``(?![\\w-])`` boundary so ``<frm>`` only matches a whole
+    path segment — ``/app/source`` and ``./srcfoo`` are left alone.
     """
     frm_re = re.escape(frm)
     fixed = 0
@@ -101,7 +112,15 @@ def rewrite_package_references(
             rf"'{to}.\1",
             content,
         )
-        content = re.sub(rf"/app/{frm_re}/", f"/app/{to}/", content)
+        # Container-side absolute paths. The boundary (rather than a required
+        # trailing slash) is what catches "/app/<frm>:ro" and '"/app/<frm>"'.
+        content = re.sub(rf"/app/{frm_re}(?![\w-])", f"/app/{to}", content)
+        # Host-side relative paths in Compose bind mounts.
+        content = re.sub(
+            rf"((?:\.\./)+|\./){frm_re}(?![\w-])",
+            rf"\1{to}",
+            content,
+        )
         content = re.sub(
             rf"COPY(\s+--chown=\S+)?\s+{frm_re}/\s+{frm_re}/",
             rf"COPY\1 {to}/ {to}/",

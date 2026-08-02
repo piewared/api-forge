@@ -680,12 +680,29 @@ def main():
 
     project_dir = Path(sys.argv[1]).resolve()
 
+    # Copier passes its operation ("copy" or "update"). During an update,
+    # Copier renders the old and new template versions into temporary
+    # reference copies and runs tasks in each, as well as in the destination.
+    # The package rename is a destructive structural change, so running it
+    # there would leave the reference copies under <package_name>/ while the
+    # destination is still src/ — every hunk touching the package tree would
+    # then fail to apply and the whole application diff would be silently
+    # dropped. `api-forge-cli update` owns the rename for that path.
+    #
+    # Everything else here (toggle-based stripping of disabled features,
+    # pyproject edits, seed generation) is idempotent and *must* still run on
+    # update, so newly merged template content is trimmed to the project's
+    # answers rather than arriving as conflicts.
+    operation = sys.argv[2] if len(sys.argv) > 2 else "copy"
+    rename_package = operation == "copy"
+
     if not project_dir.exists():
         print(f"❌ Error: Project directory does not exist: {project_dir}")
         sys.exit(1)
 
     print("🔧 Running post-generation setup...")
     print(f"📁 Project directory: {project_dir}")
+    print(f"📝 Copier operation: {operation}")
 
     # Load copier answers
     answers_file = project_dir / ".copier-answers.yml"
@@ -722,13 +739,15 @@ def main():
         # 2. Ensure infra/secrets directory structure
         copy_infra_secrets(project_dir)
 
-        # 3. Rename package directory
-        rename_package_directory(project_dir, package_name)
-
-        # 3. Fix ALL 'src.' references throughout the project
-        #    This replaces the old fragile approach of targeting specific files
-        #    Now handles: Python imports, Docker commands, YAML configs, file paths, etc.
-        fix_all_src_references(project_dir, package_name)
+        # 3. Rename package directory and fix ALL 'src.' references throughout
+        #    the project: Python imports, Docker commands, YAML configs, file
+        #    paths, etc. Skipped during `copier update` — see the note in
+        #    main() above; the update wrapper performs both steps itself.
+        if rename_package:
+            rename_package_directory(project_dir, package_name)
+            fix_all_src_references(project_dir, package_name)
+        else:
+            print("⏭️  Skipping package rename/rewrite (copier update)")
 
         # 4. Update pyproject.toml
         update_pyproject_toml(project_dir, answers)

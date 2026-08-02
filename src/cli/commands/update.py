@@ -11,11 +11,30 @@ template into a fresh ``src/`` next to the user's renamed package and
 leaves the project in a half-merged state.
 
 This wrapper does the dance: it temporarily un-renames the package,
-reverse-rewrites the imports, runs ``copier update``, and lets the
-existing post-gen tasks rename + rewrite back. From Copier's perspective
-the working tree looks like a normal post-render checkout, so its
-three-way merge has the right inputs and ``.rej`` files / inline
-conflict markers only appear for genuine conflicts.
+reverse-rewrites the imports, runs ``copier update``, then renames and
+rewrites back itself. From Copier's perspective the working tree looks
+like a normal post-render checkout, so its three-way merge has the right
+inputs and ``.rej`` files / inline conflict markers only appear for
+genuine conflicts.
+
+Why the wrapper owns the rename
+-------------------------------
+``copier update`` renders the old and new template versions into its own
+temporary reference copies and runs ``_tasks`` in each of them, as well as
+in the destination. The post-gen task therefore *cannot* perform the
+rename during an update: the reference copies would end up under
+``<package_name>/`` while the destination is still ``src/``, so Copier's
+computed diff would be expressed in paths the destination does not have.
+Every hunk touching the application tree then silently fails to apply and
+the entire ``src/`` diff is lost, while non-package files (``config.yaml``,
+``docs/``, ``tests/``) update normally — a partial update that looks like
+a success.
+
+``copier.yml`` passes ``_copier_operation`` to ``post_gen_setup.py``, which
+skips the rename when it is ``update``. Its remaining steps (stripping
+disabled features, pyproject edits) are idempotent and still run, so newly
+merged template content is trimmed to the project's answers instead of
+arriving as conflicts.
 
 Workflow detail
 ---------------
@@ -30,12 +49,14 @@ Pre-flight refuses if:
 - there's no ``.copier-answers.yml`` (not a Copier project);
 - the destination isn't a git repo (Copier needs git for the merge);
 - the working tree is dirty (the rename + rewrite is destructive);
-- a stray ``src/`` already exists alongside the package (probably a
-  previous interrupted run that needs manual cleanup).
+- a stray ``src/`` already exists alongside the package (most often a
+  running container whose bind mount re-creates it, otherwise a previous
+  interrupted run).
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -105,6 +126,24 @@ def _git(
         capture_output=capture,
         text=True,
     )
+
+
+_CONFLICT_MARKER = re.compile(r"^<{7} ", re.MULTILINE)
+
+
+def _has_conflict(path: Path) -> bool:
+    """Whether a file contains a real inline merge-conflict marker.
+
+    Anchored to the start of a line: a conflict marker always begins one.
+    A bare substring search matches source that merely *mentions* the marker
+    (this module does, in its own detection code) and reports it as conflicted.
+    """
+    if not path.is_file():
+        return False
+    try:
+        return bool(_CONFLICT_MARKER.search(path.read_text(errors="ignore")))
+    except OSError:
+        return False
 
 
 def _is_git_repo(cwd: Path) -> bool:
@@ -190,10 +229,22 @@ def update(
         )
         raise typer.Exit(1)
     if src_dir.exists():
-        console.error(
-            "A stray 'src/' directory already exists alongside "
-            f"'{package_name}/'. This usually means a previous update was "
-            "interrupted; resolve it manually before retrying."
+        console.error(f"A stray 'src/' directory exists alongside '{package_name}/'.")
+        console.print(
+            "\n[dim]Most often this is a running container, not an "
+            "interrupted update: a Compose bind mount whose host path is "
+            "'./src' makes Docker create that directory (owned by root) "
+            "every time the service starts. Check first:[/dim]"
+        )
+        console.print("  [cyan]docker compose -f docker-compose.dev.yml ps[/cyan]")
+        console.print(f"  [cyan]ls -la {src_dir}[/cyan]   # root-owned ⇒ Docker")
+        console.print(
+            "\n[dim]If a container is re-creating it, stop the stack "
+            "('api-forge-cli dev down'), remove the directory, and fix the "
+            "mount's host path to point at "
+            f"'./{package_name}'. Otherwise a previous update was interrupted "
+            "— reconcile 'src/' into "
+            f"'{package_name}/' manually and retry.[/dim]"
         )
         raise typer.Exit(1)
 
@@ -265,7 +316,32 @@ def update(
         if pkg_dir.exists():
             import shutil
 
-            shutil.rmtree(pkg_dir)
+            # The package directory was renamed away at pre-flight, so anything
+            # sitting here now appeared during the update window. A running
+            # container is the usual culprit: a bind mount whose host path is
+            # './<pkg>' makes Docker re-create it as root, and the rmtree then
+            # fails with EACCES mid-update — leaving a tree that `git reset
+            # --hard` also cannot clean. Fail with instructions instead of a
+            # traceback.
+            try:
+                shutil.rmtree(pkg_dir)
+            except OSError as e:
+                console.error(
+                    f"Could not remove '{package_name}/', which reappeared "
+                    f"during the update: {e}"
+                )
+                console.print(
+                    "\n[dim]A running container is the likely cause — a "
+                    "Compose bind mount re-creates its host path as a "
+                    "root-owned directory. Stop the stack and clean up, then "
+                    "re-run the update:[/dim]"
+                )
+                console.print("  [cyan]api-forge-cli dev down[/cyan]")
+                console.print(f"  [cyan]sudo rm -rf {pkg_dir}[/cyan]")
+                console.print(
+                    f"  [cyan]git -C {project_root} reset --hard {original_head}[/cyan]"
+                )
+                raise typer.Exit(1) from e
         src_dir.rename(pkg_dir)
         rewrite(project_root, frm="src", to=package_name, verbose=False)
     elif not pkg_dir.exists():
@@ -308,15 +384,7 @@ def update(
 
     # Surface conflicts that copier left as inline markers or .rej files.
     conflict_files = [
-        p
-        for p in staged
-        if p.endswith(".rej")
-        or "<<<<<<< "
-        in (
-            (project_root / p).read_text(errors="ignore")
-            if (project_root / p).exists() and (project_root / p).is_file()
-            else ""
-        )
+        p for p in staged if p.endswith(".rej") or _has_conflict(project_root / p)
     ]
     if conflict_files:
         console.warn(

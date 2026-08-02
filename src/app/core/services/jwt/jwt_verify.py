@@ -180,7 +180,13 @@ class JwtVerificationService:
                             detail="Invalid azp for single-audience token",
                         )
                 elif isinstance(claims.get("aud"), list):
-                    if azp not in _as_list(aud_list or provider_cfg.client_id):
+                    # Accept an audience match OR the provider's registered
+                    # client_id, mirroring the single-audience branch. Per OIDC
+                    # Core and RFC 9068 §2.2, azp carries the client id of the
+                    # authorized party, which is normally *not* an audience
+                    # member — Keycloak emits exactly that shape
+                    # (aud=['api://default','account'], azp='test-client').
+                    if azp not in _as_list(aud_list) and azp != provider_cfg.client_id:
                         raise HTTPException(
                             status_code=401,
                             detail="Invalid azp for multi-audience token",
