@@ -358,8 +358,8 @@ template's Temporal scaffolding handles durability, retries, and schedules.{% en
 ```bash
 uv run pytest                      # everything
 uv run pytest tests/unit/          # unit only — fast, no infra
-uv run pytest tests/integration/   # needs dev stack running
-uv run pytest tests/e2e/           # full auth + workflow paths
+uv run pytest tests/integration/   # needs dev stack running; covers
+                                   # full auth + workflow paths
 ```
 
 Per-layer test strategy:

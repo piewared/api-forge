@@ -184,6 +184,16 @@ class TestMinimal:
         assert (app_dir / "api" / "http" / "app.py").exists()
         assert (app_dir / "entities" / "core" / "user").is_dir()
 
+    def test_template_ci_suites_not_rendered(
+        self, project_minimal: Path
+    ) -> None:
+        """tests/e2e is template CI (it runs copier copy against the
+        repo root, which only exists here) — rendered projects must not
+        receive it, and must keep the tiers they can actually run."""
+        assert not (project_minimal / "tests" / "e2e").exists()
+        assert (project_minimal / "tests" / "unit").is_dir()
+        assert (project_minimal / "tests" / "integration").is_dir()
+
 
 # ---------------------------------------------------------------------------
 # Tests: fly-only

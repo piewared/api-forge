@@ -60,6 +60,12 @@ _exclude:
   - "infra/secrets/tls"
   - "infra/secrets/tls/**"
   - "infra/secrets/user-provided.env"
+  # Template-CI test suites: they run ``copier copy`` against the repo
+  # root, which only exists in the template — rendered projects can
+  # never pass them (a rendered project's e2e gate goes red on every
+  # one of them). Rendered projects keep tests/unit + tests/integration.
+  - "tests/e2e"
+  - "tests/e2e/**"
   # Critical: Don't render bundled infrastructure files (they contain Jinja2-like syntax)
   # Development template file
   - "pyproject.toml.template_dev"
