@@ -19,9 +19,9 @@ def load_raw_config() -> dict[str, Any]:
     Returns:
         dict[str, Any]: The unprocessed configuration data.
     """
-    from dotenv import load_dotenv
+    from src.app.runtime.env_loading import load_project_env
 
-    load_dotenv()
+    load_project_env(environment="production")
     try:
         # Temporarily disable verbose config loading logs
         logger.disable("src.app.runtime")
@@ -52,9 +52,9 @@ def load_processed_config() -> ConfigData:
     Returns:
         ConfigData: The processed configuration data.
     """
-    from dotenv import load_dotenv
+    from src.app.runtime.env_loading import load_project_env
 
-    load_dotenv()
+    load_project_env(environment="production")
     try:
         # Temporarily disable verbose config loading logs
         logger.disable("src.app.runtime")

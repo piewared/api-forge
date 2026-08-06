@@ -7,9 +7,9 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from src.app.runtime.env_loading import load_project_env
 from src.cli.deployment.health_checks import HealthChecker
 from src.cli.shared.console import CLIConsole
 
@@ -26,8 +26,9 @@ class BaseDeployer(ABC):
         """
         self.console = console
         self.project_root = project_root
-        # Load .env so docker-compose substitutions (like DATA_PATH) are available
-        load_dotenv(self.project_root / ".env", override=False)
+        # Load env so docker-compose substitutions (like DATA_PATH) are
+        # available; honors APP_ENVIRONMENT for .env.dev placeholders.
+        load_project_env(self.project_root)
 
     @abstractmethod
     def deploy(self, **kwargs: Any) -> None:

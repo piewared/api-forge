@@ -6,9 +6,9 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import requests  # type: ignore
-from dotenv.main import load_dotenv
 from rich.panel import Panel
 
+from src.app.runtime.env_loading import load_project_env
 from src.cli.shared.console import CLIConsole
 from src.dev.dev_utils import (
     check_container_running,
@@ -74,7 +74,7 @@ class StatusDisplay:
             )
         )
 
-        load_dotenv()
+        load_project_env(environment="development")
 
         app_db = os.getenv("APP_DB", "appdb")
         app_user = os.getenv("APP_DB_USER", "appuser")

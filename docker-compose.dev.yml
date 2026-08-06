@@ -95,7 +95,12 @@ services:
       temporal:
         condition: service_healthy
     env_file:
+      # Mirrors src/app/runtime/env_loading.py precedence (.env.dev >
+      # .env in development). Compose gives the LATER file precedence,
+      # hence this order. Without .env.dev the worker crash-loops on
+      # config vars that only have dev placeholders (OIDC secrets).
       - .env
+      - .env.dev
     environment:
       - APP_ENVIRONMENT=development
       - LOG_LEVEL=DEBUG

@@ -51,9 +51,11 @@ def get_dev_database_url() -> str:
     Raises:
         FileNotFoundError: If config.yaml is missing.
     """
-    from dotenv import load_dotenv
+    from src.app.runtime.env_loading import load_project_env
 
-    load_dotenv()
+    # Dev command by definition: .env.dev supplies placeholder values
+    # for config vars with no default (e.g. OIDC client secrets).
+    load_project_env(environment="development")
 
     config_path = DEFAULT_PATHS.config_yaml
     if not config_path.exists():
