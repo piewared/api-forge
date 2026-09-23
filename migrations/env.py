@@ -13,6 +13,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# JSON-aware default comparison (Postgres has no json equality operator).
+from src.app.core.services.database.migration_compare import (
+    compare_server_default,
+)
+
 # SQLModel uses SQLModel.metadata as its declarative base metadata.
 # All models with `table=True` automatically register there when imported.
 # The loader dynamically discovers and imports all table.py modules.
@@ -61,7 +66,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        compare_server_default=True,
+        compare_server_default=compare_server_default,
     )
 
     with context.begin_transaction():
@@ -85,7 +90,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
-            compare_server_default=True,
+            compare_server_default=compare_server_default,
         )
 
         with context.begin_transaction():
